@@ -173,3 +173,7 @@ cython_debug/
 
 # Data
 data
+
+exploration/.DS_Store
+exploration/RAGBENCH/.DS_Store
+
