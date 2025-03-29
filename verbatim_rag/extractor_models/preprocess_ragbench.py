@@ -1,87 +1,12 @@
 import argparse
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from datasets import load_dataset
 from tqdm import tqdm
 
-
-@dataclass
-class Sentence:
-    text: str
-    relevant: bool
-    sentence_id: str
-
-    def to_json(self) -> dict:
-        return {
-            "text": self.text,
-            "relevant": self.relevant,
-            "sentence_id": self.sentence_id,
-        }
-
-    @classmethod
-    def from_json(cls, json_dict: dict) -> "Sentence":
-        return cls(
-            text=json_dict["text"],
-            relevant=json_dict["relevant"],
-            sentence_id=json_dict["sentence_id"],
-        )
-
-
-@dataclass
-class Document:
-    sentences: list[Sentence]
-
-    def to_json(self) -> list[dict]:
-        return [sentence.to_json() for sentence in self.sentences]
-
-    @classmethod
-    def from_json(cls, json_dict: dict) -> "Document":
-        return cls(sentences=[Sentence.from_json(sentence) for sentence in json_dict])
-
-
-@dataclass
-class QASample:
-    question: str
-    documents: list[Document]
-    split: Literal["train", "dev", "test"]
-    dataset_name: str
-    task_type: str
-
-    def to_json(self) -> dict:
-        return {
-            "question": self.question,
-            "documents": [document.to_json() for document in self.documents],
-            "split": self.split,
-            "task_type": self.task_type,
-            "dataset_name": self.dataset_name,
-        }
-
-    @classmethod
-    def from_json(cls, json_dict: dict) -> "QASample":
-        return cls(
-            question=json_dict["question"],
-            documents=[
-                Document.from_json(document) for document in json_dict["documents"]
-            ],
-            split=json_dict["split"],
-            task_type=json_dict["task_type"],
-            dataset_name=json_dict["dataset_name"],
-        )
-
-
-@dataclass
-class QAData:
-    samples: list[QASample]
-
-    def to_json(self) -> dict:
-        return [sample.to_json() for sample in self.samples]
-
-    @classmethod
-    def from_json(cls, json_dict: dict) -> "QAData":
-        return cls(samples=[QASample.from_json(sample) for sample in json_dict])
+from verbatim_rag.extractor_models.dataset import QASample, QAData, Document, Sentence
 
 
 def load_data(hugging_dir: str) -> dict:
@@ -122,6 +47,10 @@ def create_sample(
     # Create a dictionary to map sentence_ids to their positions for quick lookup
     sentence_map = {}
     doc_idx = 0
+
+    if sample["documents_sentences"] is None:
+        print("No documents_sentences found for sample", sample["id"])
+        return None
 
     for document in sample["documents_sentences"]:
         sentences = []
@@ -167,11 +96,9 @@ def main(input_dir: str, output_dir: Path, dataset_name: str | None = None):
             data_split = dataset[dataset_name][split]
             split = "dev" if split == "validation" else split
             for sample in tqdm(data_split, desc=f"Processing {split} split"):
-                # process only the first 100 samples
-                if len(qa_data.samples) >= 100:
-                    break
                 sample = create_sample(sample, dataset_name, split)
-                qa_data.samples.append(sample)
+                if sample is not None:
+                    qa_data.samples.append(sample)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "ragbench_data.json").write_text(

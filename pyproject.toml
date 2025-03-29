@@ -23,6 +23,10 @@ dependencies = [
     "pandas>=2.0.3",
     "faiss-cpu>=1.7.4",
     "tiktoken>=0.5.1",
+    "transformers==4.50.3",
+    "torch==2.6.0",
+    "scikit-learn==1.6.1",
+    "datasets==3.4.1"
 ]
 
 [project.urls]

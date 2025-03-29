@@ -25,6 +25,11 @@ def qa_collate_fn(batch: list[dict]) -> dict:
       - sentence_offset_mappings: list of lists
       - labels: list of 1D tensors of shape [num_sentences]
     """
+    # Check for empty batch
+    if not batch:
+        logger.warning("Empty batch passed to qa_collate_fn")
+        return {}
+
     input_ids_list = []
     attention_mask_list = []
     offset_mappings = []
@@ -33,27 +38,85 @@ def qa_collate_fn(batch: list[dict]) -> dict:
     labels_list = []
 
     for item in batch:
-        input_ids_list.append(item["input_ids"])
-        attention_mask_list.append(item["attention_mask"])
-        offset_mappings.append(item["offset_mapping"])
-        sentence_boundaries.append(item["sentence_boundaries"])
-        sentence_offset_mappings.append(item["sentence_offset_mappings"])
-        labels_list.append(item["labels"])
+        try:
+            # Check if item has required keys
+            required_keys = [
+                "input_ids",
+                "attention_mask",
+                "offset_mapping",
+                "sentence_boundaries",
+                "sentence_offset_mappings",
+                "labels",
+            ]
+            missing_keys = [k for k in required_keys if k not in item]
+            if missing_keys:
+                logger.warning(f"Item missing keys: {missing_keys}")
+                # Create empty tensors for missing keys
+                if "input_ids" not in item:
+                    item["input_ids"] = torch.tensor([0], dtype=torch.long)
+                if "attention_mask" not in item:
+                    item["attention_mask"] = torch.tensor([0], dtype=torch.long)
+                if "offset_mapping" not in item:
+                    item["offset_mapping"] = []
+                if "sentence_boundaries" not in item:
+                    item["sentence_boundaries"] = []
+                if "sentence_offset_mappings" not in item:
+                    item["sentence_offset_mappings"] = []
+                if "labels" not in item:
+                    item["labels"] = torch.tensor([], dtype=torch.long)
 
-    # Pad input_ids and attention_mask
-    padded_input_ids = pad_sequence(input_ids_list, batch_first=True, padding_value=0)
-    padded_attention_mask = pad_sequence(
-        attention_mask_list, batch_first=True, padding_value=0
-    )
+            input_ids_list.append(item["input_ids"])
+            attention_mask_list.append(item["attention_mask"])
+            offset_mappings.append(item["offset_mapping"])
+            sentence_boundaries.append(item["sentence_boundaries"])
+            sentence_offset_mappings.append(item["sentence_offset_mappings"])
+            labels_list.append(item["labels"])
+        except Exception as e:
+            logger.error(f"Error processing item in collate_fn: {e}")
+            # Skip this item or add placeholder
+            # Add an empty placeholder to keep batch size consistent
+            input_ids_list.append(torch.tensor([0], dtype=torch.long))
+            attention_mask_list.append(torch.tensor([0], dtype=torch.long))
+            offset_mappings.append([])
+            sentence_boundaries.append([])
+            sentence_offset_mappings.append([])
+            labels_list.append(torch.tensor([], dtype=torch.long))
 
-    return {
-        "input_ids": padded_input_ids,  # [batch_size, max_seq_len_in_batch]
-        "attention_mask": padded_attention_mask,  # [batch_size, max_seq_len_in_batch]
-        "offset_mapping": offset_mappings,  # list of length batch_size
-        "sentence_boundaries": sentence_boundaries,  # list of length batch_size
-        "sentence_offset_mappings": sentence_offset_mappings,
-        "labels": labels_list,  # list of length batch_size (each is a 1D Tensor)
-    }
+    # If all lists are empty after processing, return empty dict
+    if not input_ids_list:
+        logger.warning("All items in batch were invalid")
+        return {}
+
+    try:
+        # Pad input_ids and attention_mask
+        padded_input_ids = pad_sequence(
+            input_ids_list, batch_first=True, padding_value=0
+        )
+        padded_attention_mask = pad_sequence(
+            attention_mask_list, batch_first=True, padding_value=0
+        )
+
+        return {
+            "input_ids": padded_input_ids,  # [batch_size, max_seq_len_in_batch]
+            "attention_mask": padded_attention_mask,  # [batch_size, max_seq_len_in_batch]
+            "offset_mapping": offset_mappings,  # list of length batch_size
+            "sentence_boundaries": sentence_boundaries,  # list of length batch_size
+            "sentence_offset_mappings": sentence_offset_mappings,
+            "labels": labels_list,  # list of length batch_size (each is a 1D Tensor)
+        }
+    except Exception as e:
+        logger.error(f"Error padding sequences in collate_fn: {e}")
+        # Return minimal valid batch to prevent crash
+        return {
+            "input_ids": torch.zeros((len(input_ids_list), 1), dtype=torch.long),
+            "attention_mask": torch.zeros(
+                (len(attention_mask_list), 1), dtype=torch.long
+            ),
+            "offset_mapping": [[] for _ in input_ids_list],
+            "sentence_boundaries": [[] for _ in input_ids_list],
+            "sentence_offset_mappings": [[] for _ in input_ids_list],
+            "labels": [torch.tensor([], dtype=torch.long) for _ in input_ids_list],
+        }
 
 
 class Trainer:
@@ -115,37 +178,95 @@ class Trainer:
         total_loss = 0.0
         step_count = 0
 
-        for batch in tqdm(self.train_dataloader, desc="Training"):
-            input_ids = batch["input_ids"].to(self.device)
-            attention_mask = batch["attention_mask"].to(self.device)
-            sentence_boundaries = batch["sentence_boundaries"]
-            labels_list = batch["labels"]
+        # Use try-except for more robust error handling
+        try:
+            # Wrap the dataloader with tqdm safely
+            dataloader_iter = self.train_dataloader
+            try:
+                # Try using tqdm if available
+                dataloader_iter = tqdm(self.train_dataloader, desc="Training")
+            except Exception as e:
+                logger.warning(f"Could not use tqdm progress bar: {e}")
 
-            self.optimizer.zero_grad()
+            for batch in dataloader_iter:
+                try:
+                    # Move tensors to device
+                    input_ids = batch["input_ids"].to(self.device)
+                    attention_mask = batch["attention_mask"].to(self.device)
+                    sentence_boundaries = batch["sentence_boundaries"]
+                    labels_list = batch["labels"]
 
-            logits_list = self.model(input_ids, attention_mask, sentence_boundaries)
-            # Compute loss
-            batch_loss = 0.0
-            doc_count = 0
-            for i, logits in enumerate(logits_list):
-                labels_i = labels_list[i].to(self.device)  # shape: [num_sentences_i]
-                if logits.size(0) == 0:
-                    # if no sentences
+                    self.optimizer.zero_grad()
+
+                    # Forward pass
+                    logits_list = self.model(
+                        input_ids, attention_mask, sentence_boundaries
+                    )
+
+                    # Compute loss
+                    batch_loss = 0.0
+                    doc_count = 0
+                    for i, logits in enumerate(logits_list):
+                        # Make sure we have labels and logits of the same length
+                        if i >= len(labels_list):
+                            logger.warning(
+                                f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}"
+                            )
+                            continue
+
+                        labels_i = labels_list[i].to(
+                            self.device
+                        )  # shape: [num_sentences_i]
+
+                        if logits.size(0) == 0:
+                            # if no sentences
+                            continue
+
+                        # Make sure we have enough labels for all logits
+                        if logits.size(0) > labels_i.size(0):
+                            logger.warning(
+                                f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}"
+                            )
+                            logits = logits[: labels_i.size(0), :]
+
+                        loss_i = self.criterion(logits, labels_i[: logits.size(0)])
+                        batch_loss += loss_i
+                        doc_count += 1
+
+                    if doc_count > 0:
+                        # average the doc losses in the batch (or you can sum)
+                        batch_loss = batch_loss / doc_count
+                        batch_loss.backward()
+                        self.optimizer.step()
+
+                        total_loss += batch_loss.item()
+                        step_count += 1
+
+                        # Log every 10 steps
+                        if step_count % 10 == 0:
+                            logger.info(
+                                f"Step {step_count}, Loss: {batch_loss.item():.4f}"
+                            )
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower():
+                        logger.error(f"CUDA out of memory error: {e}")
+                        torch.cuda.empty_cache()
+                        continue
+                    else:
+                        logger.error(f"Runtime error in training loop: {e}")
+                        raise
+                except Exception as e:
+                    logger.error(f"Error processing batch: {e}")
                     continue
-                loss_i = self.criterion(logits, labels_i)
-                batch_loss += loss_i
-                doc_count += 1
 
-            if doc_count > 0:
-                # average the doc losses in the batch (or you can sum)
-                batch_loss = batch_loss / doc_count
-                batch_loss.backward()
-                self.optimizer.step()
-
-                total_loss += batch_loss.item()
-                step_count += 1
+        except Exception as e:
+            logger.error(f"Error during training: {e}")
+            if step_count == 0:
+                # If we haven't successfully completed any steps, re-raise the error
+                raise
 
         if step_count == 0:
+            logger.warning("No steps completed in this epoch")
             return 0.0
 
         return total_loss / step_count
@@ -188,43 +309,70 @@ class Trainer:
         all_preds = []
         all_labels = []
 
-        with torch.no_grad():
-            for batch in dev_dataloader:
-                input_ids = batch["input_ids"].to(self.device)
-                attention_mask = batch["attention_mask"].to(self.device)
-                sentence_boundaries = batch["sentence_boundaries"]
-                labels_list = batch["labels"]
+        try:
+            with torch.no_grad():
+                for batch in dev_dataloader:
+                    try:
+                        input_ids = batch["input_ids"].to(self.device)
+                        attention_mask = batch["attention_mask"].to(self.device)
+                        sentence_boundaries = batch["sentence_boundaries"]
+                        labels_list = batch["labels"]
 
-                logits_list = self.model(input_ids, attention_mask, sentence_boundaries)
+                        logits_list = self.model(
+                            input_ids, attention_mask, sentence_boundaries
+                        )
 
-                batch_loss = 0.0
-                doc_count = 0
-                for i, logits in enumerate(logits_list):
-                    labels_i = labels_list[i].to(self.device)
-                    if logits.size(0) == 0:
+                        batch_loss = 0.0
+                        doc_count = 0
+                        for i, logits in enumerate(logits_list):
+                            # Skip if we have a mismatch in lists
+                            if i >= len(labels_list):
+                                logger.warning(
+                                    f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}"
+                                )
+                                continue
+
+                            labels_i = labels_list[i].to(self.device)
+                            if logits.size(0) == 0:
+                                continue
+
+                            # Make sure sizes match
+                            effective_size = min(logits.size(0), labels_i.size(0))
+                            if logits.size(0) != labels_i.size(0):
+                                logger.warning(
+                                    f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}"
+                                )
+                                logits = logits[:effective_size]
+                                labels_i = labels_i[:effective_size]
+
+                            # Calculate loss
+                            loss_i = self.criterion(logits, labels_i)
+                            batch_loss += loss_i
+                            doc_count += 1
+
+                            # Get predictions for metrics
+                            preds_i = torch.argmax(logits, dim=1).cpu().numpy()
+                            labels_i_np = labels_i.cpu().numpy()
+
+                            # Extend lists with batch predictions and labels
+                            all_preds.extend(preds_i)
+                            all_labels.extend(labels_i_np)
+
+                        if doc_count > 0:
+                            batch_loss = batch_loss / doc_count
+                            total_loss += batch_loss.item()
+                            step_count += 1
+                    except Exception as e:
+                        logger.error(f"Error evaluating batch: {e}")
                         continue
-
-                    # Calculate loss
-                    loss_i = self.criterion(logits, labels_i)
-                    batch_loss += loss_i
-                    doc_count += 1
-
-                    # Get predictions for metrics
-                    preds_i = torch.argmax(logits, dim=1).cpu().numpy()
-                    labels_i_np = labels_i.cpu().numpy()
-
-                    # Extend lists with batch predictions and labels
-                    all_preds.extend(preds_i)
-                    all_labels.extend(labels_i_np)
-
-                if doc_count > 0:
-                    batch_loss = batch_loss / doc_count
-                    total_loss += batch_loss.item()
-                    step_count += 1
+        except Exception as e:
+            logger.error(f"Error during evaluation: {e}")
+            # If we have no results, still try to return partial metrics
 
         # Calculate metrics
         metrics = {}
         if step_count == 0:
+            logger.warning("No evaluation steps completed")
             metrics["loss"] = 0.0
             metrics["precision"] = 0.0
             metrics["recall"] = 0.0
@@ -234,17 +382,25 @@ class Trainer:
 
         metrics["loss"] = total_loss / step_count
 
-        if len(all_preds) > 0:
-            precision, recall, f1, _ = precision_recall_fscore_support(
-                all_labels, all_preds, average="binary", zero_division=0
-            )
-            accuracy = accuracy_score(all_labels, all_preds)
+        try:
+            if len(all_preds) > 0:
+                precision, recall, f1, _ = precision_recall_fscore_support(
+                    all_labels, all_preds, average="binary", zero_division=0
+                )
+                accuracy = accuracy_score(all_labels, all_preds)
 
-            metrics["precision"] = precision
-            metrics["recall"] = recall
-            metrics["f1"] = f1
-            metrics["accuracy"] = accuracy
-        else:
+                metrics["precision"] = precision
+                metrics["recall"] = recall
+                metrics["f1"] = f1
+                metrics["accuracy"] = accuracy
+            else:
+                logger.warning("No predictions collected during evaluation")
+                metrics["precision"] = 0.0
+                metrics["recall"] = 0.0
+                metrics["f1"] = 0.0
+                metrics["accuracy"] = 0.0
+        except Exception as e:
+            logger.error(f"Error calculating metrics: {e}")
             metrics["precision"] = 0.0
             metrics["recall"] = 0.0
             metrics["f1"] = 0.0

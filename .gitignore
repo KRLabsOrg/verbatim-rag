@@ -175,3 +175,6 @@ index/
 templates.json
 ui/
 .ruff_cache/
+
+data/
+.qodo
