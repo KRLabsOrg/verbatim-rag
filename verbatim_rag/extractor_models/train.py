@@ -253,7 +253,7 @@ def main():
         help="Model name or path",
     )
     parser.add_argument(
-        "--max_seq_length", type=int, default=512, help="Maximum sequence length"
+        "--max_seq_length", type=int, default=4096, help="Maximum sequence length"
     )
 
     # Training arguments
