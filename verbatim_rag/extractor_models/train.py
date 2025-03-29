@@ -84,10 +84,14 @@ def train(args):
             logger.info(f"Sample documents count: {len(sample.documents)}")
             if sample.documents and len(sample.documents) > 0:
                 first_doc = sample.documents[0]
-                logger.info(f"First document sentences count: {len(first_doc.sentences)}")
+                logger.info(
+                    f"First document sentences count: {len(first_doc.sentences)}"
+                )
                 if first_doc.sentences and len(first_doc.sentences) > 0:
                     first_sentence = first_doc.sentences[0]
-                    logger.info(f"First sentence: '{first_sentence.text[:100]}...' (relevant: {first_sentence.relevant})")
+                    logger.info(
+                        f"First sentence: '{first_sentence.text[:100]}...' (relevant: {first_sentence.relevant})"
+                    )
 
         # Split data into train, dev, test
         train_samples = [
@@ -160,14 +164,11 @@ def train(args):
             test_dataset = None
 
         # Create model
-        # Use QAModel directly
         logger.info(f"Creating QAModel with {args.model_name}")
         model = QAModel(model_name=args.model_name)
-        # Note: Trainer likely handles moving model to device
 
-        # Create output directory
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path(args.output_dir) / f"run_{timestamp}"
+        # Use output directory directly instead of creating run_timestamp subdirectory
+        output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Output directory: {output_dir}")
 
@@ -180,27 +181,35 @@ def train(args):
             model=model,
             train_dataset=train_dataset,
             dev_dataset=dev_dataset,
+            tokenizer=tokenizer,
             batch_size=batch_size,
             lr=args.learning_rate,
             epochs=args.num_epochs,
             device=device,
-            output_dir=output_dir,  # Pass output_dir for best model checkpointing
+            output_dir=output_dir,
         )
 
         # Start training
         logger.info("***** Starting training using Trainer *****")
-        trainer.train()
+        best_f1 = trainer.train()
 
-        # Save the final model and tokenizer
-        logger.info("Saving final model")
-        model_save_path = output_dir / "model-final.pt"
-        tokenizer_save_dir = output_dir / "tokenizer"
-        tokenizer_save_dir.mkdir(exist_ok=True)
-
-        trainer.save_model(model_save_path)
-        tokenizer.save_pretrained(tokenizer_save_dir)
-        logger.info(f"Final model saved to {model_save_path}")
-        logger.info(f"Tokenizer saved to {tokenizer_save_dir}")
+        # Trainer will have saved the best model during training
+        # At the end of training, we can also save the final model state if needed
+        if args.save_final_model:
+            logger.info("Saving final model state")
+            final_metadata = {
+                "best_f1": float(best_f1),
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "final_model": True,
+                "model_name": args.model_name,
+                "max_seq_length": args.max_seq_length,
+            }
+            # Save with final model suffix to distinguish from best model
+            final_dir = output_dir / "final_state"
+            model.save_pretrained(
+                final_dir, tokenizer=tokenizer, metadata=final_metadata
+            )
+            logger.info(f"Final model state saved to {final_dir}")
 
         # Final evaluation on test set
         if test_dataset:
@@ -213,6 +222,8 @@ def train(args):
                 else args.eval_batch_size,  # Use batch size 1 for debugging
                 shuffle=False,
                 collate_fn=qa_collate_fn,
+                num_workers=0,  # Disable multiprocessing to avoid fork-related issues
+                pin_memory=torch.cuda.is_available(),  # Speed up data transfer to GPU if available
             )
             test_metrics = trainer._evaluate(test_dataloader)
             logger.info(f"Test Loss: {test_metrics['loss']:.4f}")
@@ -221,9 +232,19 @@ def train(args):
             logger.info(f"Test F1: {test_metrics['f1']:.4f}")
             logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
 
-            results_path = output_dir / "test_results.json"
+            # Save test results directly to output directory
+            results_path = output_dir / "test_metrics.json"
             with open(results_path, "w") as f:
-                json.dump(test_metrics, f, indent=4)
+                # Convert tensor values to Python float for JSON serialization
+                test_results = {
+                    "loss": float(test_metrics["loss"]),
+                    "precision": float(test_metrics["precision"]),
+                    "recall": float(test_metrics["recall"]),
+                    "f1": float(test_metrics["f1"]),
+                    "accuracy": float(test_metrics["accuracy"]),
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                json.dump(test_results, f, indent=4)
             logger.info(f"Saved test results to {results_path}")
         else:
             logger.info("No test dataset found, skipping final test evaluation.")
@@ -280,6 +301,11 @@ def main():
         "--cpu_only",
         action="store_true",
         help="Force using CPU even if CUDA is available",
+    )
+    parser.add_argument(
+        "--save_final_model",
+        action="store_true",
+        help="Save the final model state after training",
     )
 
     args = parser.parse_args()

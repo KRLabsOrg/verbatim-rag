@@ -1,6 +1,7 @@
 import json
 import logging
 from pathlib import Path
+from datetime import datetime
 
 import torch
 import torch.nn as nn
@@ -147,29 +148,142 @@ class QAModel(nn.Module):
             "num_labels": self.num_labels,
         }
 
-    def save_pretrained(self, save_dir: str) -> None:
-        """Save model to a directory in the Hugging Face format.
+    def save_pretrained(self, save_dir: str, tokenizer=None, metadata=None) -> None:
+        """Save model to a directory in the standard Hugging Face format.
 
         :param save_dir: Directory to save the model to
+        :param tokenizer: Optional tokenizer to save alongside the model
+        :param metadata: Optional dictionary with additional metadata for the README
         """
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save model config
+        # Default metadata
+        if metadata is None:
+            metadata = {}
+
+        # 1. Save model config in the root directory
         config = self.get_config()
         with open(save_dir / "config.json", "w") as f:
             json.dump(config, f, indent=2)
+        logger.info(f"Config saved to {save_dir / 'config.json'}")
 
-        # Save the underlying transformer model
-        self.bert.save_pretrained(save_dir / "bert")
+        # 2. Save model weights in multiple formats
+        # Standard PyTorch format
+        model_pt_path = save_dir / "model.pt"
+        torch.save(self.state_dict(), model_pt_path)
+        logger.info(f"Model weights saved to {model_pt_path}")
 
-        # Save the classifier weights
-        classifier_path = save_dir / "classifier.pt"
-        torch.save(self.classifier.state_dict(), classifier_path)
+        # Also in HF format for compatibility
+        model_bin_path = save_dir / "pytorch_model.bin"
+        torch.save(self.state_dict(), model_bin_path)
+        logger.info(f"Model weights saved to {model_bin_path} (HF format)")
 
-        # Save the full model for easy loading
-        model_path = save_dir / "pytorch_model.bin"
-        torch.save(self.state_dict(), model_path)
+        # Save in .safetensors format if possible
+        try:
+            from safetensors.torch import save_file
+
+            model_safetensors_path = save_dir / "model.safetensors"
+            # Convert state dict to CPU for safetensors compatibility
+            state_dict_cpu = {k: v.cpu() for k, v in self.state_dict().items()}
+            save_file(state_dict_cpu, model_safetensors_path)
+            logger.info(
+                f"Model weights saved to {model_safetensors_path} in safetensors format"
+            )
+        except ImportError:
+            logger.warning("safetensors not available, skipping safetensors format")
+
+        # 3. Save the tokenizer if provided
+        if tokenizer is not None:
+            tokenizer.save_pretrained(save_dir)
+            logger.info(f"Tokenizer saved to {save_dir}")
+        else:
+            # Create empty tokenizer files for compatibility
+            with open(save_dir / "special_tokens_map.json", "w") as f:
+                json.dump({}, f)
+
+            with open(save_dir / "tokenizer_config.json", "w") as f:
+                json.dump(
+                    {"model_type": "bert", "tokenizer_class": "BertTokenizer"},
+                    f,
+                    indent=2,
+                )
+
+            logger.info("Created placeholder tokenizer files for compatibility")
+
+        # 4. Also save the bert model separately in HF format
+        bert_dir = save_dir / "bert"
+        self.bert.save_pretrained(bert_dir)
+        logger.info(f"Base transformer model saved to {bert_dir}")
+
+        # 5. Create a model_config.json file with additional details
+        model_config = {
+            "model_name": self.model_name,
+            "hidden_dim": self.hidden_dim,
+            "num_labels": self.num_labels,
+            **metadata,
+        }
+        with open(save_dir / "model_config.json", "w") as f:
+            json.dump(model_config, f, indent=2)
+        logger.info(
+            f"Extended model configuration saved to {save_dir / 'model_config.json'}"
+        )
+
+        # 6. Create a README with usage instructions
+        timestamp = metadata.get(
+            "timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        best_f1 = metadata.get("best_f1", "N/A")
+
+        readme_path = save_dir / "README.md"
+        readme_content = f"""# QA Sentence Classifier
+
+This model classifies sentences as relevant or not relevant to a given question.
+
+## Model Details
+- Base model: {self.model_name}
+- Hidden dimension: {self.hidden_dim}
+- Number of labels: {self.num_labels}
+- Best validation F1: {best_f1}
+- Saved on: {timestamp}
+
+## Loading the Model
+
+```python
+from verbatim_rag.extractor_models.model import QAModel
+from transformers import AutoTokenizer
+
+# Load the model
+model = QAModel.from_pretrained("{save_dir}")
+
+# Load the tokenizer
+tokenizer = AutoTokenizer.from_pretrained("{save_dir}")
+```
+
+## Formats
+
+The model is saved in multiple formats:
+- `model.safetensors`: Model weights in safetensors format (preferred, more secure)
+- `model.pt`: Model weights in PyTorch format
+- `pytorch_model.bin`: Model weights in HF-compatible format
+
+The safetensors format requires an additional package:
+
+```
+pip install safetensors
+```
+
+## Directory Structure
+
+This model follows the standard Hugging Face model format:
+- `config.json`: Model configuration
+- `model.safetensors`: Model weights in safetensors format (preferred)
+- `model.pt`/`pytorch_model.bin`: Model weights in PyTorch format
+- `special_tokens_map.json`, `tokenizer_config.json`, etc.: Tokenizer files
+"""
+        with open(readme_path, "w") as f:
+            f.write(readme_content)
+        logger.info(f"README with loading instructions saved to {readme_path}")
 
         return save_dir
 
@@ -181,10 +295,16 @@ class QAModel(nn.Module):
         :return: QAModel: Loaded model
         """
         model_dir = Path(model_dir)
+        logger.info(f"Loading model from {model_dir}")
 
         # Load config
-        with open(model_dir / "config.json", "r") as f:
-            config = json.load(f)
+        config_path = model_dir / "config.json"
+        if not config_path.exists():
+            logger.warning(f"No config.json found in {model_dir}, using defaults")
+            config = {}
+        else:
+            with open(config_path, "r") as f:
+                config = json.load(f)
 
         # Create model with proper config
         model = cls(
@@ -193,20 +313,45 @@ class QAModel(nn.Module):
             num_labels=config.get("num_labels", 2),
         )
 
-        # Load the full model state
-        model_path = model_dir / "pytorch_model.bin"
-        if model_path.exists():
-            model.load_state_dict(torch.load(model_path, map_location="cpu"))
-        else:
-            # Alternative: load parts separately if full model not available
-            bert_dir = model_dir / "bert"
-            if bert_dir.exists():
-                model.bert = AutoModel.from_pretrained(bert_dir)
+        # Try loading weights from different formats
+        model_safetensors_path = model_dir / "model.safetensors"
+        model_pt_path = model_dir / "model.pt"
+        model_hf_path = model_dir / "pytorch_model.bin"  # Standard HF name
 
-            classifier_path = model_dir / "classifier.pt"
-            if classifier_path.exists():
-                model.classifier.load_state_dict(
-                    torch.load(classifier_path, map_location="cpu")
+        if model_safetensors_path.exists():
+            try:
+                from safetensors.torch import load_file
+
+                state_dict = load_file(model_safetensors_path)
+                model.load_state_dict(state_dict)
+                logger.info(
+                    f"Loaded model weights from {model_safetensors_path} (safetensors format)"
                 )
+                return model
+            except ImportError:
+                logger.warning("safetensors not available, trying other formats")
 
+        if model_pt_path.exists():
+            logger.info(f"Loading weights from {model_pt_path}")
+            model.load_state_dict(torch.load(model_pt_path, map_location="cpu"))
+            return model
+
+        if model_hf_path.exists():
+            logger.info(f"Loading weights from {model_hf_path}")
+            model.load_state_dict(torch.load(model_hf_path, map_location="cpu"))
+            return model
+
+        # If no model weights found, try loading BERT separately
+        logger.warning(
+            f"No model weights found in {model_dir}, checking bert directory"
+        )
+
+        bert_dir = model_dir / "bert"
+        if bert_dir.exists():
+            logger.info(f"Loading bert from {bert_dir}")
+            model.bert = AutoModel.from_pretrained(bert_dir)
+        else:
+            logger.warning(f"No bert directory found in {model_dir}, using base model")
+
+        # Initialize a new model with the loaded bert (or default bert)
         return model
