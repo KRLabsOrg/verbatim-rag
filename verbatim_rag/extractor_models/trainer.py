@@ -8,6 +8,10 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import os
+import time
+from datetime import timedelta
+import numpy as np
 
 from verbatim_rag.extractor_models.dataset import QADataset
 
@@ -156,6 +160,8 @@ class Trainer:
             batch_size=self.batch_size,
             shuffle=True,
             collate_fn=qa_collate_fn,
+            num_workers=0,  # Disable multiprocessing to avoid fork-related issues
+            pin_memory=torch.cuda.is_available(),  # Speed up data transfer to GPU if available
         )
 
         if dev_dataset is not None:
@@ -164,6 +170,8 @@ class Trainer:
                 batch_size=self.batch_size,
                 shuffle=False,
                 collate_fn=qa_collate_fn,
+                num_workers=0,  # Disable multiprocessing to avoid fork-related issues
+                pin_memory=torch.cuda.is_available(),  # Speed up data transfer to GPU if available
             )
         else:
             self.dev_dataloader = None
@@ -173,22 +181,21 @@ class Trainer:
         self.model.to(self.device)
 
     def _train_one_epoch(self) -> float:
-        """The training loop for the model."""
+        """Train the model for one epoch.
+        
+        Returns:
+            Average loss for the epoch
+        """
         self.model.train()
         total_loss = 0.0
         step_count = 0
 
+        # Use progress bar for better visualization
+        progress_bar = tqdm(self.train_dataloader, desc="Training", leave=True)
+
         # Use try-except for more robust error handling
         try:
-            # Wrap the dataloader with tqdm safely
-            dataloader_iter = self.train_dataloader
-            try:
-                # Try using tqdm if available
-                dataloader_iter = tqdm(self.train_dataloader, desc="Training")
-            except Exception as e:
-                logger.warning(f"Could not use tqdm progress bar: {e}")
-
-            for batch in dataloader_iter:
+            for batch in progress_bar:
                 try:
                     # Move tensors to device
                     input_ids = batch["input_ids"].to(self.device)
@@ -199,54 +206,47 @@ class Trainer:
                     self.optimizer.zero_grad()
 
                     # Forward pass
-                    logits_list = self.model(
-                        input_ids, attention_mask, sentence_boundaries
-                    )
-
+                    logits_list = self.model(input_ids, attention_mask, sentence_boundaries)
+                    
                     # Compute loss
                     batch_loss = 0.0
                     doc_count = 0
                     for i, logits in enumerate(logits_list):
                         # Make sure we have labels and logits of the same length
                         if i >= len(labels_list):
-                            logger.warning(
-                                f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}"
-                            )
+                            logger.warning(f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}")
                             continue
-
-                        labels_i = labels_list[i].to(
-                            self.device
-                        )  # shape: [num_sentences_i]
-
+                            
+                        labels_i = labels_list[i].to(self.device)  # shape: [num_sentences_i]
+                        
                         if logits.size(0) == 0:
                             # if no sentences
                             continue
-
+                            
                         # Make sure we have enough labels for all logits
                         if logits.size(0) > labels_i.size(0):
-                            logger.warning(
-                                f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}"
-                            )
-                            logits = logits[: labels_i.size(0), :]
-
-                        loss_i = self.criterion(logits, labels_i[: logits.size(0)])
+                            logger.warning(f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}")
+                            logits = logits[:labels_i.size(0), :]
+                            
+                        loss_i = self.criterion(logits, labels_i[:logits.size(0)])
                         batch_loss += loss_i
                         doc_count += 1
 
                     if doc_count > 0:
-                        # average the doc losses in the batch (or you can sum)
+                        # average the doc losses in the batch
                         batch_loss = batch_loss / doc_count
                         batch_loss.backward()
                         self.optimizer.step()
 
                         total_loss += batch_loss.item()
                         step_count += 1
-
-                        # Log every 10 steps
-                        if step_count % 10 == 0:
-                            logger.info(
-                                f"Step {step_count}, Loss: {batch_loss.item():.4f}"
-                            )
+                        
+                        # Update progress bar
+                        progress_bar.set_postfix({
+                            "loss": f"{batch_loss.item():.4f}",
+                            "avg_loss": f"{total_loss / step_count:.4f}" if step_count > 0 else "N/A"
+                        })
+                        
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
                         logger.error(f"CUDA out of memory error: {e}")
@@ -271,30 +271,60 @@ class Trainer:
 
         return total_loss / step_count
 
-    def train(self) -> None:
-        """The training loop for the model."""
-        for epoch in range(1, self.epochs + 1):
-            logger.info(f"Epoch {epoch}/{self.epochs}")
+    def train(self) -> float:
+        """Train the model for multiple epochs.
+        
+        Returns:
+            Best F1 score achieved during training
+        """
+        start_time = time.time()
+        
+        print(f"\nStarting training on {self.device}")
+        print(f"Training samples: {len(self.train_dataloader.dataset)}")
+        if self.dev_dataloader:
+            print(f"Validation samples: {len(self.dev_dataloader.dataset)}")
+        
+        for epoch in range(self.epochs):
+            epoch_start = time.time()
+            print(f"\nEpoch {epoch + 1}/{self.epochs}")
+            
+            # Train for one epoch
             train_loss = self._train_one_epoch()
-            logger.info(f"  Train Loss: {train_loss:.4f}")
+            
+            # Report time and loss
+            epoch_time = time.time() - epoch_start
+            print(f"Epoch {epoch + 1} completed in {timedelta(seconds=int(epoch_time))}. Average loss: {train_loss:.4f}")
 
+            # Evaluate if we have validation data
             if self.dev_dataloader is not None:
+                print("\nEvaluating...")
                 metrics = self._evaluate(self.dev_dataloader)
-                logger.info(f"  Dev Loss: {metrics['loss']:.4f}")
-                logger.info(f"  Dev Precision: {metrics['precision']:.4f}")
-                logger.info(f"  Dev Recall: {metrics['recall']:.4f}")
-                logger.info(f"  Dev F1: {metrics['f1']:.4f}")
-
+                print(f"Validation metrics:")
+                print(f"  Loss:      {metrics['loss']:.4f}")
+                print(f"  Precision: {metrics['precision']:.4f}")
+                print(f"  Recall:    {metrics['recall']:.4f}")
+                print(f"  F1 Score:  {metrics['f1']:.4f}")
+                print(f"  Accuracy:  {metrics['accuracy']:.4f}")
+                
                 # Save best model based on F1 score
-                if self.output_dir and metrics["f1"] > self.best_f1:
-                    self.best_f1 = metrics["f1"]
-                    checkpoint_dir = self.output_dir / "checkpoint-best"
+                if self.output_dir and metrics['f1'] > self.best_f1:
+                    self.best_f1 = metrics['f1']
+                    checkpoint_dir = self.output_dir / f"checkpoint-best"
                     checkpoint_dir.mkdir(exist_ok=True, parents=True)
                     model_path = checkpoint_dir / "model.pt"
                     self.save_model(model_path)
-                    logger.info(f"  New best model saved with F1: {self.best_f1:.4f}")
+                    print(f"New best model saved with F1: {self.best_f1:.4f}")
             else:
-                logger.info("  No validation data provided, skipping evaluation.")
+                print("No validation data provided, skipping evaluation.")
+        
+        # Final training summary
+        total_time = time.time() - start_time
+        hours, remainder = divmod(int(total_time), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        print(f"\nTraining completed in {hours:02}:{minutes:02}:{seconds:02}")
+        print(f"Best validation F1: {self.best_f1:.4f}" if self.best_f1 > 0 else "No validation performed")
+        
+        return self.best_f1
 
     def _evaluate(self, dev_dataloader: DataLoader) -> dict:
         """Evaluate the model on the development dataset.
@@ -311,27 +341,24 @@ class Trainer:
 
         try:
             with torch.no_grad():
-                for batch in dev_dataloader:
+                progress_bar = tqdm(dev_dataloader, desc="Evaluating", leave=False)
+                for batch in progress_bar:
                     try:
                         input_ids = batch["input_ids"].to(self.device)
                         attention_mask = batch["attention_mask"].to(self.device)
                         sentence_boundaries = batch["sentence_boundaries"]
                         labels_list = batch["labels"]
 
-                        logits_list = self.model(
-                            input_ids, attention_mask, sentence_boundaries
-                        )
+                        logits_list = self.model(input_ids, attention_mask, sentence_boundaries)
 
                         batch_loss = 0.0
                         doc_count = 0
                         for i, logits in enumerate(logits_list):
                             # Skip if we have a mismatch in lists
                             if i >= len(labels_list):
-                                logger.warning(
-                                    f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}"
-                                )
+                                logger.warning(f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}")
                                 continue
-
+                                
                             labels_i = labels_list[i].to(self.device)
                             if logits.size(0) == 0:
                                 continue
@@ -339,9 +366,7 @@ class Trainer:
                             # Make sure sizes match
                             effective_size = min(logits.size(0), labels_i.size(0))
                             if logits.size(0) != labels_i.size(0):
-                                logger.warning(
-                                    f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}"
-                                )
+                                logger.warning(f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}")
                                 logits = logits[:effective_size]
                                 labels_i = labels_i[:effective_size]
 
@@ -362,6 +387,9 @@ class Trainer:
                             batch_loss = batch_loss / doc_count
                             total_loss += batch_loss.item()
                             step_count += 1
+                            
+                            # Update progress bar with loss
+                            progress_bar.set_postfix({"loss": f"{batch_loss.item():.4f}"})
                     except Exception as e:
                         logger.error(f"Error evaluating batch: {e}")
                         continue
