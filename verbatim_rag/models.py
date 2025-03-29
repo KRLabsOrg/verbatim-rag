@@ -2,9 +2,10 @@
 Data models for structured responses from the Verbatim RAG system.
 """
 
-from pydantic import BaseModel, Field, model_validator
 from enum import Enum
 from typing import Any
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class Highlight(BaseModel):

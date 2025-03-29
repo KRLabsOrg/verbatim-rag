@@ -2,12 +2,12 @@
 FastAPI server for the Verbatim RAG system.
 """
 
+import json
 import os
 import sys
-import json
-from typing import Optional
-from pathlib import Path
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,16 +21,18 @@ if "OPENAI_API_KEY" not in os.environ:
 
 try:
     from verbatim_rag import (
+        Citation,
+        DocumentWithHighlights,
+        Highlight,
+        QueryRequest,
+        QueryResponse,
+        StreamingResponseType,
+        StructuredAnswer,
+        TemplateManager,
         VerbatimIndex,
         VerbatimRAG,
-        TemplateManager,
-        Highlight,
-        DocumentWithHighlights,
-        Citation,
-        StructuredAnswer,
-        QueryResponse,
-        QueryRequest,
-        StreamingResponseType,
+    )
+    from verbatim_rag import (
         StreamingResponse as VerbatimStreamingResponse,
     )
 except ImportError as e:
