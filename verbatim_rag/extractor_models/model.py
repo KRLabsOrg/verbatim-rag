@@ -168,18 +168,7 @@ class QAModel(nn.Module):
             json.dump(config, f, indent=2)
         logger.info(f"Config saved to {save_dir / 'config.json'}")
 
-        # 2. Save model weights in multiple formats
-        # Standard PyTorch format
-        model_pt_path = save_dir / "model.pt"
-        torch.save(self.state_dict(), model_pt_path)
-        logger.info(f"Model weights saved to {model_pt_path}")
-
-        # Also in HF format for compatibility
-        model_bin_path = save_dir / "pytorch_model.bin"
-        torch.save(self.state_dict(), model_bin_path)
-        logger.info(f"Model weights saved to {model_bin_path} (HF format)")
-
-        # Save in .safetensors format if possible
+        # 2. Save model weights in safetensors format (preferred)
         try:
             from safetensors.torch import save_file
 
@@ -191,7 +180,10 @@ class QAModel(nn.Module):
                 f"Model weights saved to {model_safetensors_path} in safetensors format"
             )
         except ImportError:
-            logger.warning("safetensors not available, skipping safetensors format")
+            # Fallback to PyTorch format if safetensors is not available
+            model_bin_path = save_dir / "pytorch_model.bin"
+            torch.save(self.state_dict(), model_bin_path)
+            logger.info(f"Model weights saved to {model_bin_path} (PyTorch format)")
 
         # 3. Save the tokenizer if provided
         if tokenizer is not None:
@@ -211,12 +203,7 @@ class QAModel(nn.Module):
 
             logger.info("Created placeholder tokenizer files for compatibility")
 
-        # 4. Also save the bert model separately in HF format
-        bert_dir = save_dir / "bert"
-        self.bert.save_pretrained(bert_dir)
-        logger.info(f"Base transformer model saved to {bert_dir}")
-
-        # 5. Create a model_config.json file with additional details
+        # 4. Create a model_config.json file with additional details
         model_config = {
             "model_name": self.model_name,
             "hidden_dim": self.hidden_dim,
@@ -229,7 +216,7 @@ class QAModel(nn.Module):
             f"Extended model configuration saved to {save_dir / 'model_config.json'}"
         )
 
-        # 6. Create a README with usage instructions
+        # 5. Create a README with usage instructions
         timestamp = metadata.get(
             "timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
@@ -260,13 +247,9 @@ model = QAModel.from_pretrained("{save_dir}")
 tokenizer = AutoTokenizer.from_pretrained("{save_dir}")
 ```
 
-## Formats
+## Format
 
-The model is saved in multiple formats:
-- `model.safetensors`: Model weights in safetensors format (preferred, more secure)
-- `model.pt`: Model weights in PyTorch format
-- `pytorch_model.bin`: Model weights in HF-compatible format
-
+The model weights are saved in safetensors format, which is more secure and efficient.
 The safetensors format requires an additional package:
 
 ```
@@ -277,8 +260,7 @@ pip install safetensors
 
 This model follows the standard Hugging Face model format:
 - `config.json`: Model configuration
-- `model.safetensors`: Model weights in safetensors format (preferred)
-- `model.pt`/`pytorch_model.bin`: Model weights in PyTorch format
+- `model.safetensors`: Model weights in safetensors format
 - `special_tokens_map.json`, `tokenizer_config.json`, etc.: Tokenizer files
 """
         with open(readme_path, "w") as f:
