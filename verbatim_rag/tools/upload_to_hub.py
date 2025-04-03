@@ -96,6 +96,32 @@ def prepare_model_for_hub(
     # Save the tokenizer - only the essential files
     tokenizer.save_pretrained(output_dir)
 
+    essential_files = [
+        "config.json",
+        "model.safetensors",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "README.md",
+        ".gitattributes",
+    ]
+
+    # Remove any non-essential files
+    for file in output_dir.glob("*"):
+        filename = file.name
+        if file.is_file() and filename not in essential_files:
+            if not filename.startswith(".") or (
+                filename.startswith(".") and filename != ".gitattributes"
+            ):
+                file.unlink()
+                print(f"Removed non-essential file: {filename}")
+        elif file.is_dir():
+            # Remove all directories (like 'bert')
+            shutil.rmtree(file)
+            print(f"Removed directory: {filename}")
+
+    print("Saved essential files matching HuggingFace model repository structure")
+
     # Create or copy README.md
     if readme_template and Path(readme_template).exists():
         with open(readme_template, "r") as f:
