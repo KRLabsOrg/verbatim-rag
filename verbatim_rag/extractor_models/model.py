@@ -97,7 +97,6 @@ class QAModel(nn.Module):
                                 self.classifier.in_features, device=last_hidden.device
                             )
                         else:
-                            # example: mean pooling
                             pooled = token_states.mean(dim=0)
                         sentence_embs.append(pooled)
                     except Exception as e:
@@ -130,7 +129,6 @@ class QAModel(nn.Module):
                 batch_logits.append(logits)
 
         except Exception as e:
-            # Global exception handler
             logger.error(f"Error in forward pass: {e}")
             # Return empty logits for the whole batch
             batch_logits = [
@@ -158,7 +156,6 @@ class QAModel(nn.Module):
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Default metadata
         if metadata is None:
             metadata = {}
 

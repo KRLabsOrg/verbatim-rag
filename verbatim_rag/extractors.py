@@ -7,7 +7,6 @@ allowing for easy implementation of different extraction methods.
 
 from abc import ABC, abstractmethod
 import torch
-from pathlib import Path
 from transformers import AutoTokenizer
 
 import openai
@@ -64,23 +63,7 @@ class ModelSpanExtractor(SpanExtractor):
         self.model.to(self.device)
         self.model.eval()
 
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        except:
-            # Fallback to the base model name from config if tokenizer not found
-            config_path = Path(model_path) / "config.json"
-            if config_path.exists():
-                import json
-
-                with open(config_path, "r") as f:
-                    config = json.load(f)
-                    base_model = config.get("model_name", "answerdotai/ModernBERT-base")
-                    self.tokenizer = AutoTokenizer.from_pretrained(base_model)
-            else:
-                # Last resort default
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    "answerdotai/ModernBERT-base"
-                )
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
 
     def _split_into_sentences(self, text: str) -> list[str]:
         """
@@ -138,10 +121,8 @@ class ModelSpanExtractor(SpanExtractor):
                 relevant_spans[doc.content] = []
                 continue
 
-            # Get the processed encoding - this has exactly the same format used during training
             encoding = dataset[0]
 
-            # Move tensors to device
             input_ids = encoding["input_ids"].unsqueeze(0).to(self.device)
             attention_mask = encoding["attention_mask"].unsqueeze(0).to(self.device)
 
@@ -155,12 +136,9 @@ class ModelSpanExtractor(SpanExtractor):
 
             # Extract relevant sentences
             spans = []
-
-            # Process the model output
             if len(predictions) > 0 and len(predictions[0]) > 0:
                 sentence_preds = torch.nn.functional.softmax(predictions[0], dim=1)
 
-                # Assuming binary classification where index 1 is the "relevant" class
                 for i, pred in enumerate(sentence_preds):
                     if i < len(raw_sentences) and pred[1] > self.threshold:
                         spans.append(raw_sentences[i])

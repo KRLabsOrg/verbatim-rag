@@ -33,10 +33,8 @@ def set_seed(seed):
 
 
 def train(args):
-    # Set random seed
     set_seed(args.seed)
 
-    # Set device
     if args.cpu_only:
         device = torch.device("cpu")
         logger.info("Forcing CPU usage as requested")
@@ -44,27 +42,20 @@ def train(args):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Using device: {device}")
 
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.model_name, trust_remote_code=True
-    )  # Added trust_remote_code=True as in snippet
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
     logger.info(f"Loaded tokenizer: {args.model_name}")
 
     try:
-        # Load data
         logger.info(f"Loading data from {args.data_path}")
         data_path = Path(args.data_path)
 
-        # Check if file exists
         if not data_path.exists():
             logger.error(f"Data file {args.data_path} does not exist")
             return
 
-        # Use QAData loading method
         data_text = data_path.read_text()
         logger.info(f"Data file size: {len(data_text)} bytes")
 
-        # Parse JSON
         try:
             data_json = json.loads(data_text)
             logger.info("Successfully parsed JSON data")
@@ -93,14 +84,11 @@ def train(args):
                         f"First sentence: '{first_sentence.text[:100]}...' (relevant: {first_sentence.relevant})"
                     )
 
-        # Split data into train, dev, test
         train_samples = [
             sample for sample in qa_data.samples if sample.split == "train"
         ]
         dev_samples = [sample for sample in qa_data.samples if sample.split == "dev"]
-        test_samples = [
-            sample for sample in qa_data.samples if sample.split == "test"
-        ]  # Keep test split for potential later use
+        test_samples = [sample for sample in qa_data.samples if sample.split == "test"]
 
         logger.info(
             f"Train: {len(train_samples)}, Dev: {len(dev_samples)}, Test: {len(test_samples)}"
@@ -112,15 +100,13 @@ def train(args):
             logger.warning(
                 "No development samples found. Training will proceed without evaluation."
             )
-            # Fallback or error based on Trainer's requirement
-            dev_dataset = None  # Set to None, Trainer needs to handle this
+            dev_dataset = None
         else:
             logger.info(f"Creating dev dataset with max_length={args.max_seq_length}")
             dev_dataset = QADataset(
                 dev_samples, tokenizer, max_length=args.max_seq_length
             )
 
-            # Validate dev dataset
             if len(dev_dataset) > 0:
                 logger.info(f"Dev dataset length: {len(dev_dataset)}")
                 try:
@@ -153,8 +139,6 @@ def train(args):
             except Exception as e:
                 logger.error(f"Error accessing train dataset: {e}")
 
-        # dev_dataset created above
-        # test_dataset might be needed if Trainer handles final testing
         if test_samples:
             logger.info(f"Creating test dataset with max_length={args.max_seq_length}")
             test_dataset = QADataset(
@@ -193,8 +177,6 @@ def train(args):
         logger.info("***** Starting training using Trainer *****")
         best_f1 = trainer.train()
 
-        # Trainer will have saved the best model during training
-        # At the end of training, we can also save the final model state if needed
         if args.save_final_model:
             logger.info("Saving final model state")
             final_metadata = {
@@ -214,16 +196,13 @@ def train(args):
         # Final evaluation on test set
         if test_dataset:
             logger.info("***** Final evaluation on test set *****")
-            # Create a DataLoader for the test set
             test_dataloader = DataLoader(
                 test_dataset,
-                batch_size=1
-                if args.debug
-                else args.eval_batch_size,  # Use batch size 1 for debugging
+                batch_size=1 if args.debug else args.eval_batch_size,
                 shuffle=False,
                 collate_fn=qa_collate_fn,
-                num_workers=0,  # Disable multiprocessing to avoid fork-related issues
-                pin_memory=torch.cuda.is_available(),  # Speed up data transfer to GPU if available
+                num_workers=0,
+                pin_memory=torch.cuda.is_available(),
             )
             test_metrics = trainer._evaluate(test_dataloader)
             logger.info(f"Test Loss: {test_metrics['loss']:.4f}")
@@ -232,10 +211,8 @@ def train(args):
             logger.info(f"Test F1: {test_metrics['f1']:.4f}")
             logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
 
-            # Save test results directly to output directory
             results_path = output_dir / "test_metrics.json"
             with open(results_path, "w") as f:
-                # Convert tensor values to Python float for JSON serialization
                 test_results = {
                     "loss": float(test_metrics["loss"]),
                     "precision": float(test_metrics["precision"]),

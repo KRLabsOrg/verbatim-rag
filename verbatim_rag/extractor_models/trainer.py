@@ -28,7 +28,6 @@ def qa_collate_fn(batch: list[dict]) -> dict:
       - sentence_offset_mappings: list of lists
       - labels: list of 1D tensors of shape [num_sentences]
     """
-    # Check for empty batch
     if not batch:
         logger.warning("Empty batch passed to qa_collate_fn")
         return {}
@@ -42,7 +41,6 @@ def qa_collate_fn(batch: list[dict]) -> dict:
 
     for item in batch:
         try:
-            # Check if item has required keys
             required_keys = [
                 "input_ids",
                 "attention_mask",
@@ -109,7 +107,6 @@ def qa_collate_fn(batch: list[dict]) -> dict:
         }
     except Exception as e:
         logger.error(f"Error padding sequences in collate_fn: {e}")
-        # Return minimal valid batch to prevent crash
         return {
             "input_ids": torch.zeros((len(input_ids_list), 1), dtype=torch.long),
             "attention_mask": torch.zeros(
@@ -193,14 +190,11 @@ class Trainer:
         total_loss = 0.0
         step_count = 0
 
-        # Use progress bar for better visualization
         progress_bar = tqdm(self.train_dataloader, desc="Training", leave=True)
 
-        # Use try-except for more robust error handling
         try:
             for batch in progress_bar:
                 try:
-                    # Move tensors to device
                     input_ids = batch["input_ids"].to(self.device)
                     attention_mask = batch["attention_mask"].to(self.device)
                     sentence_boundaries = batch["sentence_boundaries"]
@@ -229,7 +223,7 @@ class Trainer:
                         )  # shape: [num_sentences_i]
 
                         if logits.size(0) == 0:
-                            # if no sentences
+                            # if no sentences in the document, skip
                             continue
 
                         # Make sure we have enough labels for all logits
@@ -252,7 +246,6 @@ class Trainer:
                         total_loss += batch_loss.item()
                         step_count += 1
 
-                        # Update progress bar
                         progress_bar.set_postfix(
                             {
                                 "loss": f"{batch_loss.item():.4f}",
@@ -307,13 +300,11 @@ class Trainer:
             # Train for one epoch
             train_loss = self._train_one_epoch()
 
-            # Report time and loss
             epoch_time = time.time() - epoch_start
             print(
                 f"Epoch {self.current_epoch} completed in {timedelta(seconds=int(epoch_time))}. Average loss: {train_loss:.4f}"
             )
 
-            # Evaluate if we have validation data
             if self.dev_dataloader is not None:
                 print("\nEvaluating...")
                 metrics = self._evaluate(self.dev_dataloader)
@@ -500,8 +491,8 @@ class Trainer:
         """
         if isinstance(save_path, str) or isinstance(save_path, Path):
             save_dir = Path(save_path)
-            if save_dir.suffix:  # If it's a file path
-                save_dir = save_dir.parent  # Use parent directory
+            if save_dir.suffix:
+                save_dir = save_dir.parent
         else:
             save_dir = save_path
 
