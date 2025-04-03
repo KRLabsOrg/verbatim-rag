@@ -96,7 +96,6 @@ def prepare_model_for_hub(
     # Save the tokenizer - only the essential files
     tokenizer.save_pretrained(output_dir)
 
-    # Define the essential files needed for HF Hub (match the screenshot exactly)
     essential_files = [
         "config.json",
         "model.safetensors",
@@ -165,7 +164,7 @@ extractor = ModelSpanExtractor(
 documents = [
     Document(
         content="Climate change is a significant issue. Rising sea levels threaten coastal areas.",
-        metadata={"source": "example"}
+        metadata={{"source": "example"}}
     )
 ]
 
