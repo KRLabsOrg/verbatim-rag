@@ -156,8 +156,8 @@ from verbatim_rag.document import Document
 
 # Initialize the extractor
 extractor = ModelSpanExtractor(
-    model_path="{model_name}",  # HuggingFace Hub model ID
-    threshold=0.5               # Confidence threshold
+    model_path="{model_name}",
+    threshold=0.5
 )
 
 # Create documents
@@ -175,7 +175,7 @@ results = extractor.extract_spans(question, documents)
 # Print the results
 for doc_content, spans in results.items():
     for span in spans:
-        print(f"- {span}")
+        print(f"- {{span}}")
 ```
 
 ## Training Data
