@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -27,11 +27,10 @@ class QAModel(PreTrainedModel):
         """
         Initialize the QA model.
 
-        Args:
-            config: HuggingFace config object (takes precedence if provided)
-            model_name: Base model name to use
-            hidden_dim: Hidden dimension size
-            num_labels: Number of output classes (typically 2 for binary classification)
+        :param config: HuggingFace config object (takes precedence if provided)
+        :param model_name: Base model name to use
+        :param hidden_dim: Hidden dimension size
+        :param num_labels: Number of output classes (typically 2 for binary classification)
         """
         # Create config if not provided
         if config is None:
@@ -66,13 +65,11 @@ class QAModel(PreTrainedModel):
         """
         Forward pass of the model.
 
-        Args:
-            input_ids: Token IDs
-            attention_mask: Attention mask
-            sentence_boundaries: List of lists of tuples (start, end) for sentence boundaries
+        :param input_ids: Token IDs
+        :param attention_mask: Attention mask
+        :param sentence_boundaries: List of lists of tuples (start, end) for sentence boundaries
 
-        Returns:
-            List of tensors with sentence classification logits
+        :return: List of tensors with sentence classification logits
         """
         # Get contextualized representations from BERT
         outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask)
@@ -119,31 +116,40 @@ class QAModel(PreTrainedModel):
 
         return sentence_preds
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         """Get model configuration as a dictionary.
 
-        Returns:
-            Dict[str, Any]: Model configuration
+        :return: Model configuration
         """
         return self.config.to_dict()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
+    def from_pretrained(
+        cls, pretrained_model_name_or_path, *model_args, **kwargs
+    ) -> "QAModel":
         """Load a model from a pretrained model or path.
 
         This overrides the from_pretrained method from PreTrainedModel to handle
         our specific model architecture.
+
+        :param pretrained_model_name_or_path: Pretrained model name or path
+        :param model_args: Additional model arguments
+        :param kwargs: Additional keyword arguments
+        :return: QAModel instance
         """
         # Let HuggingFace handle the downloading, caching, etc.
         return super().from_pretrained(
             pretrained_model_name_or_path, *model_args, **kwargs
         )
 
-    def save_pretrained(self, save_directory, **kwargs):
+    def save_pretrained(self, save_directory, **kwargs) -> None:
         """Save the model to a directory.
-
         This overrides the save_pretrained method from PreTrainedModel to handle
         our specific model architecture.
+
+        :param save_directory: Directory to save the model
+        :param kwargs: Additional keyword arguments
+        :return: None
         """
         # Let HuggingFace's built-in method handle the saving
         super().save_pretrained(save_directory, **kwargs)

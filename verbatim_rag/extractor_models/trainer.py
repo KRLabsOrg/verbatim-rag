@@ -183,8 +183,7 @@ class Trainer:
     def _train_one_epoch(self) -> float:
         """Train the model for one epoch.
 
-        Returns:
-            Average loss for the epoch
+        :return: Average loss for the epoch
         """
         self.model.train()
         total_loss = 0.0
@@ -282,8 +281,7 @@ class Trainer:
     def train(self) -> float:
         """Train the model for multiple epochs.
 
-        Returns:
-            Best F1 score achieved during training
+        :return: Best F1 score achieved during training
         """
         start_time = time.time()
 
@@ -368,8 +366,7 @@ class Trainer:
     def _evaluate(self, dev_dataloader: DataLoader) -> dict:
         """Evaluate the model on the development dataset.
 
-        Returns:
-            dict: Dictionary with metrics including loss, precision, recall, f1
+        :return: Dictionary with metrics including loss, precision, recall, f1
         """
         self.model.eval()
         total_loss = 0.0
@@ -486,8 +483,8 @@ class Trainer:
     def save_model(self, save_path) -> None:
         """Save the model to the given path with metadata.
 
-        Args:
-            save_path: Path to save the model to
+        :param save_path: Path to save the model to
+        :return: None
         """
         if isinstance(save_path, str) or isinstance(save_path, Path):
             save_dir = Path(save_path)
