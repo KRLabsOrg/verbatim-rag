@@ -58,12 +58,27 @@ class ModelSpanExtractor(SpanExtractor):
         else:
             self.device = device
 
-        # Load model and tokenizer
+        print(f"Loading model from {model_path}...")
+
+        # Load model using HuggingFace's standard methods
         self.model = QAModel.from_pretrained(model_path)
         self.model.to(self.device)
         self.model.eval()
 
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+        # Load tokenizer using HuggingFace's standard methods
+        try:
+            print(f"Loading tokenizer from {model_path}...")
+            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+            print("Tokenizer loaded successfully.")
+        except Exception as e:
+            print(f"Could not load tokenizer from {model_path}: {e}")
+            # Try to get base model name from model config
+            base_model = getattr(
+                self.model.config, "model_name", "answerdotai/ModernBERT-base"
+            )
+            print(f"Trying to load tokenizer from base model: {base_model}")
+            self.tokenizer = AutoTokenizer.from_pretrained(base_model)
+            print(f"Loaded tokenizer from {base_model}")
 
     def _split_into_sentences(self, text: str) -> list[str]:
         """
