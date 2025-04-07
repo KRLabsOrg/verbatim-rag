@@ -1,0 +1,52 @@
+_wandb:
+    value:
+        cli_version: 0.19.9
+        m: []
+        python_version: 3.10.14
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 51
+                - 53
+                - 55
+                - 71
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 51
+                - 53
+                - 55
+                - 71
+            "3":
+                - 2
+                - 13
+                - 16
+                - 23
+                - 55
+            "4": 3.10.14
+            "5": 0.19.9
+            "6": 4.49.0
+            "8":
+                - 1
+                - 5
+            "12": 0.19.9
+            "13": linux-x86_64
+architecture:
+    value: MODERN-BERT
+batch_size:
+    value: 64
+dataset:
+    value: pubmedqa
+epochs:
+    value: 3
+learning_rate:
+    value: 5e-05
+window_size:
+    value: 0

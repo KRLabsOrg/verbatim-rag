@@ -171,9 +171,11 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# Data
+# Data & Models
 data
+models
 
 exploration/.DS_Store
 exploration/RAGBENCH/.DS_Store
+
 
