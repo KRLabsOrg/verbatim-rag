@@ -181,3 +181,6 @@ exploration/RAGBENCH/.DS_Store
 
 .ipynb_checkpoints/
 **/.ipynb_checkpoints/
+
+./exploration/RAGBENCH/train_sc_on_pubmed-bak.ipynb
+*-bak.ipynb
