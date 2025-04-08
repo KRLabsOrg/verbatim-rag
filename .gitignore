@@ -184,3 +184,4 @@ exploration/RAGBENCH/.DS_Store
 
 ./exploration/RAGBENCH/train_sc_on_pubmed-bak.ipynb
 *-bak.ipynb
+exploration/RAGBENCH/exploration.ipynb
