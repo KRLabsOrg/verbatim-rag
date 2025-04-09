@@ -92,3 +92,34 @@ def aggregate_sentences_by_question(df: pd.DataFrame) -> pd.DataFrame:
         {"question": q, "sentences": v["sentences"], "labels": v["labels"]}
         for q, v in grouped.items()
     ])
+
+def mask_on_sentence_level(df, window=0, sep=". "):
+    expanded = []
+
+    for _, row in df.iterrows():
+        question = row["question"]
+        sentences = row["sentences"]
+        labels = row["labels"]
+
+        for i, (sentence, label) in enumerate(zip(sentences, labels)):
+            if window == 0:
+                # No context, just the target sentence as context
+                context = sentence
+            else:
+                # Get surrounding context
+                start = max(0, i - window)
+                end = min(len(sentences), i + window + 1)
+                context_slice = sentences[start:end].copy()
+                target_local_idx = i - start
+                context_slice[target_local_idx] = f"[START] {context_slice[target_local_idx]} [END]"
+                context = sep.join(str(s) for s in context_slice if pd.notnull(s))
+
+            expanded.append({
+                "question": question,
+                "context": context,
+                "target_sentence": sentence,
+                "target_index": i,
+                "label": label
+            })
+
+    return pd.DataFrame(expanded)

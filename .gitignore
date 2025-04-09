@@ -187,3 +187,5 @@ exploration/RAGBENCH/.DS_Store
 exploration/RAGBENCH/exploration.ipynb
 **/wandb/
 **/wandb/*
+
+checkpoints/
