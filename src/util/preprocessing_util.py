@@ -4,6 +4,8 @@ import unicodedata
 from collections import defaultdict
 import re
 import ast
+import nltk
+from tqdm.notebook import tqdm
 
 
 def safe_literal_eval_column(df, column):
@@ -11,6 +13,33 @@ def safe_literal_eval_column(df, column):
     df = df.copy()
     df[column] = df[column].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
     return df
+
+
+def transform_dataset_emrqa(df):
+    records = []
+
+    for _, row in tqdm(df.iterrows(), total=len(df)):
+        context = row["context"]
+        question = row["question"]
+        answer_texts = row["answers"]["text"]
+
+        if not answer_texts:
+            continue
+
+        answer_text = answer_texts[0]
+        sentences = nltk.sent_tokenize(context)
+
+        for i, sent in enumerate(sentences):
+            label = int(answer_text in sent)
+            records.append({
+                "question": question,
+                "context": context,
+                "target_sentence": sent,
+                "target_index": i,
+                "label": label
+            })
+
+    return pd.DataFrame(records)
 
 
 def transform_dataset_pubmedQA(df):
