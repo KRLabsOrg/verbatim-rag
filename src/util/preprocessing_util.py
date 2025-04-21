@@ -72,32 +72,52 @@ def transform_dataset_pubmedQA(df):
 
     return pd.DataFrame(data_rows, columns=["question", "sentence", "label"])
 
-def clean_text_df(df: pd.DataFrame, columns=("question", "sentence")) -> pd.DataFrame:
-    """Apply cleaning to specific columns in a DataFrame."""
+
+def clean_text(text: str) -> str:
+    """Apply your standard cleaning to a single string."""
+    # 1) collapse whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    # 2) unicode normalize
+    text = unicodedata.normalize("NFKC", text)
+    # 3) strip punctuation if desired (optional)
+    # text = text.translate(str.maketrans("", "", string.punctuation))
+    return text
+
+def clean_sentence_list_column(series: pd.Series) -> pd.Series:
+    """
+    Take a Series of lists of sentences, clean each sentence,
+    and return a Series of cleaned lists.
+    """
+    def _clean_list(sent_list):
+        if not isinstance(sent_list, list):
+            return []
+        cleaned = []
+        for s in sent_list:
+            c = clean_text(s)
+            if c:
+                cleaned.append(c)
+        return cleaned
+
+    return series.apply(_clean_list)
+
+def clean_text_df(df: pd.DataFrame,
+                  text_columns=("question", "sentence"),
+                  list_columns=("sentences",)) -> pd.DataFrame:
+    """
+    Extend your cleaning function to also handle columns
+    which are lists of strings (e.g. your sentences-column).
+    """
     df = df.copy()
-    for col in columns:
-        df[col] = clean_text_column(df[col])
+
+    # 1) clean normal text columns
+    for col in text_columns:
+        df[col] = df[col].astype(str).apply(clean_text)
+
+    # 2) clean list-of-strings columns
+    for col in list_columns:
+        df[col] = clean_sentence_list_column(df[col])
+
     return df
-
-
-def clean_text_column(series: pd.Series) -> pd.Series:
-    """Apply standard text preprocessing steps to a Pandas Series (column)."""
-    def clean_whitespace(text):
-        return re.sub(r'\s+', ' ', text).strip()
-
-    def normalize_unicode(text):
-        return unicodedata.normalize("NFKC", text)
-
-    def remove_punctuation(text):
-        return text.translate(str.maketrans("", "", string.punctuation))
-
-    return (
-        series.astype(str)
-              .str.lower()
-              .apply(clean_whitespace)
-              .apply(normalize_unicode)
-              .apply(remove_punctuation)
-    )
 
 def aggregate_sentences_by_question(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -122,11 +142,23 @@ def aggregate_sentences_by_question(df: pd.DataFrame) -> pd.DataFrame:
         for q, v in grouped.items()
     ])
 
+def aggregate_sentences_by_question_and_context(df) -> pd.DataFrame:
+    grouped = df.groupby(["question", "context"])
+    aggregated = grouped.agg({
+        "target_sentence": list,
+        "label": list
+    }).reset_index()
+    
+    return aggregated.rename(columns={
+        "target_sentence": "sentences",
+        "label": "labels"
+    })
+
 def mask_on_sentence_level(df, window=0, sep=". "):
     expanded = []
 
     for _, row in df.iterrows():
-        question = row["question"]
+        question = row["patient_question"]
         sentences = row["sentences"]
         labels = row["labels"]
 

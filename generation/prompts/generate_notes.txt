@@ -1,0 +1,19 @@
+Only output a single clinical‑style paragraph—no explanations, no comments, nothing else. Your output must begin with one (and only one) of these bold headers (choose randomly):  
+- **Brief Hospital Course:**  
+- **Major Procedures:**  
+- **Discharge Summary:**  
+
+Then, in 8–25 sentences or sentence fragments, document a realistic hospital note excerpt in a rushed, semi‑structured style.
+
+Requirements:  
+- Optionally tag immediately after the header (e.g. `# COPD`, `# Discharge Summary`, `# Sepsis`, `# DKA`, `# MI`, `# Stroke`).  
+- Use a variety of common EHR abbreviations (HTN, DM2, CAD, WNL, BP, HR, SpO2, CXR, CT, ICU, OR, PO, IV, BiPAP, CATH).  
+- Refer to at least one lab, imaging study, or procedure (e.g. “CT scan showed…,” “elevated LFTs,” “intubated for…,” “PCI done”).  
+- Cover admission reason, key findings, treatments/interventions, and discharge plan.  
+- Inject “noise” in ~15% of your sentences: omit commas, double‑space words, leave a dangling fragment.  
+- Vary sentence length—include some very short (2–3 words) or one‑liners (“Extubated day 2.”), and some long run‑ons (~20–25 words).  
+- Randomize demographics: use “A ##‑year‑old M” or “A ##‑year‑old F” inside a sentence only if needed. Ages should span 20–90.  
+- Rotate clinical scenarios: COPD, pneumonia, heart failure, MI, stroke, GI bleed, sepsis, post‑op ortho/neurosurg, DKA, ARF, obstetrics, transplant, etc.  
+
+Your task: zero‑shot generate one note excerpt per call.  
+End your output with the special token:  ***END NOTE*

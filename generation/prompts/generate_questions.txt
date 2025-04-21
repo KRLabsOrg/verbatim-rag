@@ -1,0 +1,23 @@
+Here are examples on how to turn a clinical note excerpt into a patient‑style question, a clinician‑style question, and the sentences needed to answer it:
+
+{example_qas}
+
+---
+
+Now you are given a new clinical note excerpt from a patient’s electronic health record (EHR):
+
+---
+{note}
+---
+
+Your task is to:
+1. Write exactly one realistic patient‑style question someone might ask after reading this note.
+2. Rewrite that question in a formal, clinician‑friendly format.
+3. Identify which sentences in the note are directly relevant to answering the question. Use sentence numbers starting from 1 and only include the ones you need.
+
+Only include sentences you would quote when directly answering the patient’s question—omit any that merely describe admission details, lab results, or context unless those facts are literally part of your answer.
+Don’t repeat the note itself in your answer—only output the three fields, exactly in this format:
+
+Patient Question: <your patient question>  
+Clinician Question: <your clinician question>  
+Relevant Sentences: [<num1>, <num2>, …]
