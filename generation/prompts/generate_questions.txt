@@ -11,11 +11,10 @@ Now you are given a new clinical note excerpt from a patient’s electronic heal
 ---
 
 Your task is to:
-1. Write exactly one realistic patient‑style question someone might ask after reading this note.
+1. Write **exactly one** realistic patient‑style question someone might ask after reading this note.
 2. Rewrite that question in a formal, clinician‑friendly format.
-3. Identify which sentences in the note are directly relevant to answering the question. Use sentence numbers starting from 1 and only include the ones you need.
+3. Identify which sentences in the note are **directly and literally** used to answer your question.
 
-Only include sentences you would quote when directly answering the patient’s question—omit any that merely describe admission details, lab results, or context unless those facts are literally part of your answer.
 Don’t repeat the note itself in your answer—only output the three fields, exactly in this format:
 
 Patient Question: <your patient question>  

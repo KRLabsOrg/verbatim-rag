@@ -72,16 +72,19 @@ def transform_dataset_pubmedQA(df):
 
     return pd.DataFrame(data_rows, columns=["question", "sentence", "label"])
 
-
 def clean_text(text: str) -> str:
-    """Apply your standard cleaning to a single string."""
-    # 1) collapse whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
-    # 2) unicode normalize
-    text = unicodedata.normalize("NFKC", text)
-    # 3) strip punctuation if desired (optional)
-    # text = text.translate(str.maketrans("", "", string.punctuation))
-    return text
+    """
+    Minimal cleaning before feeding into BertTokenizer:
+      1. Unicode normalize (NFKC)
+      2. Collapse runs of whitespace to single spaces
+      3. Strip leading/trailing spaces
+    """
+    # 1) normalize
+    txt = unicodedata.normalize("NFKC", text)
+    # 2+3) collapse whitespace
+    txt = re.sub(r"\s+", " ", txt).strip()
+    return txt
+
 
 def clean_sentence_list_column(series: pd.Series) -> pd.Series:
     """
@@ -101,8 +104,8 @@ def clean_sentence_list_column(series: pd.Series) -> pd.Series:
     return series.apply(_clean_list)
 
 def clean_text_df(df: pd.DataFrame,
-                  text_columns=("question", "sentence"),
-                  list_columns=("sentences",)) -> pd.DataFrame:
+                  text_columns=["question", "sentence"],
+                  list_columns=["sentences"]) -> pd.DataFrame:
     """
     Extend your cleaning function to also handle columns
     which are lists of strings (e.g. your sentences-column).
@@ -119,46 +122,14 @@ def clean_text_df(df: pd.DataFrame,
 
     return df
 
-def aggregate_sentences_by_question(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Aggregates sentence-level rows into question-level examples.
-
-    For each question, groups:
-    - all its sentences into a list
-    - their corresponding labels into a list
-
-    Returns:
-        pd.DataFrame with columns: question, sentences, labels
-    """
-    grouped = defaultdict(lambda: {"sentences": [], "labels": []})
-
-    for _, row in df.iterrows():
-        q = row["question"]
-        grouped[q]["sentences"].append(row["sentence"])
-        grouped[q]["labels"].append(row["label"])
-
-    return pd.DataFrame([
-        {"question": q, "sentences": v["sentences"], "labels": v["labels"]}
-        for q, v in grouped.items()
-    ])
-
-def aggregate_sentences_by_question_and_context(df) -> pd.DataFrame:
-    grouped = df.groupby(["question", "context"])
-    aggregated = grouped.agg({
-        "target_sentence": list,
-        "label": list
-    }).reset_index()
-    
-    return aggregated.rename(columns={
-        "target_sentence": "sentences",
-        "label": "labels"
-    })
-
-def mask_on_sentence_level(df, window=0, sep=". "):
+def mask_on_sentence_level(df, window=0, sep=". ", use_clinician_question = False):
     expanded = []
 
     for _, row in df.iterrows():
-        question = row["patient_question"]
+        if use_clinician_question:
+            question = row["clinician_question"]
+        else:
+            question = row["patient_question"]
         sentences = row["sentences"]
         labels = row["labels"]
 
