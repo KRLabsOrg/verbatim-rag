@@ -23,34 +23,37 @@ def _clean_sentence_list_column(series: pd.Series) -> pd.Series:
     Take a Series of lists of sentences, clean each sentence,
     and return a Series of cleaned lists.
     """
+
     def _clean_list(sent_list):
         if not isinstance(sent_list, list):
             return []
         cleaned = []
         for s in sent_list:
-            c = clean_text(s)
+            c = _clean_text_column(s)
             if c:
                 cleaned.append(c)
         return cleaned
 
     return series.apply(_clean_list)
 
-def clean_text_df(df: pd.DataFrame,
-                  text_columns=["question", "sentence"],
-                  list_columns=["sentences"]) -> pd.DataFrame:
+
+def clean_text_df(df: pd.DataFrame, text_columns: list[str] = None, list_columns: list[str] = None) -> pd.DataFrame:
     """
-    Extend your cleaning function to also handle columns
-    which are lists of strings (e.g. your sentences-column).
+    Extend your cleaning function to also clean columns which are lists of strings
+    (e.g. your context or sentence columns).
     """
+
     df = df.copy()
 
     # Option-1: clean normal text columns
-    for col in text_columns:
-        df[col] = df[col].astype(str).apply(_clean_text_column)
-    
+    if text_columns:
+        for col in text_columns:
+            df[col] = df[col].astype(str).apply(_clean_text_column)
+
     # Option-2: clean list of text columns
-    for col in list_columns:
-        df[col] = _clean_sentence_list_column(df[col])
+    if list_columns:
+        for col in list_columns:
+            df[col] = _clean_sentence_list_column(df[col])
 
     return df
 
@@ -129,10 +132,8 @@ def aggregate_sentences_by_question_and_context(df) -> pd.DataFrame:
         "target_sentence": list,
         "label": list
     }).reset_index()
-    
+
     return aggregated.rename(columns={
         "target_sentence": "sentences",
         "label": "labels"
     })
-
-

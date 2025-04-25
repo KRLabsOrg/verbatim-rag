@@ -6,21 +6,18 @@ note_generation.py
 Generate synthetic EHR note excerpts in batch, using OpenAI’s Chat API.
 """
 
-import sys                              # to modify path
-import re                               # regex for text cleaning
-import time                             # sleep for retries
-import random                           # sampling for examples
-import logging                          # logging instead of print
-from pathlib import Path                # filesystem paths
-from datetime import datetime          # timestamp filenames
-import argparse                         # CLI argument parsing
+import time
+import random
+import openai
+import logging
+import argparse
+import pandas as pd
+from pathlib import Path
+from datetime import datetime
 
-import pandas as pd                     # dataframes and CSV I/O
-from tqdm import tqdm                   # progress bars for loops
-import openai                           # OpenAI ChatCompletion API
-
-from configs.config import openai_token     # secure token storage (do not commit credentials)
-
+from configs.config import openai_token
+from verbatim_rag.util.generation_util import load_prompt
+from verbatim_rag.util.text_processing_util import postprocess_synthetic_question
 
 # -----------------------------------------------------------------------------
 # ---------------------------- Configuration constants ------------------------
@@ -28,11 +25,11 @@ from configs.config import openai_token     # secure token storage (do not commi
 
 
 # (unused VLLM_URL stub retained for future support)
-VLLM_URL    = "http://localhost:8000/v1/completions"
+VLLM_URL = "http://localhost:8000/v1/completions"
 # directory containing few-shot prompt templates
-PROMPTS_DIR = Path(__file__).parent / "prompts"
+PROMPTS_DIR = Path("../../configs/prompts")
 # base directory for saving synthetic note CSVs
-OUTPUT_DIR  = Path("../../data/synthetic/note-excerpts")
+OUTPUT_DIR = Path("../../data/synthetic/note-excerpts")
 
 
 # -----------------------------------------------------------------------------
@@ -140,15 +137,15 @@ def main(
 
     # Clean each note and sample a few for logging
     logging.info("Cleaning generated notes")
-    cleaned = [clean_note(n) for n in raw_notes]
+    df = pd.DataFrame({"note_excerpt": raw_notes})
+    df = df["note_excerpt"].apply(postprocess_synthetic_question)
     random.seed(seed)
-    sample = random.sample(cleaned, min(10, len(cleaned)))
+    sample = random.sample(df, min(10, len(df)))
     for i, note in enumerate(sample, 1):
         logging.info("Sample %d: %s...", i, note.replace("\n", " ")[:80])
 
     # Save all cleaned notes to CSV
-    logging.info("Saving all %d notes to %s", len(cleaned), out_csv)
-    df = pd.DataFrame({"note_excerpt": cleaned})
+    logging.info("Saving all %d notes to %s", len(df), out_csv)
     df.to_csv(out_csv, index=False)
     logging.info("Done.")
 

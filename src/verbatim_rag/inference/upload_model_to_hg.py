@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from huggingface_hub import Repository
 
+
 def upload_model_to_hg(
         local_model_dir: Path,
         repo_name: str,
