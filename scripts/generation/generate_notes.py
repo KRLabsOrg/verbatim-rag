@@ -19,9 +19,7 @@ import pandas as pd                     # dataframes and CSV I/O
 from tqdm import tqdm                   # progress bars for loops
 import openai                           # OpenAI ChatCompletion API
 
-# add configs directory to path to import API tokens
-sys.path.append("../../configs")
-from hf_config import openai_token     # secure token storage (do not commit credentials)
+from configs.config import openai_token     # secure token storage (do not commit credentials)
 
 
 # -----------------------------------------------------------------------------
