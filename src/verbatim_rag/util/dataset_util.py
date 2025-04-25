@@ -1,5 +1,7 @@
+import ast
 import pandas as pd
 from tqdm import tqdm
+from pathlib import Path
 
 
 # mask sentences, tokenize, batch setup
@@ -101,3 +103,23 @@ def mask_on_sentence_level(df, window=0, sep=". ", use_clinician_question=False)
 
     # Return as a new DataFrame
     return pd.DataFrame(expanded)
+
+
+def load_question_sentence_pairs(path: Path, question_type="patient_question"):
+    """
+    Load a dataframe with sentence-level labels and return
+    a list of question+sentence pairs and labels.
+    """
+    df = pd.read_csv(path)
+    df["sentences"] = df["sentences"].apply(ast.literal_eval)
+    df["labels"] = df["labels"].apply(ast.literal_eval)
+
+    texts = []
+    labels = []
+    for _, row in df.iterrows():
+        question = row[question_type]
+        for sentence, label in zip(row["sentences"], row["labels"]):
+            combined = f"{question} [SEP] {sentence}"
+            texts.append(combined)
+            labels.append(label)
+    return texts, labels

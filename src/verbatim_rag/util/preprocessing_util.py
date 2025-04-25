@@ -1,10 +1,8 @@
-import pandas as pd
-import string
-import unicodedata
-from collections import defaultdict
 import re
 import ast
 import nltk
+import unicodedata
+import pandas as pd
 from tqdm.notebook import tqdm
 
 
@@ -72,6 +70,7 @@ def transform_dataset_pubmedQA(df):
 
     return pd.DataFrame(data_rows, columns=["question", "sentence", "label"])
 
+
 def clean_text(text: str) -> str:
     """
     Minimal cleaning before feeding into BertTokenizer:
@@ -91,6 +90,7 @@ def clean_sentence_list_column(series: pd.Series) -> pd.Series:
     Take a Series of lists of sentences, clean each sentence,
     and return a Series of cleaned lists.
     """
+
     def _clean_list(sent_list):
         if not isinstance(sent_list, list):
             return []
@@ -103,13 +103,18 @@ def clean_sentence_list_column(series: pd.Series) -> pd.Series:
 
     return series.apply(_clean_list)
 
+
 def clean_text_df(df: pd.DataFrame,
-                  text_columns=["question", "sentence"],
-                  list_columns=["sentences"]) -> pd.DataFrame:
+                  text_columns=None,
+                  list_columns=None) -> pd.DataFrame:
     """
     Extend your cleaning function to also handle columns
     which are lists of strings (e.g. your sentences-column).
     """
+    if text_columns is None:
+        text_columns = ["question", "sentence"]
+    if list_columns is None:
+        list_columns = ["sentences"]
     df = df.copy()
 
     # 1) clean normal text columns
@@ -121,37 +126,3 @@ def clean_text_df(df: pd.DataFrame,
         df[col] = clean_sentence_list_column(df[col])
 
     return df
-
-def mask_on_sentence_level(df, window=0, sep=". ", use_clinician_question = False):
-    expanded = []
-
-    for _, row in df.iterrows():
-        if use_clinician_question:
-            question = row["clinician_question"]
-        else:
-            question = row["patient_question"]
-        sentences = row["sentences"]
-        labels = row["labels"]
-
-        for i, (sentence, label) in enumerate(zip(sentences, labels)):
-            if window == 0:
-                # No context, just the target sentence as context
-                context = sentence
-            else:
-                # Get surrounding context
-                start = max(0, i - window)
-                end = min(len(sentences), i + window + 1)
-                context_slice = sentences[start:end].copy()
-                target_local_idx = i - start
-                context_slice[target_local_idx] = f"[START] {context_slice[target_local_idx]} [END]"
-                context = sep.join(str(s) for s in context_slice if pd.notnull(s))
-
-            expanded.append({
-                "question": question,
-                "context": context,
-                "target_sentence": sentence,
-                "target_index": i,
-                "label": label
-            })
-
-    return pd.DataFrame(expanded)
