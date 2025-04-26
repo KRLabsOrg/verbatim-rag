@@ -2,7 +2,8 @@ import argparse
 from pathlib import Path
 import json
 from archehr.preprocess import ArchehrData, Case
-from archehr.models import LLMModel, BERTModel, ArchehrModel
+from archehr.models import LLMModel, BERTModel, ArchehrModel, LLMModelGenerate
+
 from typing import NamedTuple
 
 from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
@@ -175,12 +176,15 @@ def main():
     parser.add_argument("--output_dir", type=str, default="case_results")
     # If test, we don't have ground truth, so skip evaluation
     parser.add_argument("--mode", type=str, choices=["dev", "test"], default="dev")
+    parser.add_argument("--generate", action="store_true")
     args = parser.parse_args()
 
     Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
     model = load_model(args.model)
     data = ArchehrData.from_json(json.load(open(args.data_dir)))
+
+    data.cases = data.cases[:1]
 
     all_y_true = []
     all_y_pred = []
@@ -205,6 +209,30 @@ def main():
         print(f"Overall: {metrics}")
 
     save_results(case_results, args.output_dir, args.model, args.mode)
+
+    if args.generate:
+        generate_model = LLMModelGenerate(model_name="gpt-4o-mini")
+
+        case_id_to_answer = {}
+
+        for case in data.cases:
+            print(f"Generating answer for case {case.case_id}")
+            sentence_relevancy = [
+                CASE_SENTENCE_TO_PREDICTION[(case.case_id, sentence.sentence_id)]
+                for sentence in case.sentences
+            ]
+            case_id_to_answer[case.case_id] = generate_model.generate(
+                case.patient_narrative,
+                case.clinician_question,
+                case.note_excerpt,
+                [sentence.sentence_text for sentence in case.sentences],
+                sentence_relevancy,
+            )
+
+        with open(
+            Path(args.output_dir) / f"case_results_{args.model}_generate.json", "w"
+        ) as f:
+            json.dump(case_id_to_answer, f, indent=4)
 
 
 if __name__ == "__main__":
