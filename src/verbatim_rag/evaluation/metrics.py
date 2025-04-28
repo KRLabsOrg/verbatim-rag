@@ -70,45 +70,6 @@ def evaluate_model(model, dataloader, device, threshold=0.3, return_preds=False)
     return report_df
 
 
-def evaluate_model_old(model, dataloader, device, threshold=0.3, return_preds=False):
-    """
-    Run model on a dataloader and compute classification report.
-
-    Args:
-        model: HuggingFace model.
-        dataloader: torch DataLoader containing test data.
-        device: torch.device("cuda") or "cpu".
-        threshold: sigmoid threshold (used for binary classification).
-        return_preds: if True, also return predictions and labels.
-
-    Returns:
-        report: pd.DataFrame
-        (optionally) preds, labels
-    """
-    all_preds, all_labels = [], []
-
-    model.eval()
-    with torch.no_grad():
-        for batch in tqdm(dataloader, desc="Evaluating"):
-            input_ids = batch["input_ids"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
-            labels = batch["labels"].to(device)  # Binary target (1 = relevant)
-
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            probs = torch.sigmoid(outputs.logits).squeeze()
-            preds = (probs > threshold).long()
-
-            all_preds.extend(preds.cpu().tolist())
-            all_labels.extend(labels.cpu().tolist())
-
-    report = classification_report(all_labels, all_preds, digits=4, output_dict=True)
-    report_df = pd.DataFrame(report).transpose()
-
-    if return_preds:
-        return report_df, all_preds, all_labels
-    return report_df
-
-
 def compute_metrics(eval_pred):
     """
     HF Trainer callback for computing metrics during training.
