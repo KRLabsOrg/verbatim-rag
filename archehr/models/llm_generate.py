@@ -1,10 +1,8 @@
-from archehr.models.base import ArchehrModel
 import os
 import openai
-from concurrent.futures import ThreadPoolExecutor
 from rich import print
 import re
-from typing import List, Tuple, Dict
+from typing import List, Tuple
 
 
 PROMPT = """
@@ -208,7 +206,7 @@ class LLMModelGenerate:
                 template += f"\n- {sentence} |{sentence_id}|"
             else:
                 template = template.replace(
-                    f"<<RELEVANT SENTENCE>>", f"{sentence} |{sentence_id}|", 1
+                    "<<RELEVANT SENTENCE>>", f"{sentence} |{sentence_id}|", 1
                 )
 
         # Check if the template is longer than 75 words and create a summarized version if necessary
@@ -271,18 +269,20 @@ class LLMModelGenerate:
         # Validate that all sentence IDs are included in the summary
         expected_ids = set(str(id) for id, _ in relevant_sentences)
         found_ids = set()
-        
+
         # Find all IDs in the summary (both single and grouped IDs)
-        id_matches = re.findall(r'\|(\d+(?:,\d+)*)\|', grouped_summary)
+        id_matches = re.findall(r"\|(\d+(?:,\d+)*)\|", grouped_summary)
         for match in id_matches:
             # Handle both single IDs and grouped IDs (e.g., "1,2,3")
-            ids = match.split(',')
+            ids = match.split(",")
             found_ids.update(ids)
-        
+
         # Check for missing IDs
         missing_ids = expected_ids - found_ids
         if missing_ids:
-            print(f"Warning: The following sentence IDs are missing from the summary: {', '.join(sorted(missing_ids))}")
+            print(
+                f"Warning: The following sentence IDs are missing from the summary: {', '.join(sorted(missing_ids))}"
+            )
 
         # Combine intro and summary
         if template_intro:

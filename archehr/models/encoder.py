@@ -1,12 +1,19 @@
 from archehr.models.base import ArchehrModel
 
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from rich import print
 import torch
-import re
+
 
 class BERTModel(ArchehrModel):
-    def __init__(self, model_name: str, include_narrative: bool = True, context_size: int = 1, device: str = "auto", max_length: int = 1024, threshold: float = 0.5):
+    def __init__(
+        self,
+        model_name: str,
+        include_narrative: bool = True,
+        context_size: int = 1,
+        device: str = "auto",
+        max_length: int = 1024,
+        threshold: float = 0.5,
+    ):
         """
         Initialize the BERT model.
 
@@ -19,13 +26,13 @@ class BERTModel(ArchehrModel):
         """
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
-        
+
         # Handle auto device selection
         if device == "auto":
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device
-            
+
         self.model.to(self.device)
         self.model.eval()
 
@@ -34,7 +41,13 @@ class BERTModel(ArchehrModel):
         self.max_length = max_length
         self.threshold = threshold
 
-    def _build_inputs(self, patient_narrative: str, clinician_question: str, note_excerpt: str, sentences: list[str]) -> list[str]:
+    def _build_inputs(
+        self,
+        patient_narrative: str,
+        clinician_question: str,
+        note_excerpt: str,
+        sentences: list[str],
+    ) -> list[str]:
         """
         Build the inputs for the model.
         """
@@ -55,12 +68,14 @@ class BERTModel(ArchehrModel):
                 end_idx = min(len(sentences), i + self.context_size + 1)
 
                 context_before = " ".join(sentences[start_idx:i])
-                context_after = " ".join(sentences[i + 1:end_idx])
+                context_after = " ".join(sentences[i + 1 : end_idx])
 
-                marked_sentence  = f"[TARGET] {sentence} [/TARGET]"
+                marked_sentence = f"[TARGET] {sentence} [/TARGET]"
 
                 if context_before and context_after:
-                    contextual_sentence = f"{context_before} {marked_sentence} {context_after}"
+                    contextual_sentence = (
+                        f"{context_before} {marked_sentence} {context_after}"
+                    )
                 elif context_before:
                     contextual_sentence = f"{context_before} {marked_sentence}"
                 elif context_after:
@@ -74,7 +89,13 @@ class BERTModel(ArchehrModel):
 
         return [(question, contextual_sentence) for contextual_sentence in inputs]
 
-    def predict(self, patient_narrative: str, clinician_question: str, note_excerpt: str, sentences: list[str]) -> list[bool]:
+    def predict(
+        self,
+        patient_narrative: str,
+        clinician_question: str,
+        note_excerpt: str,
+        sentences: list[str],
+    ) -> list[bool]:
         """
         Predict the relevance of a sentence in a case.
 
@@ -84,10 +105,19 @@ class BERTModel(ArchehrModel):
         """
         results = []
 
-        contextual_sentences = self._build_inputs(patient_narrative, clinician_question, note_excerpt, sentences)
+        contextual_sentences = self._build_inputs(
+            patient_narrative, clinician_question, note_excerpt, sentences
+        )
 
         for question, contextual_sentence in contextual_sentences:
-            inputs = self.tokenizer(question, contextual_sentence, return_tensors="pt", padding="max_length", truncation=True, max_length=self.max_length).to(self.device)
+            inputs = self.tokenizer(
+                question,
+                contextual_sentence,
+                return_tensors="pt",
+                padding="max_length",
+                truncation=True,
+                max_length=self.max_length,
+            ).to(self.device)
 
             with torch.no_grad():
                 outputs = self.model(**inputs)
@@ -97,7 +127,9 @@ class BERTModel(ArchehrModel):
                     probs = torch.softmax(logits, dim=-1)
                     batch_pred = (probs[:, 1] >= self.threshold).long().cpu().tolist()
                 else:
-                    batch_pred = (logits.squeeze(-1) >= self.threshold).long().cpu().tolist()
+                    batch_pred = (
+                        (logits.squeeze(-1) >= self.threshold).long().cpu().tolist()
+                    )
 
                 results.extend(batch_pred)
 
