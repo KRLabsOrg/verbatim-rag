@@ -72,10 +72,13 @@ INSTRUCTIONS:
 3. Include the sentence IDs for each piece of information in your summary using brackets |ID|   
 4. When a statement combines information from multiple sentences, include all relevant IDs |ID1,ID2|
 5. Keep medical terminology intact where possible
-6. Your summary must be under 50 words
+6. Your summary must be under 65 words
+7. Your summary must be verbatim from the relevant sentences
+8. Your summary must be one sentence per line
 
-EXAMPLE OUTPUT FORMAT:
-The patient had severe abdominal pain |3| and was diagnosed with appendicitis based on elevated WBC and CT findings |1,4|. Laparoscopic appendectomy was performed without complications |5,7|.
+EXAMPLE OUTPUT FORMAT (one sentence per line):
+The patient had severe abdominal pain |3| and was diagnosed with appendicitis based on elevated WBC and CT findings |1,4|. 
+Laparoscopic appendectomy was performed without complications |5,7|.
 
 Output only the summary, nothing else.
 """
@@ -87,7 +90,7 @@ class LLMModelGenerate:
 
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         self.temperature = float(os.getenv("LLM_TEMP", "0.7"))
-        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "200"))
+        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "300"))
         self.threads = int(os.getenv("LLM_THREADS", "30"))
         self.api_key = os.getenv("OPENAI_API_KEY", "EMPTY")
 
@@ -203,11 +206,15 @@ class LLMModelGenerate:
         for sentence_id, sentence in relevant_sentences:
             # Replace the first <<RELEVANT SENTENCE>> with the sentence, if not found, just add it to the end
             if "<<RELEVANT SENTENCE>>" not in template:
-                template += f"\n- {sentence} |{sentence_id}|"
+                template += f"\n{sentence} |{sentence_id}|"
             else:
                 template = template.replace(
-                    "<<RELEVANT SENTENCE>>", f"{sentence} |{sentence_id}|", 1
+                    "<<RELEVANT SENTENCE>>", f"\n{sentence} |{sentence_id}|", 1
                 )
+
+        # If relevant sentences are empty, remove <<RELEVANT SENTENCE>> from the template
+        if not relevant_sentences:
+            template = template.replace("<<RELEVANT SENTENCE>>", "")
 
         # Check if the template is longer than 75 words and create a summarized version if necessary
         template_words = [w for w in template.split(" ") if w.strip()]
@@ -234,33 +241,6 @@ class LLMModelGenerate:
         :param relevant_sentences: List of tuples with (sentence_id, sentence_text)
         :return: A summarized response with grouped citations
         """
-        # Extract any template structure before the relevant sentences
-        template_intro = ""
-
-        # Check if the template has a structure (like "The procedure was performed because:")
-        if "<<RELEVANT SENTENCE>>" not in original_text:
-            # If we've already filled all placeholders, look for sentence IDs
-            first_id_match = re.search(r"\[\d+\]", original_text)
-            if first_id_match:
-                template_intro = original_text[: first_id_match.start()].strip()
-                if (
-                    template_intro
-                    and not template_intro.endswith(":")
-                    and not template_intro.endswith(".")
-                ):
-                    template_intro += ":"
-        else:
-            # If we still have placeholders, get text before the first one
-            placeholder_pos = original_text.find("<<RELEVANT SENTENCE>>")
-            if placeholder_pos > 0:
-                template_intro = original_text[:placeholder_pos].strip()
-                if (
-                    template_intro
-                    and not template_intro.endswith(":")
-                    and not template_intro.endswith(".")
-                ):
-                    template_intro += ":"
-
         # Generate the grouped summary
         grouped_summary = self.generate_grouped_summary(
             clinician_question, relevant_sentences
@@ -279,13 +259,20 @@ class LLMModelGenerate:
 
         # Check for missing IDs
         missing_ids = expected_ids - found_ids
+
+        missing_ids = list(missing_ids)
+        missing_ids.sort()
+
         if missing_ids:
             print(
-                f"Warning: The following sentence IDs are missing from the summary: {', '.join(sorted(missing_ids))}"
+                f"Warning: The following sentence IDs are missing from the summary: {', '.join(missing_ids)}"
             )
 
-        # Combine intro and summary
-        if template_intro:
-            return f"{template_intro} {grouped_summary}"
-        else:
-            return grouped_summary
+            # If one, just add it to the summary
+            if len(missing_ids) == 1:
+                grouped_summary += f"\nSee also: |{missing_ids[0]}|"
+            else:
+                # Add the missing IDs to the summary
+                grouped_summary += f"\nSee also: |{','.join(missing_ids)}|"
+
+        return grouped_summary

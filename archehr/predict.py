@@ -168,7 +168,9 @@ def load_model(model_name: str) -> ArchehrModel:
     :return: An instance of the model.
     """
     if model_name == "LLMModel":
+        # return LLMModel(model_name="THUDM/GLM-4-32B-0414", zero_shot=True)
         return LLMModel(model_name="google/gemma-3-27b-it", zero_shot=True)
+        # return LLMModel(model_name="mistralai/Mistral-Small-3.1-24B-Instruct-2503", zero_shot=True)
     elif model_name == "BERTModel":
         from archehr.models.encoder import BERTModel
 
@@ -236,8 +238,9 @@ def main():
     save_results(case_results, args.output_dir, args.model, args.mode)
 
     if args.generate:
+        # generate_model = LLMModelGenerate(model_name="mistralai/Mistral-Small-3.1-24B-Instruct-2503")
+        # generate_model = LLMModelGenerate(model_name="THUDM/GLM-4-32B-0414")
         generate_model = LLMModelGenerate(model_name="google/gemma-3-27b-it")
-
         case_id_to_answer = {}
 
         for case in data.cases:
@@ -254,6 +257,11 @@ def main():
                 sentence_relevancy,
             )
 
+        print(
+            f"Saving results to {Path(args.output_dir) / f'case_results_{args.model}_generate.json'}"
+        )
+
+        # Answers should be sentence per line
         with open(
             Path(args.output_dir) / f"case_results_{args.model}_generate.json", "w"
         ) as f:
