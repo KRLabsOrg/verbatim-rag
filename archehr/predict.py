@@ -5,9 +5,6 @@ from archehr.preprocess import ArchehrData, Case
 from archehr.models import LLMModel, BERTModel, ArchehrModel, LLMModelGenerate
 
 from typing import NamedTuple
-
-from sklearn.metrics import precision_recall_fscore_support, confusion_matrix
-
 from rich import print
 
 CASE_SENTENCE_TO_PREDICTION: dict[tuple[int, int], bool] = {}
@@ -27,18 +24,44 @@ class Metrics(NamedTuple):
 
 
 def calculate_metrics(y_true: list[int], y_pred: list[int]) -> Metrics:
-    precision, recall, f1, _ = precision_recall_fscore_support(
-        y_true, y_pred, average="binary"
+    """Calculate precision, recall, F1 by manually counting TP, FP, TN, FN.
+
+    This manual calculation ensures that the metrics are consistent with the counts.
+
+    :param y_true: Ground truth labels (0 or 1)
+    :param y_pred: Predicted labels (0 or 1)
+    :return: Metrics object with precision, recall, F1, TP, FP, TN, FN
+    """
+    # Manual count of TP, FP, TN, FN
+    TP = FP = TN = FN = 0
+
+    for true, pred in zip(y_true, y_pred):
+        if true == 1 and pred == 1:
+            TP += 1
+        elif true == 0 and pred == 1:
+            FP += 1
+        elif true == 0 and pred == 0:
+            TN += 1
+        elif true == 1 and pred == 0:
+            FN += 1
+
+    # Calculate precision, recall, and F1 directly from counts
+    precision = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+    recall = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+    f1 = (
+        2 * (precision * recall) / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
     )
-    TP, FP, TN, FN = confusion_matrix(y_true, y_pred).ravel()
+
     return Metrics(
         precision=precision,
         recall=recall,
         f1=f1,
-        TP=int(TP),
-        FP=int(FP),
-        TN=int(TN),
-        FN=int(FN),
+        TP=TP,
+        FP=FP,
+        TN=TN,
+        FN=FN,
     )
 
 
@@ -145,7 +168,7 @@ def load_model(model_name: str) -> ArchehrModel:
     :return: An instance of the model.
     """
     if model_name == "LLMModel":
-        return LLMModel(model_name="gpt-4o-mini", zero_shot=True)
+        return LLMModel(model_name="google/gemma-3-27b-it", zero_shot=True)
     elif model_name == "BERTModel":
         return BERTModel()
     else:
@@ -184,8 +207,6 @@ def main():
     model = load_model(args.model)
     data = ArchehrData.from_json(json.load(open(args.data_dir)))
 
-    data.cases = data.cases[:1]
-
     all_y_true = []
     all_y_pred = []
     case_results = []
@@ -211,7 +232,7 @@ def main():
     save_results(case_results, args.output_dir, args.model, args.mode)
 
     if args.generate:
-        generate_model = LLMModelGenerate(model_name="gpt-4o-mini")
+        generate_model = LLMModelGenerate(model_name="google/gemma-3-27b-it")
 
         case_id_to_answer = {}
 
