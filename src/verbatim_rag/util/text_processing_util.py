@@ -74,7 +74,14 @@ def postprocess_synthetic_note(raw: str) -> str:
     Apply both intro stripping and end-tag removal to raw LLM output.
     """
     # note: missing closing paren fixed
-    return _remove_end_tag(_strip_example_intro(raw))
+    return _light_clean(_remove_end_tag(_strip_example_intro(raw)))
+
+
+def _light_clean(text):
+    text = text.strip()
+    text = text.replace("\n\n", "\n")  # reduce double newlines
+    text = " ".join(text.split())  # collapse multiple spaces
+    return text
 
 
 def _strip_example_intro(text: str) -> str:

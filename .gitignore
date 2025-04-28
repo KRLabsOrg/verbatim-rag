@@ -172,8 +172,8 @@ cython_debug/
 .pypirc
 
 # Data & Models
-data
-models
+/models/
+/data/
 
 exploration/.DS_Store
 exploration/RAGBENCH/.DS_Store
