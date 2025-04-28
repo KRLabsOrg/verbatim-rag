@@ -19,7 +19,6 @@ from configs.config import hf_token
 
 
 def main(args):
-
     # Initialize W&B
     wandb.login()
 
@@ -154,16 +153,10 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    training_file = "questions_V1.csv"
-    run_name = "Script_RUN01"
-    args.train_file = TRAIN_DATA_DIR /training_file
-    args.run_name = run_name
-
     if not args.train_file:
         args.train_file = TRAIN_DATA_DIR / input("Name of the training CSV: ")
     if not args.run_name:
         args.run_name = input("Name of this training run: ")
-
 
     args.model = models[args.model]
     args.model_dir = MODEL_DIR

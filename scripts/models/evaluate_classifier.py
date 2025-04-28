@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 import pandas as pd
 from pathlib import Path
 import torch
@@ -8,23 +9,28 @@ from sklearn.metrics import confusion_matrix
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from verbatim_rag.util.dataset_util import prepare_dataset
+from verbatim_rag.util.dataset_util import prepare_dataset, mask_on_sentence_level
 from verbatim_rag.evaluation.metrics import evaluate_model
+
+TEST_DATA_DIR = Path("../../data/dev/processed/")
+MODEL_DIR = Path("../../models")
+RESULTS_DIR = Path("../../results")
 
 
 def main(args):
 
     # Load the model and tokenizer
-    model = AutoModelForSequenceClassification.from_pretrained(args.model_checkpoint)
-    tokenizer = AutoTokenizer.from_pretrained(args.model_checkpoint)
+    model = AutoModelForSequenceClassification.from_pretrained(args.model)
+    tokenizer = AutoTokenizer.from_pretrained(args.model)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
     # Load and preprocess the test set
-    test_data = pd.read_csv(args.test_path)
+    test_data = pd.read_csv(args.test_file)
     test_data["sentences"] = test_data["sentences"].apply(eval)
     test_data["labels"] = test_data["labels"].apply(eval)
+    test_data = mask_on_sentence_level(test_data, window=0)
 
     dataloader = prepare_dataset(
         df=test_data,
@@ -43,34 +49,32 @@ def main(args):
         return_preds=True
     )
 
-    # Save report
-    if args.output_path:
-        out_dir = Path(args.output_path).parent
-        out_dir.mkdir(parents=True, exist_ok=True)
-        report.to_csv(args.output_path)
-        print(f"✅ Saved classification report to {args.output_path}")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Plot and save confusion matrix
-    if args.cm_path:
-        cm = confusion_matrix(labels, preds)
-        plt.figure(figsize=(6, 6))
-        sns.heatmap(cm, annot=True, fmt='d', cmap="Blues")
-        plt.xlabel("Predicted")
-        plt.ylabel("True")
-        plt.title("Confusion Matrix")
-        plt.tight_layout()
-        plt.savefig(args.cm_path)
-        print(f"✅ Saved confusion matrix to {args.cm_path}")
-        plt.close()
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    fname = RESULTS_DIR / f"classification_report_{ts}.csv"
+    report.to_csv(fname)
+    print(f"✅ Saved classification report to {fname}")
+
+    cm = confusion_matrix(labels, preds)
+    plt.figure(figsize=(6, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap="Blues")
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.title("Confusion Matrix")
+    plt.tight_layout()
+    figname = RESULTS_DIR / f"confusion_matrix_{ts}.png"
+    plt.savefig(figname)
+    print(f"✅ Saved confusion matrix to {figname}")
+    plt.close()
 
 
 if __name__ == "__main__":
+
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--test-path", type=Path, required=True, help="Path to test dataset CSV")
-    parser.add_argument("--model-checkpoint", type=Path, required=True, help="Path to trained model checkpoint")
-    parser.add_argument("--output-path", type=Path, help="Where to save classification report CSV")
-    parser.add_argument("--cm-path", type=Path, help="Where to save confusion matrix PNG")
+    parser.add_argument("--test-file", type=Path,  help="Path to test dataset CSV")
+    parser.add_argument("--model", type=Path, help="Path to trained model")
 
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--context-length", type=int, default=512)
@@ -78,4 +82,16 @@ if __name__ == "__main__":
     parser.add_argument("--threshold", type=float, default=0.3)
 
     args = parser.parse_args()
+
+    test_file_name = "arch-dev.csv"
+    model_name = "chillyground"
+
+    if not args.test_file:
+        args.test_file = TEST_DATA_DIR / input("Name of the training CSV: ")
+    if not args.model:
+        args.model = MODEL_DIR / input("Name of the Model: ")
+
+    args.model = MODEL_DIR / model_name
+    args.test_file = TEST_DATA_DIR / test_file_name
+
     main(args)

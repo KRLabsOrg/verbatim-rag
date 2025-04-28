@@ -21,6 +21,60 @@ def evaluate_model(model, dataloader, device, threshold=0.3, return_preds=False)
     Run model on a dataloader and compute classification report.
 
     Args:
+        model: HuggingFace model with num_labels=2.
+        dataloader: torch DataLoader yielding dicts with
+                    “input_ids”, “attention_mask”, “labels”.
+        device: torch.device
+        threshold: probability threshold for positive class.
+        return_preds: if True, also return preds and labels lists.
+
+    Returns:
+        report_df: pd.DataFrame of the classification report.
+        (optionally) all_preds, all_labels
+    """
+    model.to(device).eval()
+    all_preds, all_labels = [], []
+
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Evaluating"):
+            # move inputs
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            raw_labels = batch["labels"].to(device)
+
+            # collapse one-hot → scalar if needed
+            if raw_labels.ndim > 1:
+                labels = raw_labels[:, 1]
+            else:
+                labels = raw_labels
+
+            # forward & get class-1 probs
+            outputs = model(input_ids=input_ids,
+                            attention_mask=attention_mask)
+            logits = outputs.logits  # [B,2]
+            probs = torch.softmax(logits, dim=1)[:, 1]  # [B]
+
+            # threshold → binary prediction
+            preds = (probs > threshold).long()  # [B]
+
+            all_preds.extend(preds.cpu().tolist())
+            all_labels.extend(labels.cpu().tolist())
+
+    # build report
+    report = classification_report(all_labels, all_preds,
+                                   digits=4, output_dict=True)
+    report_df = pd.DataFrame(report).T
+
+    if return_preds:
+        return report_df, all_preds, all_labels
+    return report_df
+
+
+def evaluate_model_old(model, dataloader, device, threshold=0.3, return_preds=False):
+    """
+    Run model on a dataloader and compute classification report.
+
+    Args:
         model: HuggingFace model.
         dataloader: torch DataLoader containing test data.
         device: torch.device("cuda") or "cpu".
@@ -38,7 +92,7 @@ def evaluate_model(model, dataloader, device, threshold=0.3, return_preds=False)
         for batch in tqdm(dataloader, desc="Evaluating"):
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
-            labels = batch["labels"][:, 1].to(device)  # Binary target (1 = relevant)
+            labels = batch["labels"].to(device)  # Binary target (1 = relevant)
 
             outputs = model(input_ids=input_ids, attention_mask=attention_mask)
             probs = torch.sigmoid(outputs.logits).squeeze()

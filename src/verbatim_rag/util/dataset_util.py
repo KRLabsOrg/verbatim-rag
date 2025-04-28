@@ -12,7 +12,7 @@ def prepare_dataset(df, tokenizer, context_length, window_size, batch_size):
     # mask the data
     dataset = Dataset.from_pandas(df)
 
-    # progress bar setup
+    # set up progress bar
     progress_bar = tqdm(total=len(dataset), desc="Tokenizing", position=0)
 
     def tokenize_batch(batch):
@@ -64,8 +64,8 @@ def mask_on_sentence_level(df, window=0, sep=". ", use_clinician_question=False)
     """
     expanded = []
 
-    df["sentences"] = df["sentences"].apply(ast.literal_eval)
-    df["labels"] = df["labels"].apply(ast.literal_eval)
+    df["sentences"] = df["sentences"].apply(safe_eval)
+    df["labels"] = df["labels"].apply(safe_eval)
 
     # Iterate over each note / QA example
     for _, row in df.iterrows():
@@ -143,3 +143,7 @@ def load_question_sentence_pairs(path: Path, question_type="patient_question"):
             texts.append(combined)
             labels.append(label)
     return texts, labels
+
+
+def safe_eval(x):
+    return ast.literal_eval(x) if isinstance(x, str) else x
