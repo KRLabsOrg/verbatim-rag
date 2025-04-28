@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 import json
 from archehr.preprocess import ArchehrData, Case
-from archehr.models import LLMModel, BERTModel, ArchehrModel, LLMModelGenerate
+from archehr.models import LLMModel, ArchehrModel, LLMModelGenerate
 
 from typing import NamedTuple
 from rich import print
@@ -106,7 +106,7 @@ def process_case(case: Case, model: ArchehrModel, mode: str):
         case.patient_narrative,
         case.clinician_question,
         case.note_excerpt,
-        case.sentences,
+        [sentence.sentence_text for sentence in case.sentences],
     )
 
     for sentence, prediction in zip(case.sentences, case_predictions):
@@ -170,7 +170,11 @@ def load_model(model_name: str) -> ArchehrModel:
     if model_name == "LLMModel":
         return LLMModel(model_name="google/gemma-3-27b-it", zero_shot=True)
     elif model_name == "BERTModel":
-        return BERTModel()
+        from archehr.models.encoder import BERTModel
+
+        return BERTModel(
+            model_name="models/bert_classifier_clinical/2025-04-26_17-30-07"
+        )
     else:
         raise ValueError(f"Unknown model: {model_name}")
 

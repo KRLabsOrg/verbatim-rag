@@ -111,7 +111,7 @@ class LLMModel(ArchehrModel):
         self.zero_shot = zero_shot
 
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        self.temperature = float(os.getenv("LLM_TEMP", "0.7"))
+        self.temperature = float(os.getenv("LLM_TEMP", "0.0"))
         self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "200"))
         self.threads = int(os.getenv("LLM_THREADS", "30"))
         self.api_key = os.getenv("OPENAI_API_KEY", "EMPTY")

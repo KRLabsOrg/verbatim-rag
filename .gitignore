@@ -178,3 +178,14 @@ ui/
 
 data/
 .qodo
+models/
+output/
+outputs/
+case_results/
+
+*.json
+*.jsonl
+*.jsonl.gz
+*.jsonl.gz.part
+*.jsonl.gz.part.1
+*.jsonl.gz.part.2

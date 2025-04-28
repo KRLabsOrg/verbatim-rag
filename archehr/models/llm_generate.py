@@ -268,6 +268,22 @@ class LLMModelGenerate:
             clinician_question, relevant_sentences
         )
 
+        # Validate that all sentence IDs are included in the summary
+        expected_ids = set(str(id) for id, _ in relevant_sentences)
+        found_ids = set()
+        
+        # Find all IDs in the summary (both single and grouped IDs)
+        id_matches = re.findall(r'\|(\d+(?:,\d+)*)\|', grouped_summary)
+        for match in id_matches:
+            # Handle both single IDs and grouped IDs (e.g., "1,2,3")
+            ids = match.split(',')
+            found_ids.update(ids)
+        
+        # Check for missing IDs
+        missing_ids = expected_ids - found_ids
+        if missing_ids:
+            print(f"Warning: The following sentence IDs are missing from the summary: {', '.join(sorted(missing_ids))}")
+
         # Combine intro and summary
         if template_intro:
             return f"{template_intro} {grouped_summary}"
