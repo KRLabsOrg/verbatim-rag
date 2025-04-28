@@ -2,16 +2,15 @@ import ast
 import pandas as pd
 from tqdm import tqdm
 from pathlib import Path
+from datasets import Dataset
+from torch.utils.data import DataLoader
 
 
 # mask sentences, tokenize, batch setup
 def prepare_dataset(df, tokenizer, context_length, window_size, batch_size):
-    from datasets import Dataset
-    from torch.utils.data import DataLoader
 
     # mask the data
-    masked = mask_on_sentence_level(df, window=window_size)
-    dataset = Dataset.from_pandas(masked)
+    dataset = Dataset.from_pandas(df)
 
     # progress bar setup
     progress_bar = tqdm(total=len(dataset), desc="Tokenizing", position=0)
@@ -65,6 +64,9 @@ def mask_on_sentence_level(df, window=0, sep=". ", use_clinician_question=False)
     """
     expanded = []
 
+    df["sentences"] = df["sentences"].apply(ast.literal_eval)
+    df["labels"] = df["labels"].apply(ast.literal_eval)
+
     # Iterate over each note / QA example
     for _, row in df.iterrows():
         # Choose question type based on flag
@@ -103,6 +105,24 @@ def mask_on_sentence_level(df, window=0, sep=". ", use_clinician_question=False)
 
     # Return as a new DataFrame
     return pd.DataFrame(expanded)
+
+
+def balance_ratio(df, label_col='label', neg_to_pos=1.0, seed=1050):
+    """
+    Returns a new DataFrame with negatives sampled to achieve
+    `neg_to_pos` negatives per positive.
+
+    neg_to_pos: float, how many negatives per positive you want
+                (1.0 → 1:1, 65/35≈1.857→65:35, etc.)
+    """
+    pos = df[df[label_col] == 1]
+    neg = df[df[label_col] == 0]
+    n_pos = len(pos)
+    n_neg = int(n_pos * neg_to_pos)
+    neg_sample = neg.sample(n=n_neg, random_state=seed)
+    return pd.concat([pos, neg_sample]) \
+        .sample(frac=1, random_state=seed) \
+        .reset_index(drop=True)
 
 
 def load_question_sentence_pairs(path: Path, question_type="patient_question"):

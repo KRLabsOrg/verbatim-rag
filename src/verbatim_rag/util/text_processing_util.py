@@ -79,10 +79,9 @@ def postprocess_synthetic_note(raw: str) -> str:
 
 def _strip_example_intro(text: str) -> str:
     """
-    Remove any leading example header blocks (e.g. '--- Example X ---')
-    up to the first blank line.
+    Remove leading example headers (e.g., '--- Example X ---' or '***Example***') up to the first blank line.
     """
-    parts = re.split(r"^\s*[-—]{3,}.*\n", text, flags=re.MULTILINE)
+    parts = re.split(r"^\s*[-–—*_ ]{2,}.*?\n\s*\n", text, flags=re.MULTILINE | re.DOTALL)
     return parts[-1].lstrip()
 
 

@@ -25,7 +25,7 @@ def format_few_shot_examples(df: pd.DataFrame) -> str:
         relevant = [i + 1 for i, lbl in enumerate(row.labels) if lbl]
         blocks.append(
             f"Note Excerpt:\n{numbered}\n\n"
-            f"Patient Question: {row.question}\n"
+            f"Patient Question: {row.patient_question}\n"
             f"Clinician Question: {row.clinician_question}\n"
             f"Relevant Sentences: {relevant}"
         )

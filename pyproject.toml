@@ -18,3 +18,12 @@ requires-python = ">=3.8"
 where = ["src", "."]
 include = ["verbatim_rag*", "configs*"]
 exclude = ["scripts*", "data*"]
+
+[project.scripts]
+generate-notes       = "scripts.generation.generate_notes:main"
+generate-questions   = "scripts.generation.generate_questions:main"
+train-classifier     = "scripts.models.train_classifier:main"
+baseline-eval        = "scripts.models.train_and_evaluate_baseline:main"
+evaluate-classifier  = "scripts.models.evaluate_classifier:main"
+upload-model         = "scripts.models.upload_model_to_hg:main"
+preprocess-acl       = "scripts.preprocessing.preprocess_acl:main"

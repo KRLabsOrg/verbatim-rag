@@ -1,10 +1,8 @@
 # scripts/preprocess_acl.py
 
-import argparse
-import logging
-from pathlib import Path
-
 import sys
+import logging
+import argparse
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 

@@ -12,7 +12,6 @@ import logging
 import argparse
 from pathlib import Path
 import pandas as pd
-import nltk
 from tqdm import tqdm
 from datetime import datetime
 
@@ -23,6 +22,7 @@ from verbatim_rag.util.text_processing_util import clean_text_df, split_sentence
     postprocess_synthetic_question
 from verbatim_rag.util.generation_util import format_few_shot_examples, is_valid_generation
 from verbatim_rag.util.generation_util import load_prompt
+from configs.config import openai_token
 
 # -----------------------------------------------------------------------------
 # CONFIGURATIONS
@@ -32,15 +32,17 @@ from verbatim_rag.util.generation_util import load_prompt
 # HTTP endpoint for a local VLLM service (optional alternative to OpenAI)
 VLLM_URL = "http://localhost:8000/v1/completions"
 # Directory containing your few-shot prompt templates
-PROMPTS_DIR = Path("prompts")
+PROMPTS_DIR = Path("../../configs/prompts")
 # Base data directory for synthetic notes and output questions
-DATA_DIR = Path("../data")
+DATA_DIR = Path("../../data")
 NOTES_DIR = DATA_DIR / "synthetic" / "note-excerpts"
 OUTPUT_DIR = DATA_DIR / "synthetic" / "questions"
+
 # Prompt template file for question generation
 PROMPT_FILE = PROMPTS_DIR / "generate_questions.txt"
 # Name of the CSV file with generated notes
-NOTE_FILE_NAME = "few_shot_gpt4_separated_V2.csv"
+NOTE_FILE_NAME = "synthetic_notes_20250427_144031.csv"
+ARCH_DATA = DATA_DIR / "dev" / "processed" / "arch-dev.csv"
 
 # Ensure the output directory exists (create if missing)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -83,8 +85,9 @@ def generate_with_openai(
         to_req = min(batch_size, n - len(results))
         for attempt in range(1, retries + 1):
             try:
-                resp = openai.ChatCompletion.create(
+                resp = openai.chat.completions.create(
                     model=model,
+
                     messages=[
                         {"role": "system", "content": "You are a clinical-QA generator."},
                         {"role": "user", "content": prompt},
@@ -142,9 +145,11 @@ def generate_with_vllm(
 
 
 def main(args):
+
     # Load synthetic notes CSV
     notes_df = pd.read_csv(args.note_file)
     notes_df["note_excerpt"] = clean_text_df(notes_df, text_columns=["note_excerpt"])
+
     # Split into sentences list
     notes_df["sentences"] = notes_df["note_excerpt"].apply(split_sentences_by_delim)
 
@@ -152,19 +157,19 @@ def main(args):
     arch = pd.read_csv(args.dev_csv)
     arch["sentences"] = arch["sentences"].apply(ast.literal_eval)
     arch["labels"] = arch["labels"].apply(ast.literal_eval)
-    few = arch[arch.case_id.isin(args.case_ids)].head(len(args.case_ids))
-    few = clean_text_df(few, text_columns=["question", "clinician_question"], list_columns=["sentences"])
+    few = arch.sample(n=args.n_examples)
+    few = clean_text_df(few, text_columns=["patient_question", "clinician_question"], list_columns=["sentences"])
     few_shot_block = format_few_shot_examples(few)
 
     # Read the prompt template
     prompt_tmpl = load_prompt(PROMPT_FILE)
 
     # Set API key if using OpenAI
-    openai.api_key = args.openai_key
+    openai.api_key = openai_token
 
     # Iterate over notes and generate Q&A
     output_rows = []
-    for idx, row in tqdm(notes_df.iterrows(), total=len(notes_df), desc="Gen QAs"):
+    for idx, row in tqdm(notes_df.iloc[0:args.total_completions].iterrows(), total=args.total_completions, desc="Gen QAs"):
         numbered = "\n".join(f"{i + 1}. {s}" for i, s in enumerate(row.sentences))
 
         prompt = prompt_tmpl.format(example_qas=few_shot_block, note=numbered)
@@ -238,18 +243,14 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate QA from note excerpts.")
-    parser.add_argument("--note-file", type=Path, required=True,
+    parser.add_argument("--note-file", type=Path, default=NOTES_DIR / NOTE_FILE_NAME,
                         help="CSV of note excerpts")
     parser.add_argument("--prompt-file", type=Path, default=PROMPT_FILE,
                         help="Few-shot prompt template")
-    parser.add_argument("--dev-csv", type=Path, required=True,
+    parser.add_argument("--dev-csv", type=Path, default=ARCH_DATA,
                         help="CSV of real dev examples for few-shot")
-    parser.add_argument("--case-ids", nargs="+", type=int, default=[1, 3, 14, 19],
-                        help="Which case_ids to sample for few-shot")
     parser.add_argument("--backend", choices=["openai", "vllm"], default="openai",
                         help="Which LLM backend to use")
-    parser.add_argument("--openai-key", default=None,
-                        help="OpenAI API key override (fallback to env if missing)")
     parser.add_argument("--model", default="gpt-4o-mini",
                         help="OpenAI model name")
     parser.add_argument("--temperature", type=float, default=0.7,
@@ -260,15 +261,15 @@ if __name__ == "__main__":
                         help="Max tokens per completion")
     parser.add_argument("--n-completions", type=int, default=1,
                         help="Number of completions per note")
+    parser.add_argument("--n-examples", type=int, default=1,
+                        help="Number of examples in the few-shot prompt")
+    parser.add_argument("--total-completions", type=int, default=10,
+                        help="Number of completions in total")
     parser.add_argument("--batch-size", type=int, default=1,
                         help="Batch size for OpenAI calls")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR,
                         help="Directory to write questions CSV")
 
     args = parser.parse_args()
-    # If provided, override API key
-    if args.openai_key:
-        openai.api_key = args.openai_key
 
-    nltk.download('punkt', quiet=True)  # ensure sentence tokenizer is ready
     main(args)

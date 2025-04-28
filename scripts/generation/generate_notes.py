@@ -7,7 +7,6 @@ Generate synthetic EHR note excerpts in batch, using OpenAI’s Chat API.
 """
 
 import time
-import random
 import openai
 import logging
 import argparse
@@ -17,7 +16,7 @@ from datetime import datetime
 
 from configs.config import openai_token
 from verbatim_rag.util.generation_util import load_prompt
-from verbatim_rag.util.text_processing_util import postprocess_synthetic_question
+from verbatim_rag.util.text_processing_util import postprocess_synthetic_note
 
 # -----------------------------------------------------------------------------
 # ---------------------------- Configuration constants ------------------------
@@ -51,7 +50,7 @@ logging.basicConfig(
 
 def generate_with_openai(
     prompt: str,
-    model: str = "gpt-4o",
+    model: str = "gpt-4o-mini",
     temperature: float = 0.7,
     max_tokens: int = 1024,
     top_p: float = 0.95,
@@ -72,7 +71,7 @@ def generate_with_openai(
         # Retry loop for resilience
         for attempt in range(1, retries + 1):
             try:
-                resp = openai.ChatCompletion.create(
+                resp = openai.chat.completions.create(
                     model=model,
                     messages=[
                         {"role": "system", "content": "You are a clinical-note generator."},
@@ -138,9 +137,8 @@ def main(
     # Clean each note and sample a few for logging
     logging.info("Cleaning generated notes")
     df = pd.DataFrame({"note_excerpt": raw_notes})
-    df = df["note_excerpt"].apply(postprocess_synthetic_question)
-    random.seed(seed)
-    sample = random.sample(df, min(10, len(df)))
+    df["note_excerpt"] = df["note_excerpt"].apply(postprocess_synthetic_note)
+    sample = df["note_excerpt"].sample(n=min(3, len(df)))
     for i, note in enumerate(sample, 1):
         logging.info("Sample %d: %s...", i, note.replace("\n", " ")[:80])
 
@@ -170,7 +168,7 @@ if __name__ == "__main__":
         help="Directory where CSVs will be stored"
     )
     parser.add_argument(
-        "--model", default="gpt-4o",
+        "--model", default="gpt-4o-mini",
         help="OpenAI model name"
     )
     parser.add_argument(
@@ -186,7 +184,7 @@ if __name__ == "__main__":
         help="nucleus sampling p"
     )
     parser.add_argument(
-        "--total", type=int, default=1200,
+        "--total", type=int, default=20,
         help="total number of completions to generate"
     )
     parser.add_argument(
