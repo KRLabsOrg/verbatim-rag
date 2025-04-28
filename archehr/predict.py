@@ -89,7 +89,12 @@ def predict_case(
     note_excerpt: str,
     sentences: list[str],
 ) -> list[bool]:
-    return model.predict(patient_narrative, clinician_question, note_excerpt, sentences)
+    if isinstance(model, ArchehrModel):
+        return model.predict(
+            patient_narrative, clinician_question, note_excerpt, sentences
+        )
+    else:
+        return model.predict(patient_narrative, clinician_question, sentences)
 
 
 def process_case(case: Case, model: ArchehrModel, mode: str):
@@ -177,6 +182,14 @@ def load_model(model_name: str) -> ArchehrModel:
         return BERTModel(
             model_name="models/bert_classifier_clinical/2025-04-26_17-30-07"
         )
+    elif model_name == "BioBertModel":
+        from archehr.BioBertModel.model import ClinicalBERTModel
+
+        return ClinicalBERTModel(
+            context_size=1,
+            max_length=512,
+            threshold=0.5,
+        )
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -200,7 +213,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument(
-        "--model", type=str, required=True, choices=["LLMModel", "BERTModel"]
+        "--model",
+        type=str,
+        required=True,
+        choices=["LLMModel", "BERTModel", "BioBertModel"],
     )
     parser.add_argument("--output_dir", type=str, default="case_results")
     # If test, we don't have ground truth, so skip evaluation
@@ -261,11 +277,13 @@ def main():
             f"Saving results to {Path(args.output_dir) / f'case_results_{args.model}_generate.json'}"
         )
 
-        # Answers should be sentence per line
         with open(
             Path(args.output_dir) / f"case_results_{args.model}_generate.json", "w"
         ) as f:
-            json.dump(case_id_to_answer, f, indent=4)
+            submission = []
+            for case_id, answer in case_id_to_answer.items():
+                submission.append({"case_id": case_id, "answer": answer})
+            json.dump(submission, f, indent=4)
 
 
 if __name__ == "__main__":

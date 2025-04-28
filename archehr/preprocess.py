@@ -241,7 +241,10 @@ def preprocess_data(data_dir: Path) -> list[Case]:
     key_file_path = data_dir / key_file_name
     mapping_file_path = data_dir / mapping_file_name
 
-    key_data = extract_key_data(key_file_path)
+    key_data = []
+
+    if key_file_path.exists():
+        key_data = extract_key_data(key_file_path)
     mapping_data = extract_mapping_data(mapping_file_path)
     cases = parse_xml_to_case_data(data_file_path)
 

@@ -41,7 +41,8 @@ INSTRUCTIONS:
 - Consider the patient's specific condition as described in the narrative
 - The sentence must have a clear connection to answering the clinician's question
 
-Respond with "RELEVANT" or "NOT RELEVANT", then give a short explanation for your answer.
+First, analyze the sentence step-by-step, briefly noting your reasoning.
+Then, respond with only: RELEVANT or NOT RELEVANT.
 """
 
 
@@ -101,7 +102,7 @@ RELEVANT, because it directly answers the question about why they performed the 
 
 ==END OF EXAMPLE==
 
-Respond with "RELEVANT" or "NOT RELEVANT", then give a short explanation for your answer.
+First think step by step, then respond with "RELEVANT" or "NOT RELEVANT".
 """
 
 
@@ -112,7 +113,7 @@ class LLMModel(ArchehrModel):
 
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         self.temperature = float(os.getenv("LLM_TEMP", "0.0"))
-        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "200"))
+        self.max_tokens = int(os.getenv("LLM_MAX_TOKENS", "300"))
         self.threads = int(os.getenv("LLM_THREADS", "30"))
         self.api_key = os.getenv("OPENAI_API_KEY", "EMPTY")
 
@@ -152,12 +153,19 @@ class LLMModel(ArchehrModel):
                 },
                 {"role": "user", "content": formatted_prompt},
             ],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
         )
 
         result = response.choices[0].message.content.strip().upper()
 
         relevant = "NOT RELEVANT" not in result
-        explanation = result.split("RELEVANT")[1].strip()
+        explanation = (
+            result.split("RELEVANT")[0].strip() if "RELEVANT" in result else ""
+        )
+
+        if "RELEVANT" not in result:
+            print(f"Warning: Output doesnt contain RELEVANT: {result}")
 
         return relevant, explanation
 
