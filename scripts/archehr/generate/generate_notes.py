@@ -3,6 +3,7 @@ import random
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+import time
 
 import openai
 
@@ -11,8 +12,8 @@ MODEL = os.getenv(
     "LLM_MODEL", "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
 )  # override via env
 BASE_URL = os.getenv("LLM_BASE_URL", "http://localhost:8000/v1")
-N_REQUESTS = 50  # how many notes total
-THREADS = 10  # parallel workers
+N_REQUESTS = 10000  # how many notes total
+THREADS = 30  # parallel workers
 TEMPERATURE = float(os.getenv("LLM_TEMP", "0.7"))  # Increased for more variety
 MAX_TOKENS = 2000
 
@@ -125,23 +126,85 @@ def main() -> None:
 
     print(f"Loaded {len(EXAMPLE_NOTES)} example notes from dataset")
 
-    with ThreadPoolExecutor(max_workers=THREADS) as pool:
-        futures = {pool.submit(generate_note, i): i for i in range(N_REQUESTS)}
-        for fut in as_completed(futures):
-            idx = futures[fut]
-            try:
-                note = fut.result()
-                notes.append(note)
-                print(f"[{idx:03}] ✔  {note[:60]}…")
-            except Exception as exc:
-                print(f"[{idx:03}] ✖  {exc}")
+    # Create output directory if it doesn't exist
+    out_dir = Path("outputs")
+    out_dir.mkdir(exist_ok=True)
 
-    # optional: write to disk even in case of exiting the script
-    out_file = Path("synthetic_discharge_notes.jsonl")
-    with open(out_file, "w") as f:
+    # Define output file
+    timestamp = import_time().strftime("%Y%m%d_%H%M%S")
+    out_file = out_dir / f"synthetic_discharge_notes_{timestamp}.jsonl"
+    temp_file = out_dir / f"synthetic_discharge_notes_{timestamp}_temp.jsonl"
+
+    print(f"Will save notes to {out_file}")
+
+    # Track progress
+    total_successful = 0
+    total_failed = 0
+    last_save_time = time.time()
+
+    try:
+        with ThreadPoolExecutor(max_workers=THREADS) as pool:
+            futures = {pool.submit(generate_note, i): i for i in range(N_REQUESTS)}
+
+            for fut in as_completed(futures):
+                idx = futures[fut]
+                try:
+                    note = fut.result()
+                    notes.append(note)
+                    total_successful += 1
+
+                    # Show detailed progress
+                    print(
+                        f"[{idx:03}/{N_REQUESTS}] ✅ Generated note ({len(note)} chars)"
+                    )
+
+                    # Save periodically (every 5 notes or 60 seconds)
+                    current_time = time.time()
+                    if total_successful % 5 == 0 or (
+                        current_time - last_save_time > 60
+                    ):
+                        save_notes_to_file(notes, temp_file)
+                        last_save_time = current_time
+                        print(f"💾 Saved {len(notes)} notes to temporary file")
+
+                except Exception as exc:
+                    total_failed += 1
+                    print(f"[{idx:03}/{N_REQUESTS}] ❌ Error: {exc}")
+
+                # Show progress percentage
+                progress = (total_successful + total_failed) / N_REQUESTS * 100
+                print(
+                    f"Progress: {progress:.1f}% ({total_successful} success, {total_failed} failed)"
+                )
+
+    except KeyboardInterrupt:
+        print("\n⚠️ Process interrupted by user. Saving collected notes...")
+    except Exception as e:
+        print(f"\n⚠️ Unexpected error: {e}. Saving collected notes...")
+    finally:
+        # Save all collected notes even if interrupted
+        if notes:
+            save_notes_to_file(notes, out_file)
+            print(f"\nSaved {len(notes)} notes → {out_file.resolve()}")
+
+            # Remove temp file if it exists
+            if temp_file.exists():
+                temp_file.unlink()
+
+
+def save_notes_to_file(notes: list[str], file_path: Path):
+    """Save notes to a JSONL file."""
+    with open(file_path, "w") as f:
         for note in notes:
             f.write(json.dumps({"text": note}) + "\n")
-    print(f"\nSaved {len(notes)} notes → {out_file.resolve()}")
+
+
+# Add time module for timestamps
+def import_time():
+    """Import time module dynamically."""
+    from datetime import datetime
+
+    return datetime.now()
 
 
 if __name__ == "__main__":

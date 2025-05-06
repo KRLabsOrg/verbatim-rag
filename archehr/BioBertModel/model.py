@@ -160,4 +160,9 @@ class ClinicalBERTModel:
 
         # 6) threshold → bool list
         preds = (probs >= self.threshold).long().cpu().tolist()
+
+        # if all preds are 0, try again with a different threshold
+        if all(preds) == 0:
+            preds = (probs >= 0.2).long().cpu().tolist()
+
         return [bool(x) for x in preds]

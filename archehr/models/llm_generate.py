@@ -204,12 +204,16 @@ class LLMModelGenerate:
 
         # Fill in the template with the relevant sentences
         for sentence_id, sentence in relevant_sentences:
+            sentence = sentence.replace("\n", " ")
+            # replace multiple spaces with a single space
+            sentence = re.sub(r"\s+", " ", sentence)
+            sentence = sentence.strip()
             # Replace the first <<RELEVANT SENTENCE>> with the sentence, if not found, just add it to the end
             if "<<RELEVANT SENTENCE>>" not in template:
                 template += f"\n{sentence} |{sentence_id}|"
             else:
                 template = template.replace(
-                    "<<RELEVANT SENTENCE>>", f"\n{sentence} |{sentence_id}|", 1
+                    "<<RELEVANT SENTENCE>>", f"{sentence} |{sentence_id}|", 1
                 )
 
         # If relevant sentences are empty, remove <<RELEVANT SENTENCE>> from the template

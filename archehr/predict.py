@@ -282,7 +282,7 @@ def main():
         ) as f:
             submission = []
             for case_id, answer in case_id_to_answer.items():
-                submission.append({"case_id": case_id, "answer": answer})
+                submission.append({"case_id": str(case_id), "answer": answer})
             json.dump(submission, f, indent=4)
 
 
