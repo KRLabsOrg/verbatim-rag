@@ -2,8 +2,8 @@ import argparse
 import json
 from pathlib import Path
 from typing import Literal
-
 from datasets import load_dataset
+from itertools import groupby
 from tqdm import tqdm
 
 from verbatim_rag.extractor_models.dataset import QASample, QAData, Document, Sentence
@@ -76,7 +76,6 @@ def create_sample(
         dataset_name=dataset_name,
     )
 
-
 def main(input_dir: str, output_dir: Path, dataset_name: str | None = None):
     """Main function to load the RAGBench data and save it
 
@@ -84,26 +83,40 @@ def main(input_dir: str, output_dir: Path, dataset_name: str | None = None):
     :param output_dir: Path to save the RAGBench data
     :param dataset_name: The name of the dataset to process, if not provided, all datasets will be processed
     """
+    # 1) Load all subsets from HuggingFace
     dataset = load_data(input_dir)
     qa_data = QAData(samples=[])
 
+    # 2) If user requested a single subset, filter to that
     if dataset_name and dataset_name in dataset:
         dataset = {dataset_name: dataset[dataset_name]}
 
-    for dataset_name in dataset:
-        print(f"Processing {dataset_name}...")
+    # 3) Loop over each subset and each split, convert to QASample
+    for ds_name in dataset:
+        print(f"Processing subset {ds_name}…")
         for split in ["train", "test", "validation"]:
-            data_split = dataset[dataset_name][split]
+            hf_split = split
             split = "dev" if split == "validation" else split
-            for sample in tqdm(data_split, desc=f"Processing {split} split"):
-                sample = create_sample(sample, dataset_name, split)
+            data_split = dataset[ds_name][hf_split]
+            for raw in tqdm(data_split, desc=f"  → {split} split"):
+                sample = create_sample(raw, ds_name, split)
                 if sample is not None:
                     qa_data.samples.append(sample)
 
+    # 4) Ensure output folder exists
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "ragbench_data.json").write_text(
-        json.dumps(qa_data.to_json(), indent=4)
-    )
+
+    # 5) Sort & group samples by split, then write one JSONL per split
+    qa_data.samples.sort(key=lambda s: s.split)
+    for split, group in groupby(qa_data.samples, key=lambda s: s.split):
+        out_file = output_dir / f"{split}.jsonl"
+        print(f"Writing {out_file} …")
+        with open(out_file, "w", encoding="utf-8") as fout:
+            for sample in group:
+                js = sample.to_json()
+                fout.write(json.dumps(js, ensure_ascii=False) + "\n")
+
+    print("Done writing train/dev/test JSONL files.")
 
 
 if __name__ == "__main__":
