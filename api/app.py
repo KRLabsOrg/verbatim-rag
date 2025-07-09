@@ -1,19 +1,19 @@
 """
-FastAPI server for the Verbatim RAG system.
+Clean FastAPI server for the Verbatim RAG system.
+Decoupled from RAG logic with proper dependency injection.
 """
-
-import json
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
+# Check for OpenAI API key
 if "OPENAI_API_KEY" not in os.environ:
     print("Warning: OPENAI_API_KEY environment variable not set.")
     print("Please set your OpenAI API key using:")
@@ -21,357 +21,263 @@ if "OPENAI_API_KEY" not in os.environ:
 
 try:
     from verbatim_rag import (
-        Citation,
-        DocumentWithHighlights,
-        Highlight,
         QueryRequest,
         QueryResponse,
-        StreamingResponseType,
-        StructuredAnswer,
-        TemplateManager,
-        VerbatimIndex,
         VerbatimRAG,
-    )
-    from verbatim_rag import (
-        StreamingResponse as VerbatimStreamingResponse,
+        TemplateManager,
+        StreamingRAG,
     )
 except ImportError as e:
     print(f"Error importing verbatim_rag: {e}")
     sys.exit(1)
 
-DEFAULT_INDEX_PATH = "index/"
-DEFAULT_TEMPLATES_PATH = "templates.json"
+from config import APIConfig, get_config
+from dependencies import get_api_service, get_rag_instance, get_template_manager, check_system_ready
+from services.rag_service import APIService
 
-index = None
-rag = None
-template_manager = None
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+# Request/Response models
+class QueryRequestModel(BaseModel):
+    question: str
+    template_id: Optional[str] = None
+
+
+class StreamQueryRequestModel(BaseModel):
+    question: str
+    num_docs: int = 5
+
+
+class StatusResponse(BaseModel):
+    resources_loaded: bool
+    message: str
+
+
+class TemplateListResponse(BaseModel):
+    templates: list[dict]
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global index, rag, template_manager
-
-    try:
-        if Path(DEFAULT_INDEX_PATH).exists():
-            print(f"Loading index from {DEFAULT_INDEX_PATH}...")
-            index = VerbatimIndex.load(DEFAULT_INDEX_PATH)
-
-            if Path(DEFAULT_TEMPLATES_PATH).exists():
-                print(f"Loading templates from {DEFAULT_TEMPLATES_PATH}...")
-                template_manager = TemplateManager()
-                template_manager.load_templates(DEFAULT_TEMPLATES_PATH)
-
-            print("Initializing RAG system...")
-            rag = VerbatimRAG(
-                index=index,
-                template_manager=template_manager,
-            )
-            print("RAG system initialized successfully.")
-        else:
-            print(
-                f"Index not found at {DEFAULT_INDEX_PATH}. Please load resources first."
-            )
-    except Exception as e:
-        print(f"Error during startup: {e}")
-
+    """Application lifespan manager"""
+    logger.info("Starting Verbatim RAG API server...")
+    
+    # Dependencies will be initialized on first request
+    # No global state initialization needed
+    
     yield
-
-    # Cleanup (if needed)
-    print("Shutting down...")
-
-
-app = FastAPI(lifespan=lifespan)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-)
+    
+    logger.info("Shutting down Verbatim RAG API server...")
 
 
-class LoadResourcesRequest(BaseModel):
-    """Request model for loading resources."""
-
-    api_key: Optional[str] = Field(
-        default=None,
-        description="OpenAI API key. If not provided, will use the environment variable.",
-        example="sk-...",
+def create_app() -> FastAPI:
+    """Create FastAPI application with proper configuration"""
+    config = get_config()
+    
+    app = FastAPI(
+        title="Verbatim RAG API",
+        description="API for the Verbatim RAG system - prevents hallucination by extracting verbatim spans from documents",
+        version="1.0.0",
+        lifespan=lifespan,
+        debug=config.debug
     )
-
-    class Config:
-        schema_extra = {"example": {"api_key": "sk-your-api-key-here"}}
-
-
-class LoadResourcesResponse(BaseModel):
-    """Response model for loading resources."""
-
-    message: str = Field(
-        description="Status message describing the result of the operation",
-        example="Resources loaded successfully.",
+    
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origins,
+        allow_credentials=config.cors_allow_credentials,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
-    success: bool = Field(
-        description="Whether the operation was successful", example=True
-    )
-
-    class Config:
-        schema_extra = {
-            "example": {"message": "Resources loaded successfully.", "success": True}
-        }
+    
+    return app
 
 
-class StatusResponse(BaseModel):
-    """Response model for the status endpoint."""
+app = create_app()
 
-    resources_loaded: bool = Field(
-        description="Whether the RAG system resources are loaded and ready",
-        example=True,
-    )
-    message: str = Field(description="Status message", example="RAG system is ready.")
 
-    class Config:
-        schema_extra = {
-            "example": {"resources_loaded": True, "message": "RAG system is ready."}
-        }
+@app.get("/")
+async def root():
+    """Root endpoint - basic health check"""
+    return {
+        "status": "online",
+        "message": "Verbatim RAG API is running"
+    }
 
 
 @app.get("/api/status", response_model=StatusResponse)
-async def get_status():
-    """Check if resources are loaded and the system is ready."""
-    global rag
-
-    if rag:
-        return StatusResponse(
-            resources_loaded=True, message="RAG system is initialized and ready."
-        )
-    else:
-        return StatusResponse(
-            resources_loaded=False,
-            message="RAG system not initialized. Please load resources first.",
-        )
-
-
-@app.post("/api/load-resources", response_model=LoadResourcesResponse)
-async def load_resources(request: LoadResourcesRequest = None):
-    """Load or reload resources for the RAG system."""
-    global index, rag, template_manager
-
-    if request and request.api_key:
-        os.environ["OPENAI_API_KEY"] = request.api_key
-
+async def get_status(
+    config: Annotated[APIConfig, Depends(get_config)],
+    rag: Annotated[VerbatimRAG, Depends(get_rag_instance)]
+):
+    """Get system status"""
     try:
-        print("Loading index...")
-        index = VerbatimIndex.load(DEFAULT_INDEX_PATH)
-
-        print("Loading templates...")
-        template_manager = TemplateManager()
-        if Path(DEFAULT_TEMPLATES_PATH).exists():
-            template_manager.load_templates(DEFAULT_TEMPLATES_PATH)
-
-        print("Initializing RAG system...")
-        rag = VerbatimRAG(
-            index=index,
-            template_manager=template_manager,
-        )
-
-        return LoadResourcesResponse(
-            message="Resources loaded successfully.", success=True
+        # Check if system is ready
+        ready = hasattr(rag, 'index') and rag.index is not None
+        
+        return StatusResponse(
+            resources_loaded=ready,
+            message=f"RAG system {'ready' if ready else 'initializing'}"
         )
     except Exception as e:
-        print(f"Error loading resources: {e}")
-        return LoadResourcesResponse(
-            message=f"Error loading resources: {str(e)}", success=False
+        logger.error(f"Status check failed: {e}")
+        return StatusResponse(
+            resources_loaded=False,
+            message=f"System error: {str(e)}"
         )
 
 
 @app.post("/api/query", response_model=QueryResponse)
-async def query(request: QueryRequest):
-    """Process a query and return the answer with highlighted documents."""
-    global rag
-
-    if not rag:
-        raise HTTPException(
-            status_code=400,
-            detail="RAG system not initialized. Please load resources first.",
-        )
-
+async def query_endpoint(
+    request: QueryRequestModel,
+    api_service: Annotated[APIService, Depends(get_api_service)],
+    _: Annotated[bool, Depends(check_system_ready)]
+):
+    """
+    Query the RAG system
+    
+    Args:
+        request: Query request with question and optional template ID
+        
+    Returns:
+        Query response with answer and supporting documents
+    """
     try:
-        # Update the number of documents to retrieve
-        rag.k = request.num_docs
-
-        # Process the query using the core library
-        result = rag.query(request.question)
-
-        # Return the result directly as a QueryResponse
-        return QueryResponse(
-            question=result.question,
-            answer=result.answer,
-            structured_answer=result.structured_answer,
-            documents=result.documents,
-        )
+        # Validate request
+        api_service.validate_query_request(request.question)
+        
+        # Execute query using the RAG package directly
+        response = api_service.rag.query(request.question)
+        
+        return response
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+        logger.error(f"Query failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/api/query/async", response_model=QueryResponse)
+async def query_async_endpoint(
+    request: QueryRequestModel,
+    api_service: Annotated[APIService, Depends(get_api_service)],
+    _: Annotated[bool, Depends(check_system_ready)]
+):
+    """
+    Async query the RAG system
+    
+    Args:
+        request: Query request with question and optional template ID
+        
+    Returns:
+        Query response with answer and supporting documents
+    """
+    try:
+        # Validate request
+        api_service.validate_query_request(request.question)
+        
+        # Execute async query using the RAG package directly
+        response = await api_service.rag.query_async(request.question)
+        
+        return response
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Async query failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/templates", response_model=TemplateListResponse)
+async def get_templates(
+    template_manager: Annotated[TemplateManager, Depends(get_template_manager)]
+):
+    """Get available templates"""
+    try:
+        templates = template_manager.list_templates()
+        return TemplateListResponse(templates=templates)
+    except Exception as e:
+        logger.error(f"Failed to get templates: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve templates")
 
 
 @app.post("/api/query/stream")
-async def query_stream(request: QueryRequest):
-    """Process a query and stream the results in stages."""
-    global rag
-
-    if not rag:
-        raise HTTPException(
-            status_code=400,
-            detail="RAG system not initialized. Please load resources first.",
+async def query_stream_endpoint(
+    request: StreamQueryRequestModel,
+    rag: Annotated[VerbatimRAG, Depends(get_rag_instance)],
+    api_service: Annotated[APIService, Depends(get_api_service)],
+    _: Annotated[bool, Depends(check_system_ready)]
+):
+    """
+    Stream a query response in stages using the package's streaming interface
+    
+    Args:
+        request: Stream query request with question and optional num_docs
+        
+    Returns:
+        Streaming response with documents, highlights, and final answer
+    """
+    try:
+        # Validate request
+        api_service.validate_query_request(request.question)
+        
+        # Create streaming RAG instance
+        streaming_rag = StreamingRAG(rag)
+        
+        async def generate_clean_response():
+            """Clean response generator using the package's streaming interface"""
+            import json
+            
+            logger.info(f"Starting streaming query for: {request.question}")
+            
+            try:
+                stage_count = 0
+                async for stage in streaming_rag.stream_query(request.question, request.num_docs):
+                    stage_count += 1
+                    logger.info(f"Yielding stage {stage_count}: {stage.get('type', 'unknown')}")
+                    yield json.dumps(stage) + "\n"
+                
+                if stage_count == 0:
+                    logger.warning("No stages yielded from streaming query")
+                    yield json.dumps({"type": "error", "error": "No data returned from RAG system", "done": True}) + "\n"
+                    
+            except Exception as e:
+                logger.error(f"Streaming error: {e}")
+                import traceback
+                traceback.print_exc()
+                yield json.dumps({"type": "error", "error": str(e), "done": True}) + "\n"
+        
+        # Return streaming response with proper headers
+        return FastAPIStreamingResponse(
+            generate_clean_response(),
+            media_type="application/x-ndjson",
+            headers={
+                "Content-Type": "application/x-ndjson",
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+                "Transfer-Encoding": "chunked",
+            },
         )
-
-    async def generate_response():
-        try:
-            # Step 1: Retrieve documents
-            rag.k = request.num_docs
-            docs = rag.index.search(request.question, k=request.num_docs)
-
-            # Create documents without highlights
-            documents_without_highlights = [
-                DocumentWithHighlights(content=doc.content, highlights=[])
-                for doc in docs
-            ]
-
-            # Send all documents in a single batch
-            yield (
-                json.dumps(
-                    {
-                        "type": "documents",
-                        "data": [
-                            doc.model_dump() for doc in documents_without_highlights
-                        ],
-                    }
-                )
-                + "\n"
-            )
-            yield "\n"  # Force flush
-
-            # Step 2: Extract relevant spans and create highlights
-            relevant_spans = rag.extractor.extract_spans(request.question, docs)
-            documents_with_highlights = []
-            all_citations = []
-
-            # Process each document to find highlights
-            for i, doc in enumerate(docs):
-                doc_content = doc.content
-                highlights = []
-
-                # Track regions that have already been highlighted to avoid duplicates
-                highlighted_regions = set()
-
-                # Find all spans in this document
-                if doc_content in relevant_spans and relevant_spans[doc_content]:
-                    # Sort spans by length (descending) to prioritize longer matches
-                    sorted_spans = sorted(
-                        relevant_spans[doc_content], key=len, reverse=True
-                    )
-
-                    for span in sorted_spans:
-                        # Find all non-overlapping occurrences of this span
-                        start = 0
-                        while True:
-                            start = doc_content.find(span, start)
-                            if start == -1:
-                                break
-
-                            # Check if this region overlaps with an already highlighted region
-                            end = start + len(span)
-                            overlap = False
-
-                            for region_start, region_end in highlighted_regions:
-                                # Check for any kind of overlap
-                                if start <= region_end and end >= region_start:
-                                    overlap = True
-                                    break
-
-                            if not overlap:
-                                # Create a highlight for this non-overlapping region
-                                highlight = Highlight(text=span, start=start, end=end)
-                                highlights.append(highlight)
-
-                                # Add to tracked regions
-                                highlighted_regions.add((start, end))
-
-                                # Create a citation
-                                all_citations.append(
-                                    Citation(
-                                        text=span,
-                                        doc_index=i,
-                                        highlight_index=len(highlights) - 1,
-                                    )
-                                )
-
-                            # Move past this occurrence
-                            start = end
-
-                # Add document with its highlights
-                documents_with_highlights.append(
-                    DocumentWithHighlights(content=doc_content, highlights=highlights)
-                )
-
-            # Send documents with highlights
-            yield (
-                json.dumps(
-                    {
-                        "type": "highlights",
-                        "data": [doc.model_dump() for doc in documents_with_highlights],
-                    }
-                )
-                + "\n"
-            )
-            yield "\n"  # Force flush
-
-            # Step 3: Generate answer
-            template = rag._generate_template(request.question)
-            answer = rag._fill_template(template, relevant_spans.values())
-
-            # Clean up the answer
-            if answer.startswith('"') and answer.endswith('"'):
-                answer = answer[1:-1]
-            answer = answer.replace("\\n", "\n")
-
-            # Create structured answer with citations
-            structured_answer = StructuredAnswer(text=answer, citations=all_citations)
-
-            # Create the final result
-            result = QueryResponse(
-                question=request.question,
-                answer=answer,
-                structured_answer=structured_answer,
-                documents=documents_with_highlights,
-            )
-
-            # Send final answer
-            yield (
-                json.dumps(
-                    {"type": "answer", "data": result.model_dump(), "done": True}
-                )
-                + "\n"
-            )
-
-        except Exception as e:
-            yield json.dumps({"error": str(e), "type": "error", "done": True}) + "\n"
-
-    # Return streaming response with headers to prevent buffering
-    return FastAPIStreamingResponse(
-        generate_response(),
-        media_type="application/x-ndjson",
-        headers={
-            "Content-Type": "application/x-ndjson",
-            "Cache-Control": "no-cache, no-transform",
-            "X-Accel-Buffering": "no",  # Prevents nginx buffering
-            "Transfer-Encoding": "chunked",  # Force chunked encoding
-        },
-    )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Stream query failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    config = get_config()
+    uvicorn.run(
+        "app_clean:app",
+        host=config.host,
+        port=config.port,
+        reload=config.debug,
+        log_level=config.log_level.lower()
+    )

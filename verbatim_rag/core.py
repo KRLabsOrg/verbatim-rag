@@ -12,6 +12,7 @@ from verbatim_rag.models import (
     StructuredAnswer,
 )
 from verbatim_rag.template_manager import TemplateManager
+from verbatim_rag.response_builder import ResponseBuilder
 
 MARKING_SYSTEM_PROMPT = """
 You are a Q&A text extraction system. Your task is to identify and mark EXACT verbatim text spans from the provided document that is relevant to answer the user's question.
@@ -70,6 +71,7 @@ class VerbatimRAG:
         # Use provided components or create defaults
         self.template_manager = template_manager or TemplateManager()
         self.extractor = extractor or LLMSpanExtractor(model=model)
+        self.response_builder = ResponseBuilder()
 
     def _generate_template(self, question: str) -> str:
         """
@@ -117,7 +119,6 @@ class VerbatimRAG:
         Process a query through the Verbatim RAG system.
 
         :param question: The user's question
-
         :return: A QueryResponse object containing the structured response
         """
         # Step 1: Generate a template
@@ -132,58 +133,16 @@ class VerbatimRAG:
         # Step 4: Fill the template with the marked context
         answer = self._fill_template(template, relevant_spans.values())
 
-        # Clean up the answer
-        if answer.startswith('"') and answer.endswith('"'):
-            answer = answer[1:-1]
-        answer = answer.replace("\\n", "\n")
+        # Step 5: Clean up the answer
+        answer = self.response_builder.clean_answer(answer)
 
-        # Create structured response
-        documents_with_highlights = []
-        all_citations = []
-
-        for i, doc in enumerate(docs):
-            doc_content = doc.content
-            highlights = []
-
-            if doc_content in relevant_spans and relevant_spans[doc_content]:
-                for span in relevant_spans[doc_content]:
-                    start = 0
-                    while True:
-                        start = doc_content.find(span, start)
-                        if start == -1:
-                            break
-
-                        highlight = Highlight(
-                            text=span, start=start, end=start + len(span)
-                        )
-
-                        highlights.append(highlight)
-
-                        all_citations.append(
-                            Citation(
-                                text=span,
-                                doc_index=i,
-                                highlight_index=len(highlights) - 1,
-                            )
-                        )
-
-                        start += len(span)
-
-            documents_with_highlights.append(
-                DocumentWithHighlights(content=doc_content, highlights=highlights)
-            )
-
-        structured_answer = StructuredAnswer(text=answer, citations=all_citations)
-
-        # Create the final result
-        result = QueryResponse(
+        # Step 6: Build the complete response using the response builder
+        return self.response_builder.build_response(
             question=question,
             answer=answer,
-            structured_answer=structured_answer,
-            documents=documents_with_highlights,
+            docs=docs,
+            relevant_spans=relevant_spans
         )
-
-        return result
 
     async def _generate_template_async(self, question: str) -> str:
         """
@@ -217,55 +176,13 @@ class VerbatimRAG:
         # Step 4: Fill the template with the marked context
         answer = self._fill_template(template, relevant_spans.values())
 
-        # Clean up the answer
-        if answer.startswith('"') and answer.endswith('"'):
-            answer = answer[1:-1]
-        answer = answer.replace("\\n", "\n")
+        # Step 5: Clean up the answer
+        answer = self.response_builder.clean_answer(answer)
 
-        # Create structured response
-        documents_with_highlights = []
-        all_citations = []
-
-        for i, doc in enumerate(docs):
-            doc_content = doc.content
-            highlights = []
-
-            if doc_content in relevant_spans and relevant_spans[doc_content]:
-                for span in relevant_spans[doc_content]:
-                    start = 0
-                    while True:
-                        start = doc_content.find(span, start)
-                        if start == -1:
-                            break
-
-                        highlight = Highlight(
-                            text=span, start=start, end=start + len(span)
-                        )
-
-                        highlights.append(highlight)
-
-                        all_citations.append(
-                            Citation(
-                                text=span,
-                                doc_index=i,
-                                highlight_index=len(highlights) - 1,
-                            )
-                        )
-
-                        start += len(span)
-
-            documents_with_highlights.append(
-                DocumentWithHighlights(content=doc_content, highlights=highlights)
-            )
-
-        structured_answer = StructuredAnswer(text=answer, citations=all_citations)
-
-        # Create the final result
-        result = QueryResponse(
+        # Step 6: Build the complete response using the response builder
+        return self.response_builder.build_response(
             question=question,
             answer=answer,
-            structured_answer=structured_answer,
-            documents=documents_with_highlights,
+            docs=docs,
+            relevant_spans=relevant_spans
         )
-
-        return result

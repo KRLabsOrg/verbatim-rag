@@ -1,33 +1,20 @@
 import React, { useState } from 'react';
-import {
-  Box,
-  Flex,
-  Heading,
-  IconButton,
-  Spinner,
-  Text,
-  useColorModeValue,
-  Input,
-  InputGroup,
-  InputLeftElement,
-  Badge,
-  Button,
-} from '@chakra-ui/react';
-import { FaChevronLeft, FaSearch, FaChevronRight } from 'react-icons/fa';
+import { FaChevronLeft, FaSearch, FaChevronRight, FaFileAlt, FaSpinner, FaFolder } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useApi } from '../contexts/ApiContext';
 import { useDocuments } from '../contexts/DocumentsContext';
+import { Card, CardHeader, CardTitle, CardContent } from './ui/Card';
+import { Button } from './ui/Button';
+import { Input } from './ui/Input';
+import { Badge } from './ui/Badge';
+import { Spinner } from './ui/Spinner';
 import DocumentViewer from './DocumentViewer';
-
-const MotionBox = motion(Box);
+import DocumentSelector from './DocumentSelector';
 
 const DocumentPanel = ({ onBack }) => {
   const { isLoading, currentQuery } = useApi();
   const { selectedDocId, setSelectedDocId } = useDocuments();
   const [searchText, setSearchText] = useState('');
-  
-  const bgColor = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
   
   // Determine if we're on mobile based on whether onBack is provided
   const isMobile = !!onBack;
@@ -41,290 +28,251 @@ const DocumentPanel = ({ onBack }) => {
   const filteredDocument = document && searchText
     ? {
         ...document,
-        highlights: document.highlights.filter(h => 
+        highlights: document.highlights?.filter(h => 
           h.text.toLowerCase().includes(searchText.toLowerCase())
-        )
+        ) || []
       }
     : document;
+
+  const handleDocumentSelect = (docIndex) => {
+    setSelectedDocId({ docIndex });
+  };
+
+  const navigateDocument = (direction) => {
+    if (!selectedDocId || !currentQuery?.documents) return;
+    
+    const newIndex = selectedDocId.docIndex + direction;
+    if (newIndex >= 0 && newIndex < currentQuery.documents.length) {
+      setSelectedDocId({ docIndex: newIndex });
+    }
+  };
   
   return (
-    <MotionBox
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 20 }}
-      transition={{ duration: 0.3 }}
-      bg={bgColor}
-      borderRadius="lg"
-      borderWidth="1px"
-      borderColor={borderColor}
-      h="100%"
-      display="flex"
-      flexDirection="column"
-    >
+    <Card className="h-full flex flex-col">
       {/* Header */}
-      <Flex
-        p={4}
-        borderBottomWidth="1px"
-        borderColor={borderColor}
-        align="center"
-        justify="space-between"
-      >
-        <Flex align="center">
-          {isMobile && (
-            <IconButton
-              icon={<FaChevronLeft />}
-              aria-label="Back"
-              variant="ghost"
-              mr={2}
-              onClick={onBack}
-            />
-          )}
-          <Heading size="md">Source Document</Heading>
-        </Flex>
-        
-        {currentQuery && currentQuery.documents && currentQuery.documents.length > 0 && (
-          <Flex align="center">
-            <Text fontSize="sm" mr={2}>
-              Document {selectedDocId ? selectedDocId.docIndex + 1 : 0} of {currentQuery.documents.length}
-            </Text>
-            
-            {/* Navigation buttons */}
-            <Flex>
-              <IconButton
-                icon={<FaChevronLeft />}
-                aria-label="Previous document"
-                size="xs"
+      <CardHeader className="border-b border-secondary-200">
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center space-x-2">
+            {isMobile && (
+              <Button
                 variant="ghost"
-                isDisabled={!selectedDocId || selectedDocId.docIndex === 0}
-                onClick={() => {
-                  if (selectedDocId && selectedDocId.docIndex > 0) {
-                    setSelectedDocId({ docIndex: selectedDocId.docIndex - 1 });
-                  }
-                }}
-                mr={1}
-              />
-              <IconButton
-                icon={<FaChevronRight />}
-                aria-label="Next document"
-                size="xs"
-                variant="ghost"
-                isDisabled={!selectedDocId || !currentQuery || !currentQuery.documents || selectedDocId.docIndex === currentQuery.documents.length - 1}
-                onClick={() => {
-                  if (selectedDocId && currentQuery && currentQuery.documents && 
-                      selectedDocId.docIndex < currentQuery.documents.length - 1) {
-                    setSelectedDocId({ docIndex: selectedDocId.docIndex + 1 });
-                  }
-                }}
-              />
-            </Flex>
-          </Flex>
-        )}
-      </Flex>
-      
-      {/* Document selector - show if we have documents */}
-      {currentQuery && currentQuery.documents && currentQuery.documents.length > 0 && (
-        <Box px={4} py={3} borderBottomWidth="1px" borderColor={borderColor}>
-          <Flex justify="space-between" align="center" mb={2}>
-            <Text fontSize="sm" fontWeight="medium">
-              Source Documents ({currentQuery.documents.length})
-            </Text>
-            <Flex gap={2} align="center">
-              <Flex align="center">
-                <Box w="10px" h="10px" borderRadius="full" bg="green.500" mr={1}></Box>
-                <Text fontSize="xs">With highlights</Text>
-              </Flex>
-              <Flex align="center">
-                <Box w="10px" h="10px" borderRadius="full" bg="gray.400" mr={1}></Box>
-                <Text fontSize="xs">No highlights</Text>
-              </Flex>
-            </Flex>
-          </Flex>
+                size="icon"
+                onClick={onBack}
+                className="mr-2"
+              >
+                <FaChevronLeft className="w-4 h-4" />
+              </Button>
+            )}
+            <FaFileAlt className="w-5 h-5 text-primary-600" />
+            <span>Source Documents</span>
+          </CardTitle>
           
-          <Text fontSize="xs" color="gray.500" mb={2}>
-            Click on a document to view its content:
-          </Text>
-          
-          <Flex wrap="wrap" gap={2}>
-            {currentQuery.documents.map((doc, idx) => {
-              const hasHighlights = doc.highlights && doc.highlights.length > 0;
-              const isSelected = selectedDocId && selectedDocId.docIndex === idx;
-              
-              return (
+          {/* Document navigation */}
+          {currentQuery?.documents && currentQuery.documents.length > 0 && selectedDocId && (
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-secondary-600">
+                {selectedDocId.docIndex + 1} of {currentQuery.documents.length}
+              </span>
+              <div className="flex space-x-1">
                 <Button
-                  key={idx}
-                  size="xs"
-                  variant={isSelected ? "solid" : "outline"}
-                  colorScheme={hasHighlights ? "green" : "gray"}
-                  onClick={() => setSelectedDocId({ docIndex: idx })}
-                  leftIcon={
-                    <Box 
-                      w="8px" 
-                      h="8px" 
-                      borderRadius="full" 
-                      bg={hasHighlights ? "green.500" : "gray.400"}
-                    />
-                  }
-                  boxShadow={isSelected ? "md" : "none"}
-                  _hover={{ transform: "translateY(-2px)", boxShadow: "sm" }}
-                  transition="all 0.2s"
+                  variant="ghost"
+                  size="icon"
+                  disabled={selectedDocId.docIndex === 0}
+                  onClick={() => navigateDocument(-1)}
+                  className="h-8 w-8"
                 >
-                  {idx + 1}
-                  {hasHighlights && (
-                    <Badge ml={1} colorScheme="green" variant="solid">
-                      {doc.highlights.length}
-                    </Badge>
-                  )}
+                  <FaChevronLeft className="w-3 h-3" />
                 </Button>
-              );
-            })}
-          </Flex>
-        </Box>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={selectedDocId.docIndex === currentQuery.documents.length - 1}
+                  onClick={() => navigateDocument(1)}
+                  className="h-8 w-8"
+                >
+                  <FaChevronRight className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </CardHeader>
+      
+      {/* Document selector */}
+      {currentQuery?.documents && currentQuery.documents.length > 0 && (
+        <DocumentSelector
+          documents={currentQuery.documents}
+          selectedDocIndex={selectedDocId?.docIndex}
+          onDocumentSelect={handleDocumentSelect}
+        />
       )}
       
       {/* Search bar - only show if we have a document */}
       {document && (
-        <Box px={4} py={3} borderBottomWidth="1px" borderColor={borderColor}>
-          <InputGroup size="sm">
-            <InputLeftElement pointerEvents="none">
-              <FaSearch color="gray.300" />
-            </InputLeftElement>
+        <div className="border-b border-secondary-200 p-4 bg-white">
+          <div className="relative">
+            <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-secondary-400" />
             <Input
               placeholder="Search in highlights..."
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
-              borderRadius="md"
+              className="pl-10"
             />
-          </InputGroup>
+          </div>
           {searchText && (
-            <Flex mt={2} align="center">
-              <Text fontSize="xs" color="gray.500" mr={2}>
-                Found:
-              </Text>
-              <Badge colorScheme={filteredDocument.highlights.length > 0 ? "green" : "red"}>
-                {filteredDocument.highlights.length} highlight{filteredDocument.highlights.length !== 1 ? 's' : ''}
+            <div className="flex items-center mt-2 space-x-2">
+              <span className="text-xs text-secondary-500">Found:</span>
+              <Badge variant={filteredDocument?.highlights?.length > 0 ? "success" : "danger"}>
+                {filteredDocument?.highlights?.length || 0} highlight{filteredDocument?.highlights?.length !== 1 ? 's' : ''}
               </Badge>
-            </Flex>
+            </div>
           )}
-        </Box>
+        </div>
       )}
       
       {/* Content */}
-      <Box flex="1" overflowY="auto" p={4}>
+      <CardContent className="flex-1 overflow-y-auto p-4">
         <AnimatePresence mode="wait">
-          {isLoading && !currentQuery ? (
-            <Flex justify="center" align="center" h="100%">
-              <Spinner size="xl" color="blue.500" thickness="4px" />
-            </Flex>
-          ) : isLoading && currentQuery && !selectedDocId ? (
-            <Flex
-              justify="center"
-              align="center"
-              h="100%"
-              textAlign="center"
-              px={4}
-              direction="column"
+          {/* Initial loading state */}
+          {isLoading && !currentQuery && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center justify-center h-64 space-y-4"
             >
-              <Spinner size="lg" color="blue.500" thickness="3px" mb={4} />
-              <Text color="gray.500">
-                Loading documents...
-              </Text>
+              <Spinner size="lg" />
+              <p className="text-secondary-600">Loading documents...</p>
+            </motion.div>
+          )}
+
+          {/* Documents loading state */}
+          {isLoading && currentQuery && !selectedDocId && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center justify-center h-64 space-y-4 text-center"
+            >
+              <div className="flex items-center space-x-2">
+                <FaSpinner className="w-6 h-6 animate-spin text-primary-600" />
+                <span className="text-lg font-medium text-secondary-700">Loading documents...</span>
+              </div>
               {currentQuery.documents && currentQuery.documents.length > 0 && (
-                <Text color="blue.500" mt={2} fontWeight="medium">
+                <Badge variant="default" className="mt-2">
                   Found {currentQuery.documents.length} document{currentQuery.documents.length !== 1 ? 's' : ''}
-                </Text>
+                </Badge>
               )}
-            </Flex>
-          ) : !currentQuery ? (
-            <Flex
-              justify="center"
-              align="center"
-              h="100%"
-              textAlign="center"
-              px={4}
+            </motion.div>
+          )}
+
+          {/* No query state */}
+          {!currentQuery && !isLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="flex flex-col items-center justify-center h-64 space-y-4 text-center"
             >
-              <Text color="gray.500">
-                Ask a question to see source documents
-              </Text>
-            </Flex>
-          ) : !selectedDocId ? (
-            <Flex
-              justify="center"
-              align="center"
-              h="100%"
-              textAlign="center"
-              px={4}
-              direction="column"
+              <FaFolder className="w-16 h-16 text-secondary-300" />
+              <div>
+                <h3 className="text-lg font-medium text-secondary-700 mb-2">No Documents Yet</h3>
+                <p className="text-secondary-500">
+                  Ask a question to see relevant source documents
+                </p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* No document selected state */}
+          {currentQuery && !selectedDocId && !isLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="flex flex-col items-center justify-center h-64 space-y-6"
             >
-              <Box
-                mb={6}
-                p={4}
-                borderRadius="md"
-                bg="blue.50"
-                borderWidth="1px"
-                borderColor="blue.200"
-                maxW="400px"
-              >
-                <Text fontSize="md" fontWeight="medium" color="blue.700" mb={3}>
+              <div className="text-center max-w-md">
+                <div className="w-16 h-16 mx-auto mb-4 bg-primary-100 rounded-full flex items-center justify-center">
+                  <FaFileAlt className="w-8 h-8 text-primary-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-secondary-800 mb-2">
                   Source Documents Available
-                </Text>
-                <Text color="gray.600" fontSize="sm" mb={4}>
+                </h3>
+                <p className="text-secondary-600 text-sm mb-6">
                   {currentQuery.documents && currentQuery.documents.length > 0 
-                    ? `${currentQuery.documents.length} documents were retrieved for your query. Click on any document button above to view its content.`
+                    ? `${currentQuery.documents.length} documents were retrieved for your query. Select a document above to view its content.`
                     : "No documents were found for this query."}
-                </Text>
+                </p>
                 
+                {/* Quick access buttons */}
                 {currentQuery.documents && currentQuery.documents.length > 0 && (
-                  <Flex wrap="wrap" gap={2} justify="center">
-                    {currentQuery.documents.slice(0, 5).map((doc, idx) => (
-                      <Button
-                        key={idx}
-                        size="sm"
-                        colorScheme={doc.highlights && doc.highlights.length > 0 ? "green" : "gray"}
-                        onClick={() => setSelectedDocId({ docIndex: idx })}
-                        leftIcon={
-                          <Box 
-                            w="8px" 
-                            h="8px" 
-                            borderRadius="full" 
-                            bg={doc.highlights && doc.highlights.length > 0 ? "green.500" : "gray.400"}
-                          />
-                        }
-                      >
-                        Document {idx + 1}
-                      </Button>
-                    ))}
-                    
-                    {currentQuery.documents.length > 5 && (
-                      <Text fontSize="sm" color="gray.500" mt={2} width="100%" textAlign="center">
-                        + {currentQuery.documents.length - 5} more documents
-                      </Text>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    {currentQuery.documents.slice(0, 3).map((doc, idx) => {
+                      const hasHighlights = doc.highlights && doc.highlights.length > 0;
+                      return (
+                        <Button
+                          key={idx}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDocumentSelect(idx)}
+                          className="flex items-center space-x-2"
+                        >
+                          <div className={`w-2 h-2 rounded-full ${hasHighlights ? 'bg-green-500' : 'bg-secondary-400'}`} />
+                          <span>Doc {idx + 1}</span>
+                          {hasHighlights && (
+                            <Badge variant="success" className="ml-1">
+                              {doc.highlights.length}
+                            </Badge>
+                          )}
+                        </Button>
+                      );
+                    })}
+                    {currentQuery.documents.length > 3 && (
+                      <span className="text-xs text-secondary-500 mt-2">
+                        + {currentQuery.documents.length - 3} more
+                      </span>
                     )}
-                  </Flex>
+                  </div>
                 )}
-              </Box>
-            </Flex>
-          ) : document ? (
-            <DocumentViewer 
-              document={filteredDocument} 
-              selectedHighlightIndex={selectedDocId.highlightIndex}
-              isLoading={isLoading}
-            />
-          ) : (
-            <Flex
-              justify="center"
-              align="center"
-              h="100%"
-              textAlign="center"
-              px={4}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Document viewer */}
+          {document && (
+            <motion.div
+              key={selectedDocId?.docIndex}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
             >
-              <Text color="gray.500">
-                Document not found
-              </Text>
-            </Flex>
+              <DocumentViewer 
+                document={filteredDocument} 
+                selectedHighlightIndex={selectedDocId?.highlightIndex}
+                isLoading={isLoading}
+              />
+            </motion.div>
+          )}
+
+          {/* Document not found state */}
+          {selectedDocId && !document && !isLoading && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center h-64 text-secondary-500"
+            >
+              <div className="text-center">
+                <FaFileAlt className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>Document not found</p>
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
-      </Box>
-    </MotionBox>
+      </CardContent>
+    </Card>
   );
 };
 

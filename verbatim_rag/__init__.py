@@ -20,5 +20,6 @@ from verbatim_rag.models import (
     StreamingResponseType,
     StructuredAnswer,
 )
+from verbatim_rag.streaming import StreamingRAG
 from verbatim_rag.template_manager import TemplateManager
 from verbatim_rag.text_splitter import TextSplitter

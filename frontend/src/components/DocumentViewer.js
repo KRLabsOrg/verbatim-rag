@@ -1,29 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  Box,
-  Text,
-  useColorModeValue,
-  Spinner,
-  Flex,
-  Badge,
-  Alert,
-  AlertIcon,
-  AlertTitle,
-  AlertDescription,
-  Button,
-  Collapse,
-  IconButton,
-} from '@chakra-ui/react';
-import { FaChevronDown, FaChevronUp, FaExpand, FaCompress } from 'react-icons/fa';
+import { motion, AnimatePresence } from 'framer-motion';
+import { FaHighlighter, FaInfoCircle, FaEye, FaEyeSlash } from 'react-icons/fa';
+import { Button } from './ui/Button';
+import { Badge } from './ui/Badge';
+import { Card, CardContent } from './ui/Card';
+import { Spinner } from './ui/Spinner';
+import { cn } from '../utils/cn';
 
 const DocumentViewer = ({ document: docData, selectedHighlightIndex, isLoading }) => {
   const contentRef = useRef(null);
   const highlightRefs = useRef([]);
   const [showFullContent, setShowFullContent] = useState(false);
-  
-  const highlightColor = useColorModeValue('yellow.200', 'yellow.700');
-  const selectedHighlightColor = useColorModeValue('orange.300', 'orange.600');
-  const textColor = useColorModeValue('gray.800', 'gray.100');
   
   // Apply highlights to the document content
   useEffect(() => {
@@ -52,13 +39,11 @@ const DocumentViewer = ({ document: docData, selectedHighlightIndex, isLoading }
       
       // Add the highlighted text with a data attribute for the index
       const isSelected = index === selectedHighlightIndex;
-      const bgColor = isSelected ? selectedHighlightColor : highlightColor;
-      const borderStyle = isSelected ? 'solid 2px orange' : 'none';
+      const className = isSelected ? 'bg-blue-100 border-l-2 border-blue-400 shadow-sm' : 'bg-blue-50 border-b border-blue-300';
       
       html += `<mark 
         id="highlight-${index}" 
-        class="highlight ${isSelected ? 'selected' : ''}" 
-        style="background-color: ${bgColor}; padding: 0 2px; border-radius: 2px; border: ${borderStyle};"
+        class="highlight ${isSelected ? 'selected' : ''} ${className} px-1 py-0.5 rounded-sm transition-all duration-200" 
         data-index="${index}"
       >${highlight.text}</mark>`;
       
@@ -75,8 +60,7 @@ const DocumentViewer = ({ document: docData, selectedHighlightIndex, isLoading }
     // Scroll to selected highlight if specified
     if (selectedHighlightIndex !== undefined && selectedHighlightIndex !== null) {
       setTimeout(() => {
-        // Use window.document instead of document to avoid the naming conflict
-        const selectedElement = window.document.getElementById(`highlight-${selectedHighlightIndex}`);
+        const selectedElement = document.getElementById(`highlight-${selectedHighlightIndex}`);
         if (selectedElement) {
           selectedElement.scrollIntoView({ 
             behavior: 'smooth', 
@@ -86,150 +70,181 @@ const DocumentViewer = ({ document: docData, selectedHighlightIndex, isLoading }
         }
       }, 100);
     }
-  }, [docData, highlightColor, selectedHighlightColor, selectedHighlightIndex]);
+  }, [docData, selectedHighlightIndex]);
   
   if (!docData) {
-    return <Text>No document selected</Text>;
+    return (
+      <div className="flex items-center justify-center h-64 text-secondary-500">
+        <FaInfoCircle className="w-8 h-8 mr-2" />
+        <span>No document selected</span>
+      </div>
+    );
   }
   
   const hasHighlights = docData.highlights && docData.highlights.length > 0;
   
   return (
-    <Box>
+    <div className="space-y-4">
+      {/* Loading indicator */}
       {isLoading && (
-        <Flex justify="flex-end" mb={2}>
-          <Badge colorScheme="blue" display="flex" alignItems="center" p={1}>
-            <Spinner size="xs" mr={1} />
-            <Text fontSize="xs">Loading highlights...</Text>
-          </Badge>
-        </Flex>
-      )}
-      
-      {!hasHighlights && !isLoading && (
-        <Alert status="info" mb={3} borderRadius="md">
-          <AlertIcon />
-          <Box>
-            <AlertTitle fontSize="sm">No highlights found</AlertTitle>
-            <AlertDescription fontSize="xs">
-              This document doesn't contain any passages relevant to the query.
-            </AlertDescription>
-          </Box>
-        </Alert>
-      )}
-      
-      {/* Document summary */}
-      <Box 
-        mb={3} 
-        p={3} 
-        borderWidth="1px" 
-        borderRadius="md" 
-        borderColor={hasHighlights ? "green.200" : "gray.200"} 
-        bg={hasHighlights ? "green.50" : "gray.50"}
-        position="relative"
-      >
-        <Flex justify="space-between" align="center" mb={2}>
-          <Text fontSize="sm" fontWeight="bold" color={hasHighlights ? "green.700" : "gray.700"}>
-            Document Summary
-          </Text>
-          <IconButton
-            icon={showFullContent ? <FaCompress /> : <FaExpand />}
-            size="xs"
-            aria-label={showFullContent ? "Collapse" : "Expand"}
-            onClick={() => setShowFullContent(!showFullContent)}
-            variant="ghost"
-          />
-        </Flex>
-        
-        <Text fontSize="sm" color="gray.700" mb={hasHighlights ? 2 : 0}>
-          {docData.content.length > 300 
-            ? docData.content.substring(0, 300) + '...' 
-            : docData.content}
-        </Text>
-        
-        {hasHighlights && (
-          <Box>
-            <Text fontSize="xs" fontWeight="bold" mt={3} mb={1} color="green.700">
-              Relevant Passages ({docData.highlights.length}):
-            </Text>
-            <Flex mt={1} wrap="wrap" gap={1}>
-              {docData.highlights.map((highlight, idx) => (
-                <Badge 
-                  key={idx} 
-                  colorScheme="yellow" 
-                  fontSize="xs"
-                  p={1}
-                  cursor="pointer"
-                  onClick={() => {
-                    setShowFullContent(true);
-                    setTimeout(() => {
-                      // Use window.document instead of document to avoid the naming conflict
-                      const selectedElement = window.document.getElementById(`highlight-${idx}`);
-                      if (selectedElement) {
-                        selectedElement.scrollIntoView({ 
-                          behavior: 'smooth', 
-                          block: 'center' 
-                        });
-                      }
-                    }, 100);
-                  }}
-                >
-                  {highlight.text.length > 40 
-                    ? highlight.text.substring(0, 40) + '...' 
-                    : highlight.text}
-                </Badge>
-              ))}
-            </Flex>
-          </Box>
-        )}
-        
-        <Button 
-          size="xs" 
-          width="100%" 
-          mt={3}
-          onClick={() => setShowFullContent(!showFullContent)}
-          rightIcon={showFullContent ? <FaChevronUp /> : <FaChevronDown />}
-          variant="outline"
-          colorScheme={hasHighlights ? "green" : "gray"}
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-end"
         >
-          {showFullContent ? "Hide Full Content" : "Show Full Content"}
-        </Button>
-      </Box>
+          <Badge variant="warning" className="flex items-center space-x-2">
+            <Spinner size="sm" />
+            <span>Loading highlights...</span>
+          </Badge>
+        </motion.div>
+      )}
+      
+      {/* No highlights alert */}
+      {!hasHighlights && !isLoading && (
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="p-4 bg-blue-50 border border-blue-200 rounded-lg"
+        >
+          <div className="flex items-start space-x-3">
+            <FaInfoCircle className="w-5 h-5 text-blue-600 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-medium text-blue-800">No highlights found</h4>
+              <p className="text-xs text-blue-600 mt-1">
+                This document doesn't contain any passages relevant to the current query.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      )}
+      
+      {/* Document summary card */}
+      <Card className={cn(
+        "transition-all duration-200",
+        hasHighlights ? "border-green-200 bg-green-50/50" : "border-secondary-200 bg-secondary-50/50"
+      )}>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center space-x-2">
+              <FaHighlighter className={cn(
+                "w-4 h-4",
+                hasHighlights ? "text-green-600" : "text-secondary-400"
+              )} />
+              <h3 className={cn(
+                "text-sm font-semibold",
+                hasHighlights ? "text-green-800" : "text-secondary-700"
+              )}>
+                Document Content
+              </h3>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowFullContent(!showFullContent)}
+              className="flex items-center space-x-2"
+            >
+              {showFullContent ? <FaEyeSlash className="w-3 h-3" /> : <FaEye className="w-3 h-3" />}
+              <span className="text-xs">
+                {showFullContent ? "Hide" : "Show"} Full Content
+              </span>
+            </Button>
+          </div>
+          
+          {/* Document preview */}
+          <div className="text-sm text-secondary-700 mb-3 font-mono leading-relaxed break-words">
+            {docData.content.length > 300 
+              ? docData.content.substring(0, 300) + '...' 
+              : docData.content}
+          </div>
+          
+          {/* Highlight badges */}
+          {hasHighlights && (
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-medium text-green-700">
+                  Relevant Passages ({docData.highlights.length}):
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {docData.highlights.map((highlight, idx) => (
+                  <motion.div
+                    key={idx}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: idx * 0.05 }}
+                  >
+                    <Badge 
+                      variant="warning" 
+                      className="cursor-pointer hover:bg-yellow-200 transition-colors text-xs max-w-xs truncate"
+                      onClick={() => {
+                        setShowFullContent(true);
+                        setTimeout(() => {
+                          const selectedElement = document.getElementById(`highlight-${idx}`);
+                          if (selectedElement) {
+                            selectedElement.scrollIntoView({ 
+                              behavior: 'smooth', 
+                              block: 'center' 
+                            });
+                          }
+                        }, 100);
+                      }}
+                    >
+                      {highlight.text.length > 50 
+                        ? highlight.text.substring(0, 50) + '...' 
+                        : highlight.text}
+                    </Badge>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
       
       {/* Full document content */}
-      <Collapse in={showFullContent} animateOpacity>
-        <Box
-          ref={contentRef}
-          whiteSpace="pre-wrap"
-          color={textColor}
-          fontSize="sm"
-          fontFamily="mono"
-          p={3}
-          borderWidth="1px"
-          borderColor={isLoading ? "blue.200" : hasHighlights ? "green.200" : "gray.200"}
-          borderRadius="md"
-          position="relative"
-          maxHeight="calc(100vh - 350px)"
-          overflowY="auto"
-          css={{
-            '.highlight': {
-              transition: 'background-color 0.3s, border 0.3s',
-            },
-            '.highlight.selected': {
-              boxShadow: '0 0 8px rgba(255, 165, 0, 0.5)',
-            }
-          }}
-        />
-      </Collapse>
+      <AnimatePresence>
+        {showFullContent && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden"
+          >
+            <Card className={cn(
+              "transition-all duration-200",
+              isLoading ? "border-blue-200" : hasHighlights ? "border-green-200" : "border-secondary-200"
+            )}>
+              <CardContent className="p-0">
+                <div
+                  ref={contentRef}
+                  className={cn(
+                    "whitespace-pre-wrap text-sm font-mono leading-relaxed p-4 break-words",
+                    "max-h-[50vh] sm:max-h-[60vh] md:max-h-96 overflow-y-auto scrollbar-webkit",
+                    "text-secondary-900"
+                  )}
+                />
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
       
+      {/* Loading indicator for highlights */}
       {docData.highlights && docData.highlights.length === 0 && isLoading && (
-        <Flex justify="center" mt={4}>
-          <Badge colorScheme="yellow">
-            Searching for relevant passages...
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex justify-center py-4"
+        >
+          <Badge variant="warning" className="flex items-center space-x-2">
+            <Spinner size="sm" />
+            <span>Searching for relevant passages...</span>
           </Badge>
-        </Flex>
+        </motion.div>
       )}
-    </Box>
+    </div>
   );
 };
 
-export default DocumentViewer; 
+export default DocumentViewer;

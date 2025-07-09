@@ -5,9 +5,9 @@ import { motion } from 'framer-motion';
 const MotionBox = motion(Box);
 
 const HighlightedText = ({ text, facts, onFactClick }) => {
-  const highlightBg = useColorModeValue('highlight.yellow', 'rgba(255, 220, 100, 0.2)');
-  const highlightColor = useColorModeValue('black', 'white');
-  const highlightBorder = useColorModeValue('yellow.300', 'yellow.700');
+  const highlightBg = useColorModeValue('rgba(59, 130, 246, 0.1)', 'rgba(59, 130, 246, 0.15)');
+  const highlightColor = useColorModeValue('rgb(30, 58, 138)', 'rgb(147, 197, 253)');
+  const highlightBorder = useColorModeValue('rgba(59, 130, 246, 0.3)', 'rgba(59, 130, 246, 0.4)');
   
   // Process the text to highlight facts
   const processedContent = useMemo(() => {
@@ -94,17 +94,16 @@ const HighlightedText = ({ text, facts, onFactClick }) => {
             color={highlightColor}
             px={1}
             py={0.5}
-            mx={0.5}
-            borderRadius="md"
-            borderWidth="1px"
-            borderColor={highlightBorder}
+            borderRadius="sm"
+            borderBottomWidth="1px"
+            borderBottomColor={highlightBorder}
             cursor="pointer"
             whiteSpace="normal"
             initial={{ backgroundColor: highlightBg }}
             whileHover={{ 
-              backgroundColor: 'rgba(255, 220, 100, 0.5)',
-              scale: 1.05,
-              transition: { duration: 0.2 }
+              backgroundColor: 'rgba(59, 130, 246, 0.15)',
+              borderBottomColor: 'rgba(59, 130, 246, 0.5)',
+              transition: { duration: 0.15 }
             }}
             onClick={() => onFactClick(item.fact)}
           >

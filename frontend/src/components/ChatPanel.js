@@ -1,61 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  Box,
-  Button,
-  Flex,
-  FormControl,
-  Input,
-  Text,
-  VStack,
-  useColorModeValue,
-  Spinner,
-  Heading,
-  Divider,
-  List,
-  ListItem,
-  ListIcon,
-  Tooltip,
-  Badge,
-  IconButton,
-  Tag,
-  TagLabel,
-  TagLeftIcon,
-  NumberInput,
-  NumberInputField,
-  NumberInputStepper,
-  NumberIncrementStepper,
-  NumberDecrementStepper,
-  Avatar,
-  InputGroup,
-  InputRightElement,
-  Alert,
-  AlertIcon,
-  AlertDescription,
-} from '@chakra-ui/react';
-import { FaPaperPlane, FaQuoteRight, FaSearch, FaLink, FaComments, FaFileAlt, FaFile } from 'react-icons/fa';
 import { motion, AnimatePresence } from 'framer-motion';
+import { FaComments, FaExclamationTriangle } from 'react-icons/fa';
 import { useApi } from '../contexts/ApiContext';
 import { useDocuments } from '../contexts/DocumentsContext';
-
-const MotionBox = motion(Box);
+import { Card, CardHeader, CardTitle, CardContent } from './ui/Card';
+import { Spinner } from './ui/Spinner';
+import ChatMessage from './ChatMessage';
+import ChatInput from './ChatInput';
+import RelevantSentences from './RelevantSentences';
 
 const ChatPanel = () => {
-  const { isLoading, isResourcesLoaded, currentQuery, submitQuery } = useApi();
+  const { isLoading, isResourcesLoaded, currentQuery, submitQuery, error } = useApi();
   const { setSelectedDocId } = useDocuments();
-  const [question, setQuestion] = useState('');
-  const [searchText, setSearchText] = useState('');
   const [selectedHighlight, setSelectedHighlight] = useState(null);
   const messagesEndRef = useRef(null);
   const answerRef = useRef(null);
-  
-  const bgColor = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
-  const questionBgColor = useColorModeValue('gray.100', 'gray.700');
-  const answerBgColor = useColorModeValue('brand.50', 'brand.900');
-  const answerTextColor = useColorModeValue('gray.800', 'white');
-  const highlightColor = useColorModeValue('yellow.100', 'yellow.800');
-  const selectedHighlightColor = useColorModeValue('orange.100', 'orange.800');
-  const searchHighlightColor = useColorModeValue('green.100', 'green.800');
   
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -88,7 +47,7 @@ const ChatPanel = () => {
           html += answer.substring(lastIndex, startIndex);
           
           // Add the highlighted match
-          html += `<mark style="background-color: ${searchHighlightColor}; padding: 0 2px; border-radius: 2px;">${highlightText}</mark>`;
+          html += `<mark style="background-color: #fef3c7; padding: 0 2px; border-radius: 2px;">${highlightText}</mark>`;
           
           // Update indices
           lastIndex = startIndex + highlightText.length;
@@ -107,7 +66,7 @@ const ChatPanel = () => {
         // Add citation markers
         citations.forEach((citation, index) => {
           const citationText = citation.text;
-          const citationMarker = `<sup><a href="#" data-citation="${index}" style="color: #3182CE; text-decoration: none; font-weight: bold;">[${index + 1}]</a></sup>`;
+          const citationMarker = `<sup><a href="#" data-citation="${index}" style="color: #2563eb; text-decoration: none; font-weight: bold;">[${index + 1}]</a></sup>`;
           
           // Replace the citation text with the citation text + marker
           // Only replace the first occurrence to avoid duplicate markers
@@ -152,19 +111,16 @@ const ChatPanel = () => {
     
     return () => {
       if (answerRef.current) {
-        answerRef.current.textContent = currentQuery.answer;
+        answerRef.current.textContent = currentQuery?.answer || '';
       }
     };
-  }, [currentQuery, selectedHighlight, searchHighlightColor, setSelectedDocId]);
+  }, [currentQuery, selectedHighlight, setSelectedDocId]);
   
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (question) => {
     if (!question.trim() || !isResourcesLoaded) return;
     
     setSelectedHighlight(null);
-    setSearchText('');
     await submitQuery(question);
-    setQuestion('');
   };
 
   // Extract all unique highlights from all documents
@@ -191,226 +147,127 @@ const ChatPanel = () => {
     });
   };
   
-  // Filter highlights by search text
-  const getFilteredHighlights = () => {
-    const highlights = getAllHighlights();
-    if (!searchText) return highlights;
-    
-    return highlights.filter(highlight => 
-      highlight.text.toLowerCase().includes(searchText.toLowerCase())
-    );
-  };
-  
   // Handle highlight selection
   const handleHighlightClick = (highlight) => {
     setSelectedHighlight(highlight === selectedHighlight ? null : highlight);
     setSelectedDocId({ docIndex: highlight.docIndex });
   };
   
-  // Get citation for a highlight
-  const getCitationIndex = (highlight) => {
-    if (!currentQuery || !currentQuery.structured_answer || !currentQuery.structured_answer.citations) return -1;
-    
-    return currentQuery.structured_answer.citations.findIndex(
-      citation => citation.doc_index === highlight.docIndex && 
-                 citation.highlight_index === currentQuery.documents[highlight.docIndex].highlights.findIndex(
-                   h => h.text === highlight.text
-                 )
-    );
-  };
-  
   return (
-    <MotionBox
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      bg={bgColor}
-      borderRadius="lg"
-      borderWidth="1px"
-      borderColor={borderColor}
-      h="100%"
-      display="flex"
-      flexDirection="column"
-    >
+    <Card className="h-full flex flex-col">
       {/* Header */}
-      <Box p={4} borderBottomWidth="1px" borderColor={borderColor}>
-        <Heading size="md">Conversation</Heading>
-      </Box>
+      <CardHeader className="border-b border-slate-200">
+        <CardTitle className="flex items-center space-x-2">
+          <FaComments className="w-5 h-5 text-blue-600" />
+          <span>Conversation</span>
+        </CardTitle>
+      </CardHeader>
       
       {/* Messages */}
-      <Box flex="1" overflowY="auto" p={4}>
+      <CardContent className="flex-1 overflow-y-auto p-4">
         <AnimatePresence>
-          {!currentQuery ? (
-            <MotionBox
+          {/* Error state */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2"
+            >
+              <FaExclamationTriangle className="w-4 h-4 text-red-600" />
+              <span className="text-sm text-red-700">{error}</span>
+            </motion.div>
+          )}
+
+          {/* Empty state */}
+          {!currentQuery && !isLoading && (
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              textAlign="center"
-              py={10}
+              className="text-center py-12"
             >
-              <Text color="gray.500">
+              <FaComments className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-600 text-lg font-medium mb-2">
                 {isResourcesLoaded
-                  ? "Ask a question to get started"
-                  : "Load resources to begin"}
-              </Text>
-            </MotionBox>
-          ) : (
-            <VStack spacing={6} align="stretch">
-              {/* Question */}
-              <MotionBox
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-              >
-                <Flex direction="column">
-                  <Text fontWeight="bold" mb={1}>
-                    You
-                  </Text>
-                  <Box
-                    bg={questionBgColor}
-                    p={3}
-                    borderRadius="md"
-                  >
-                    <Text>{currentQuery.question}</Text>
-                  </Box>
-                </Flex>
-              </MotionBox>
+                  ? "Ready to answer your questions"
+                  : "Loading resources..."}
+              </p>
+              <p className="text-slate-500 text-sm">
+                {isResourcesLoaded
+                  ? "Ask a question to get started with the RAG system"
+                  : "Please wait while we initialize the system"}
+              </p>
+            </motion.div>
+          )}
+
+          {/* Loading state */}
+          {isLoading && !currentQuery && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-12"
+            >
+              <Spinner className="mx-auto mb-4" />
+              <p className="text-slate-600">Processing your question...</p>
+            </motion.div>
+          )}
+
+          {/* Conversation */}
+          {currentQuery && (
+            <div className="space-y-4">
+              {/* User question */}
+              <ChatMessage 
+                message={currentQuery.question} 
+                isUser={true}
+              />
               
-              {/* Answer */}
-              <MotionBox
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.1 }}
-              >
-                <Flex direction="column">
-                  <Text fontWeight="bold" mb={1}>
-                    Assistant
-                  </Text>
-                  <Box
-                    bg={answerBgColor}
-                    p={3}
-                    borderRadius="md"
-                    color={answerTextColor}
-                  >
-                    <Box ref={answerRef} whiteSpace="pre-wrap">{currentQuery.answer}</Box>
+              {/* Assistant response */}
+              {currentQuery.answer ? (
+                <div className="space-y-4">
+                  <ChatMessage 
+                    message={currentQuery.answer} 
+                    isUser={false}
+                  />
+                  
+                  {/* Enhanced answer with citations */}
+                  <div className="bg-white border border-slate-200 rounded-lg p-4">
+                    <div ref={answerRef} className="prose prose-sm max-w-none text-slate-900" />
                     
-                    {/* Relevant Sentences */}
-                    <Box mt={4}>
-                      <Divider my={2} />
-                      
-                      <Flex justify="space-between" align="center" mb={2}>
-                        <Text fontWeight="medium" fontSize="sm">
-                          Relevant Sentences:
-                        </Text>
-                        <Flex align="center">
-                          <Badge mr={2} colorScheme="gray" variant="subtle">
-                            {getAllHighlights().length} total highlights
-                          </Badge>
-                          <Input 
-                            size="xs" 
-                            placeholder="Search in sentences..." 
-                            value={searchText}
-                            onChange={(e) => setSearchText(e.target.value)}
-                            width="150px"
-                            mr={1}
-                          />
-                          <IconButton
-                            icon={<FaSearch />}
-                            size="xs"
-                            aria-label="Search"
-                            isDisabled={!searchText}
-                            onClick={() => setSearchText('')}
-                          />
-                        </Flex>
-                      </Flex>
-                    </Box>
-                    
-                    <List spacing={2} maxH="300px" overflowY="auto">
-                      {getFilteredHighlights().map((highlight, idx) => {
-                        const citationIndex = getCitationIndex(highlight);
-                        return (
-                          <ListItem 
-                            key={idx}
-                            p={2}
-                            borderRadius="md"
-                            bg={highlight === selectedHighlight ? selectedHighlightColor : highlightColor}
-                            cursor="pointer"
-                            _hover={{ opacity: 0.8 }}
-                            onClick={() => handleHighlightClick(highlight)}
-                            position="relative"
-                          >
-                            <Flex>
-                              <ListIcon as={FaQuoteRight} color="brand.500" mt={1} />
-                              <Text fontSize="sm">{highlight.text}</Text>
-                            </Flex>
-                            <Flex justify="space-between" mt={1}>
-                              <Text fontSize="xs" color="gray.500">
-                                Document {highlight.docIndex + 1}
-                              </Text>
-                              <Flex>
-                                {citationIndex !== -1 && (
-                                  <Tag size="sm" colorScheme="blue" mr={1}>
-                                    <TagLeftIcon as={FaLink} boxSize="10px" />
-                                    <TagLabel>[{citationIndex + 1}]</TagLabel>
-                                  </Tag>
-                                )}
-                                <Tooltip label="Click to see where this appears in the answer">
-                                  <Badge colorScheme="brand">Trace</Badge>
-                                </Tooltip>
-                              </Flex>
-                            </Flex>
-                          </ListItem>
-                        );
-                      })}
-                      
-                      {getFilteredHighlights().length === 0 && (
-                        <Box textAlign="center" py={4}>
-                          <Text fontSize="sm" color="gray.500">
-                            {searchText ? "No matching sentences found" : "No relevant sentences found"}
-                          </Text>
-                        </Box>
-                      )}
-                    </List>
-                  </Box>
-                </Flex>
-              </MotionBox>
-            </VStack>
+                    {/* Relevant sentences */}
+                    <RelevantSentences
+                      highlights={getAllHighlights()}
+                      onHighlightClick={handleHighlightClick}
+                      selectedHighlight={selectedHighlight}
+                      currentQuery={currentQuery}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <ChatMessage 
+                  message="" 
+                  isUser={false} 
+                  isLoading={true}
+                />
+              )}
+            </div>
           )}
         </AnimatePresence>
         <div ref={messagesEndRef} />
-      </Box>
+      </CardContent>
       
       {/* Input */}
-      <Box p={4} borderTopWidth="1px" borderColor={borderColor}>
-        <form onSubmit={handleSubmit}>
-          <Flex>
-            <FormControl>
-              <Input
-                placeholder={
-                  isResourcesLoaded
-                    ? "Ask a question..."
-                    : "Load resources first"
-                }
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                isDisabled={!isResourcesLoaded || isLoading}
-              />
-            </FormControl>
-            <Button
-              ml={2}
-              colorScheme="brand"
-              type="submit"
-              isLoading={isLoading}
-              isDisabled={!isResourcesLoaded || !question.trim()}
-              leftIcon={<FaPaperPlane />}
-            >
-              Send
-            </Button>
-          </Flex>
-        </form>
-      </Box>
-    </MotionBox>
+      <ChatInput
+        onSubmit={handleSubmit}
+        isLoading={isLoading}
+        isDisabled={!isResourcesLoaded}
+        placeholder={
+          isResourcesLoaded
+            ? "Ask a question about your documents..."
+            : "Loading resources, please wait..."
+        }
+      />
+    </Card>
   );
 };
 
-export default ChatPanel; 
+export default ChatPanel;

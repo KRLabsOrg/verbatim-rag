@@ -7,7 +7,7 @@ import pickle
 
 import faiss
 import numpy as np
-import openai
+from openai import OpenAI
 
 from verbatim_rag.document import Document
 
@@ -28,6 +28,7 @@ class VerbatimIndex:
         self.documents = []
         self.index = None
         self.document_ids = []
+        self.client = OpenAI()  # This will use OPENAI_API_KEY from environment
 
     def _get_embeddings(self, texts: list[str]) -> np.ndarray:
         """
@@ -36,7 +37,7 @@ class VerbatimIndex:
         :param texts: List of text strings to embed
         :return: Numpy array of embeddings
         """
-        response = openai.embeddings.create(model=self.embedding_model, input=texts)
+        response = self.client.embeddings.create(model=self.embedding_model, input=texts)
 
         embeddings = [item.embedding for item in response.data]
         return np.array(embeddings, dtype=np.float32)

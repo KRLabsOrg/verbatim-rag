@@ -1,76 +1,76 @@
 import React from 'react';
-import {
-  Box,
-  Flex,
-  Heading,
-  IconButton,
-  useColorMode,
-  useColorModeValue,
-} from '@chakra-ui/react';
-import { FaMoon, FaSun } from 'react-icons/fa';
+import { FaGithub, FaQuestionCircle } from 'react-icons/fa';
 import { motion } from 'framer-motion';
-
-const MotionBox = motion(Box);
+import { Button } from './ui/Button';
+import { useApi } from '../contexts/ApiContext';
+import { Badge } from './ui/Badge';
 
 const Header = () => {
-  const { colorMode, toggleColorMode } = useColorMode();
-  const bgColor = useColorModeValue('white', 'gray.800');
-  const borderColor = useColorModeValue('gray.200', 'gray.700');
+  const { isResourcesLoaded, isLoading } = useApi();
 
   return (
-    <Box
-      as="header"
-      bg={bgColor}
-      borderBottom="1px"
-      borderColor={borderColor}
-      py={3}
-      px={4}
-      position="sticky"
-      top={0}
-      zIndex={10}
-      boxShadow="sm"
-    >
-      <Flex maxW="container.xl" mx="auto" align="center" justify="space-between">
-        <Flex align="center">
-          <MotionBox
-            initial={{ rotate: -10 }}
-            animate={{ rotate: 0 }}
-            transition={{ duration: 0.5 }}
-            mr={3}
-          >
-            <Box
-              as="span"
-              fontSize="2xl"
-              fontWeight="bold"
+    <header className="sticky top-0 z-50 bg-white border-b border-slate-200 shadow-sm">
+      <div className="container mx-auto px-4 py-3 max-w-7xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <motion.div
+              initial={{ rotate: -10 }}
+              animate={{ rotate: 0 }}
+              transition={{ duration: 0.5 }}
+              className="text-2xl font-bold"
               role="img"
               aria-label="Logo"
             >
               📚
-            </Box>
-          </MotionBox>
-          <Heading
-            as="h1"
-            size="md"
-            bgGradient="linear(to-r, brand.500, purple.500)"
-            bgClip="text"
-            fontWeight="bold"
-          >
-            Verbatim RAG
-          </Heading>
-        </Flex>
+            </motion.div>
+            <div className="flex flex-col">
+              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                Verbatim RAG
+              </h1>
+              <p className="text-xs text-slate-500 hidden sm:block">
+                Intelligent Document Query System
+              </p>
+            </div>
+          </div>
 
-        <IconButton
-          aria-label={`Switch to ${colorMode === 'light' ? 'dark' : 'light'} mode`}
-          variant="ghost"
-          color={colorMode === 'light' ? 'gray.600' : 'gray.400'}
-          onClick={toggleColorMode}
-          icon={colorMode === 'light' ? <FaMoon /> : <FaSun />}
-          _hover={{
-            bg: colorMode === 'light' ? 'gray.100' : 'gray.700',
-          }}
-        />
-      </Flex>
-    </Box>
+          <div className="flex items-center space-x-4">
+            {/* Status indicator */}
+            <div className="flex items-center space-x-2">
+              <Badge 
+                variant={isResourcesLoaded ? 'success' : isLoading ? 'warning' : 'secondary'}
+                className="hidden sm:inline-flex"
+              >
+                {isResourcesLoaded ? 'Ready' : isLoading ? 'Loading...' : 'Initializing'}
+              </Badge>
+              <div className={`w-2 h-2 rounded-full ${
+                isResourcesLoaded ? 'bg-green-500' : isLoading ? 'bg-yellow-500 animate-pulse' : 'bg-slate-300'
+              }`} />
+            </div>
+
+            {/* Help button */}
+            <Button 
+              variant="ghost" 
+              size="icon"
+              className="text-slate-600 hover:text-slate-800"
+              aria-label="Help"
+            >
+              <FaQuestionCircle className="w-4 h-4" />
+            </Button>
+
+            {/* GitHub link */}
+            <a 
+              href="https://github.com/your-repo" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none hover:bg-slate-100 h-10 w-10 text-slate-600 hover:text-slate-800"
+              aria-label="GitHub"
+            >
+              <FaGithub className="w-4 h-4" />
+            </a>
+          </div>
+        </div>
+      </div>
+    </header>
   );
 };
 
