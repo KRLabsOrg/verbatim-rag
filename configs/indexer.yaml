@@ -1,0 +1,15 @@
+# configs/indexer.yaml
+
+document_loader:
+  # Path to your source docs
+  path: "examples/example_docs/"
+  glob: "**/*.txt"           # load all .txt files recursively
+
+text_splitter:
+  chunk_size: 512            # tokens per chunk
+  chunk_overlap: 64          # sliding window overlap
+
+index:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  # where the on-disk index will be saved
+  output_path: "models/index.faiss"

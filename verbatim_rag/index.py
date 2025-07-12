@@ -7,7 +7,6 @@ import pickle
 
 import faiss
 import numpy as np
-import openai
 
 from verbatim_rag.document import Document
 
@@ -21,8 +20,8 @@ class VerbatimIndex:
         """
         Initialize the VerbatimIndex.
 
-        :param embedding_model: The OpenAI embedding model to use
-        :return: None
+        :param embedding_model: The embedding model to use.
+                                Can be an OpenAI model ID or any Hugging-Face checkpoint.
         """
         self.embedding_model = embedding_model
         self.documents = []
@@ -31,13 +30,27 @@ class VerbatimIndex:
 
     def _get_embeddings(self, texts: list[str]) -> np.ndarray:
         """
-        Get embeddings for a list of texts using OpenAI's API.
+        Get embeddings for a list of texts, using either a local HF model or the OpenAI API.
 
         :param texts: List of text strings to embed
-        :return: Numpy array of embeddings
+        :return: Numpy array of embeddings, shape (len(texts), embedding_dim)
         """
-        response = openai.embeddings.create(model=self.embedding_model, input=texts)
+        # If the model string is not an OpenAI embedding ID, run locally via HF
+        if not self.embedding_model.startswith("text-embedding-"):
+            from sentence_transformers import SentenceTransformer
 
+            # Load the HF model and encode
+            st = SentenceTransformer(self.embedding_model)
+            hf_embeddings = st.encode(texts, show_progress_bar=True)
+            return np.array(hf_embeddings, dtype=np.float32)
+
+        # Otherwise assume it's an OpenAI model ID:
+        import openai  # noqa: E402
+
+        response = openai.embeddings.create(
+            model=self.embedding_model,
+            input=texts
+        )
         embeddings = [item.embedding for item in response.data]
         return np.array(embeddings, dtype=np.float32)
 
@@ -64,7 +77,6 @@ class VerbatimIndex:
             self.index = faiss.IndexFlatL2(dimension)
             self.index.add(embeddings)
         else:
-            # Add to existing index
             self.index.add(embeddings)
 
     def search(self, query: str, k: int = 5) -> list[Document]:
@@ -73,21 +85,16 @@ class VerbatimIndex:
 
         :param query: The search query
         :param k: Number of documents to retrieve
-
         :return: List of retrieved Document objects
         """
         if not self.index or not self.documents:
             return []
 
         query_embedding = self._get_embeddings([query])[0].reshape(1, -1)
-
         k = min(k, len(self.documents))
         distances, indices = self.index.search(query_embedding, k)
 
-        retrieved_docs = [
-            self.documents[self.document_ids.index(int(idx))] for idx in indices[0]
-        ]
-        return retrieved_docs
+        return [self.documents[idx] for idx in indices[0]]
 
     def save(self, directory: str) -> None:
         """
@@ -115,7 +122,6 @@ class VerbatimIndex:
         Load an index from disk.
 
         :param directory: Directory containing the saved index
-
         :return: Loaded VerbatimIndex
         """
         with open(os.path.join(directory, "embedding_model.txt"), "r") as f:
@@ -130,5 +136,4 @@ class VerbatimIndex:
             index.document_ids = pickle.load(f)
 
         index.index = faiss.read_index(os.path.join(directory, "index.faiss"))
-
         return index

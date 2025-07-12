@@ -39,8 +39,9 @@ except ImportError as e:
     print(f"Error importing verbatim_rag: {e}")
     sys.exit(1)
 
-DEFAULT_INDEX_PATH = "index/"
-DEFAULT_TEMPLATES_PATH = "templates.json"
+BASE = Path(__file__).resolve().parent.parent  # points at repo root
+DEFAULT_INDEX_PATH     = BASE / "models"   / "index"
+DEFAULT_TEMPLATES_PATH = BASE / "templates.json"
 
 index = None
 rag = None

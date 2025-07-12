@@ -121,7 +121,12 @@ def main(input_dir: str, output_dir: Path, dataset_name: str | None = None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_dir", type=str, required=True)
+    parser.add_argument(
+        "--input_dir",
+        type=str,
+        default="galileo-ai/ragbench",
+        help="HuggingFace dataset identifier (defaults to galileo-ai/ragbench)",
+    )
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument(
         "--dataset_name",

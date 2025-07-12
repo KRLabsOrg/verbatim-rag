@@ -1,0 +1,146 @@
+# configs/extractor_full.yaml
+
+model:
+  # Your BioMedBERT backbone
+  name: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract
+
+  # If you added special [START]/[END] tokens then you’ll want
+  # to point at a tokenizer that’s been resized accordingly.
+  # (trainer.py will pick them up if you supply this flag)
+  add_special_tokens: true
+
+data:
+  train_path: data/ragbench/train.jsonl
+  dev_path:   data/ragbench/dev.jsonl
+  test_path:  data/ragbench/test.jsonl
+
+# ------------------------------------------------------------------------------
+# Training & evaluation hyper-parameters
+# ------------------------------------------------------------------------------
+training:
+  output_dir: models/extractor_full
+
+  run_name: RAGBENCH-Full   # for wandb (optional)
+
+  # learning
+  learning_rate: 2e-5
+  weight_decay:  0.01
+
+  # batch sizes
+  # per_device_train_batch_size: 64
+  # per_device_eval_batch_size:  128  # 2× train for faster eval
+
+  # epochs
+  # num_train_epochs: 3
+
+  # gradient & precision
+  gradient_accumulation_steps: 1
+  fp16:                        true
+  gradient_checkpointing:      true
+  max_grad_norm:               1.0
+
+  # evaluation & saving
+  evaluation_strategy: steps
+  # eval_steps:          500
+  save_strategy:       steps
+  # save_steps:          500
+
+  # TEST RUN CONFIGS
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  save_steps: 100000   # effectively “never save”
+  eval_steps: 100000   # effectively “never eval”
+
+  # logging to W&B every 250 steps
+  logging_dir:      logs/
+  logging_strategy: steps
+  logging_steps:    250
+  report_to:        wandb
+
+  # pick best by F1
+  load_best_model_at_end: true
+  metric_for_best_model:  f1
+  greater_is_better:      true
+
+# ------------------------------------------------------------------------------
+# Sequence length / window sliding
+# ------------------------------------------------------------------------------
+tokenizer:
+  # the context window length you used
+  max_length: 512
+  # if you applied a sliding window, how far to stride
+  window_stride: 128
+# configs/extractor_full.yaml
+
+model:
+  # Your BioMedBERT backbone
+  name: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract
+
+  # If you added special [START]/[END] tokens then you’ll want
+  # to point at a tokenizer that’s been resized accordingly.
+  # (trainer.py will pick them up if you supply this flag)
+  add_special_tokens: true
+
+data:
+  train_path: data/ragbench/train.jsonl
+  dev_path:   data/ragbench/dev.jsonl
+  test_path:  data/ragbench/test.jsonl
+
+# ------------------------------------------------------------------------------
+# Training & evaluation hyper-parameters
+# ------------------------------------------------------------------------------
+training:
+  output_dir: models/extractor_full
+
+  run_name: RAGBENCH-Full   # for wandb (optional)
+
+  # learning
+  learning_rate: 2e-5
+  weight_decay:  0.01
+
+  # batch sizes
+  # per_device_train_batch_size: 64
+  # per_device_eval_batch_size:  128  # 2× train for faster eval
+
+  # epochs
+  # num_train_epochs: 3
+
+  # gradient & precision
+  gradient_accumulation_steps: 1
+  fp16:                        true
+  gradient_checkpointing:      true
+  max_grad_norm:               1.0
+
+  # evaluation & saving
+  evaluation_strategy: steps
+  # eval_steps:          500
+  save_strategy:       steps
+  # save_steps:          500
+
+  # TEST RUN CONFIGS
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  save_steps: 100000   # effectively “never save”
+  eval_steps: 100000   # effectively “never eval”
+
+  # logging to W&B every 250 steps
+  logging_dir:      logs/
+  logging_strategy: steps
+  logging_steps:    250
+  report_to:        wandb
+
+  # pick best by F1
+  load_best_model_at_end: true
+  metric_for_best_model:  f1
+  greater_is_better:      true
+
+# ------------------------------------------------------------------------------
+# Sequence length / window sliding
+# ------------------------------------------------------------------------------
+tokenizer:
+  # the context window length you used
+  max_length: 512
+  # if you applied a sliding window, how far to stride
+  window_stride: 128

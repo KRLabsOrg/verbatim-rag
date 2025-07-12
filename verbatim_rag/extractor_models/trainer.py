@@ -1,54 +1,47 @@
 import logging
 from pathlib import Path
-import json
 import time
 from datetime import timedelta
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import wandb
 from torch.nn.utils.rnn import pad_sequence
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
-from tqdm import tqdm
+from transformers import get_linear_schedule_with_warmup
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from tqdm import tqdm
 
 from verbatim_rag.extractor_models.dataset import QADataset
 
 # Set up logger
 logger = logging.getLogger(__name__)
 
-
 def qa_collate_fn(batch: list[dict]) -> dict:
-    # drop any None samples
+    # Drop any None samples
     batch = [item for item in batch if item is not None]
     if not batch:
         logger.warning("Empty batch passed to qa_collate_fn (all items were None)")
         return {}
 
-    input_ids_list = []
-    attention_mask_list = []
-    offset_mappings = []
-    sentence_boundaries = []
-    sentence_offset_mappings = []
-    labels_list = []
+    input_ids_list, attention_mask_list = [], []
+    offset_mappings, sentence_boundaries = [], []
+    sentence_offset_mappings, labels_list = [], []
 
     for item in batch:
         try:
-            # ensure all keys exist
             required = [
-                "input_ids",
-                "attention_mask",
-                "offset_mapping",
-                "sentence_boundaries",
-                "sentence_offset_mappings",
-                "labels",
+                "input_ids", "attention_mask",
+                "offset_mapping", "sentence_boundaries",
+                "sentence_offset_mappings", "labels"
             ]
-            missing = [k for k in required if k not in item]
-            for k in missing:
-                logger.warning(f"Item missing key {k}, inserting dummy")
-                if k in ("input_ids", "attention_mask"):
-                    item[k] = torch.tensor([0], dtype=torch.long)
-                else:
-                    item[k] = []
+            for k in required:
+                if k not in item:
+                    logger.warning(f"Missing {k}, inserting dummy")
+                    item[k] = (torch.tensor([0], dtype=torch.long)
+                               if k in ("input_ids", "attention_mask") else [])
 
             input_ids_list.append(item["input_ids"])
             attention_mask_list.append(item["attention_mask"])
@@ -65,7 +58,6 @@ def qa_collate_fn(batch: list[dict]) -> dict:
             sentence_offset_mappings.append([])
             labels_list.append(torch.tensor([], dtype=torch.long))
 
-    # pad sequences
     try:
         padded_input_ids = pad_sequence(input_ids_list, batch_first=True, padding_value=0)
         padded_attention_mask = pad_sequence(attention_mask_list, batch_first=True, padding_value=0)
@@ -79,17 +71,43 @@ def qa_collate_fn(batch: list[dict]) -> dict:
         }
     except Exception as e:
         logger.error(f"Error padding sequences: {e}")
-        # fallback to minimal tensors
         bs = len(input_ids_list)
         return {
-            "input_ids": torch.zeros((bs, 1), dtype=torch.long),
-            "attention_mask": torch.zeros((bs, 1), dtype=torch.long),
-            "offset_mapping": [[] for _ in range(bs)],
-            "sentence_boundaries": [[] for _ in range(bs)],
-            "sentence_offset_mappings": [[] for _ in range(bs)],
-            "labels": [torch.tensor([], dtype=torch.long) for _ in range(bs)],
+            k: (torch.zeros((bs,1), dtype=torch.long)
+                if k in ("input_ids","attention_mask") else [[]]*bs)
+            for k in ["input_ids","attention_mask",
+                      "offset_mapping","sentence_boundaries",
+                      "sentence_offset_mappings","labels"]
         }
 
+def compute_metrics_from_arrays(all_labels, all_preds):
+    """
+    Compute accuracy, binary & per-class precision/recall/f1, plus weighted f1.
+    """
+    acc = accuracy_score(all_labels, all_preds)
+    prec, rec, f1, _ = precision_recall_fscore_support(
+        all_labels, all_preds, average="binary", zero_division=0
+    )
+    prc, recc, f1c, _ = precision_recall_fscore_support(
+        all_labels, all_preds, average=None, zero_division=0
+    )
+    _, _, f1w, _ = precision_recall_fscore_support(
+        all_labels, all_preds, average="weighted", zero_division=0
+    )
+
+    return {
+        "accuracy": acc,
+        "precision": prec,
+        "recall": rec,
+        "f1": f1,
+        "f1_weighted": f1w,
+        "precision_cls0": prc[0],
+        "recall_cls0": recc[0],
+        "f1_cls0": f1c[0],
+        "precision_cls1": prc[1],
+        "recall_cls1": recc[1],
+        "f1_cls1": f1c[1],
+    }
 
 class Trainer:
     def __init__(
@@ -103,6 +121,8 @@ class Trainer:
         epochs: int = 3,
         device: str = None,
         output_dir: str = None,
+        class_weight: float = 1.0,
+        dynamic_weighting: bool = False,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -113,14 +133,16 @@ class Trainer:
         self.output_dir = Path(output_dir) if output_dir else None
         self.best_f1 = 0.0
         self.current_epoch = 0
+        self.patience = 1  # stop after 1 epoch without improvement
 
+        # Build dataloaders
         self.train_dataloader = DataLoader(
             train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
             collate_fn=qa_collate_fn,
             num_workers=0,
-            pin_memory=torch.cuda.is_available(),
+            pin_memory=torch.cuda.is_available()
         )
         self.dev_dataloader = (
             DataLoader(
@@ -130,202 +152,180 @@ class Trainer:
                 collate_fn=qa_collate_fn,
                 num_workers=0,
                 pin_memory=torch.cuda.is_available(),
-            )
-            if dev_dataset is not None
-            else None
+            ) if dev_dataset else None
         )
 
-        self.criterion = nn.CrossEntropyLoss()
+        # Compute class weight if requested
+        if dynamic_weighting:
+            pos = sum(s.relevant for _, doc in train_dataset.samples for s in doc.sentences)
+            neg = sum(not s.relevant for _, doc in train_dataset.samples for s in doc.sentences)
+            class_weight_val = neg / pos if pos > 0 else 1.0
+        else:
+            class_weight_val = class_weight
+
+        # Loss with class weights
+        weight = torch.tensor([1.0, class_weight_val], dtype=torch.float).to(self.device)
+        self.criterion = nn.CrossEntropyLoss(weight=weight)
+
+        # Optimizer & scheduler
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
+        total_steps = len(self.train_dataloader) * self.epochs
+        self.scheduler = get_linear_schedule_with_warmup(
+            self.optimizer,
+            num_warmup_steps=int(0.1 * total_steps),
+            num_training_steps=total_steps
+        )
+
         self.model.to(self.device)
+
+        # Initialize WandB
+        wandb.init(
+            project="sentence-relevance",
+            config={
+                "lr": self.lr,
+                "batch_size": self.batch_size,
+                "epochs": self.epochs,
+                "model_name": getattr(self.model, "model_name", None),
+                "class_weight": class_weight_val,
+                "patience": self.patience,
+            }
+        )
 
     def _train_one_epoch(self) -> float:
         self.model.train()
-        total_loss = 0.0
-        steps = 0
-        pbar = tqdm(self.train_dataloader, desc="Training", leave=True)
+        total_loss, steps = 0.0, 0
 
-        for batch in pbar:
-            try:
-                input_ids = batch["input_ids"].to(self.device)
-                attention_mask = batch["attention_mask"].to(self.device)
-                sentence_boundaries = batch["sentence_boundaries"]
-                labels_list = batch["labels"]
+        for batch in tqdm(self.train_dataloader, desc="Training", leave=True):
+            input_ids = batch["input_ids"].to(self.device)
+            attention_mask = batch["attention_mask"].to(self.device)
+            boundaries, labels_list = batch["sentence_boundaries"], batch["labels"]
 
-                self.optimizer.zero_grad()
-                logits_list = self.model(input_ids, attention_mask, sentence_boundaries)
+            self.optimizer.zero_grad()
+            logits_list = self.model(input_ids, attention_mask, boundaries)
 
-                batch_loss = 0.0
-                doc_count = 0
-                for i, logits in enumerate(logits_list):
-                    # skip any Nones
-                    if logits is None:
-                        continue
-                    if i >= len(labels_list):
-                        logger.warning(
-                            f"Logits/labels length mismatch {len(logits_list)} vs {len(labels_list)}"
-                        )
-                        continue
-
-                    labels_i = labels_list[i].to(self.device)
-                    if logits.size(0) == 0:
-                        continue
-
-                    if logits.size(0) > labels_i.size(0):
-                        logits = logits[: labels_i.size(0)]
-
-                    loss_i = self.criterion(logits, labels_i[: logits.size(0)])
-                    batch_loss += loss_i
-                    doc_count += 1
-
-                if doc_count:
-                    batch_loss = batch_loss / doc_count
-                    batch_loss.backward()
-                    self.optimizer.step()
-                    total_loss += batch_loss.item()
-                    steps += 1
-                    pbar.set_postfix(
-                        {
-                            "loss": f"{batch_loss.item():.4f}",
-                            "avg_loss": f"{total_loss/steps:.4f}",
-                        }
-                    )
-
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
-                    logger.error(f"OOM during training: {e}")
-                    torch.cuda.empty_cache()
+            batch_loss, doc_count = 0.0, 0
+            for i, logits in enumerate(logits_list):
+                if logits is None or logits.size(0) == 0:
                     continue
-                else:
-                    raise
-            except Exception as e:
-                logger.error(f"Error processing batch: {e}")
+                labels_i = labels_list[i].to(self.device)
+                s = min(logits.size(0), labels_i.size(0))
+                batch_loss += self.criterion(logits[:s], labels_i[:s])
+                doc_count += 1
+
+            if doc_count == 0:
                 continue
+
+            batch_loss = batch_loss / doc_count
+            batch_loss.backward()
+
+            # Clip gradients, optimizer & scheduler step
+            clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            self.optimizer.step()
+            self.scheduler.step()
+
+            # Log loss and current LR
+            current_lr = self.scheduler.get_last_lr()[0]
+            global_step = self.current_epoch * len(self.train_dataloader) + steps
+            wandb.log({
+                "train/loss": batch_loss.item(),
+                "train/lr": current_lr,
+                "step": global_step,
+            })
+
+            total_loss += batch_loss.item()
+            steps += 1
 
         return total_loss / steps if steps else 0.0
 
     def train(self) -> float:
         start = time.time()
-        print(f"\nStarting training on {self.device}")
-        print(f"Training samples: {len(self.train_dataloader.dataset)}")
-        if self.dev_dataloader:
-            print(f"Validation samples: {len(self.dev_dataloader.dataset)}")
+        print(f"Starting training on {self.device} ({len(self.train_dataloader.dataset)} samples)")
 
-        for ep in range(self.epochs):
-            self.current_epoch = ep + 1
-            print(f"\nEpoch {self.current_epoch}/{self.epochs}")
+        self.no_improve_epochs = 0
+
+        for ep in range(1, self.epochs + 1):
+            self.current_epoch = ep
+            print(f"\nEpoch {ep}/{self.epochs}")
             loss = self._train_one_epoch()
-            elapsed = time.time() - start
-            print(
-                f"Epoch {self.current_epoch} completed in "
-                f"{timedelta(seconds=int(elapsed))}. Average loss: {loss:.4f}"
-            )
+            print(f"Epoch {ep} loss={loss:.4f} time={(time.time() - start):.0f}s")
 
             if self.dev_dataloader:
-                print("\nEvaluating...")
                 metrics = self._evaluate(self.dev_dataloader)
-                print(
-                    f"Validation ⇒ loss: {metrics['loss']:.4f}  "
-                    f"f1: {metrics['f1']:.4f}  acc: {metrics['accuracy']:.4f}"
-                )
+                print(f"Dev f1={metrics['f1']:.4f} acc={metrics['accuracy']:.4f}")
+                
+                wandb.log({
+                    "epoch":        ep,
+                    "dev/loss":     metrics["loss"],
+                    "dev/accuracy": metrics["accuracy"],
+                    "dev/precision":metrics["precision"],
+                    "dev/recall":   metrics["recall"],
+                    "dev/f1":       metrics["f1"],
+                })
 
-                if self.output_dir and metrics["f1"] > self.best_f1:
+                if metrics["f1"] > self.best_f1:
                     self.best_f1 = metrics["f1"]
-                    self.save_model(self.output_dir)
-                    print(f"New best model (F1={self.best_f1:.4f}) saved.")
-            else:
-                # no dev: save after each epoch
-                if self.output_dir:
-                    self.save_model(self.output_dir)
-                    print(f"Model saved after epoch {self.current_epoch}")
+                    self.no_improve_epochs = 0
+                    if self.output_dir:
+                        self.save_model(self.output_dir)
+                        print(f"New best model (f1={self.best_f1:.4f}) saved")
+                else:
+                    self.no_improve_epochs += 1
+                    print(f"No improvement for {self.no_improve_epochs}/{self.patience} epochs")
+                    if self.no_improve_epochs >= self.patience:
+                        print(f"No improvement in {self.patience} epochs → stopping early.")
+                        break
 
-        total = time.time() - start
-        print(f"\nTraining finished in {timedelta(seconds=int(total))}")
+        print(f"\nTraining completed in {timedelta(seconds=int(time.time() - start))}")
         return self.best_f1
 
     def _evaluate(self, dataloader: DataLoader) -> dict:
         self.model.eval()
-        total_loss = 0.0
-        steps = 0
-        all_preds, all_labels = [], []
+        total_loss, steps, all_preds, all_labels = 0.0, 0, [], []
 
         with torch.no_grad():
-            pbar = tqdm(dataloader, desc="Evaluating", leave=False)
-            for batch in pbar:
-                try:
-                    input_ids = batch["input_ids"].to(self.device)
-                    attention_mask = batch["attention_mask"].to(self.device)
-                    sentence_boundaries = batch["sentence_boundaries"]
-                    labels_list = batch["labels"]
+            for batch in tqdm(dataloader, desc="Evaluating", leave=False):
+                input_ids = batch["input_ids"].to(self.device)
+                attention_mask = batch["attention_mask"].to(self.device)
+                boundaries, labels_list = batch["sentence_boundaries"], batch["labels"]
+                logits_list = self.model(input_ids, attention_mask, boundaries)
 
-                    logits_list = self.model(input_ids, attention_mask, sentence_boundaries)
-                    batch_loss = 0.0
-                    doc_count = 0
+                batch_loss, doc_count = 0.0, 0
+                for i, logits in enumerate(logits_list):
+                    if logits is None or logits.size(0) == 0:
+                        continue
+                    labels_i = labels_list[i].to(self.device)
+                    s = min(logits.size(0), labels_i.size(0))
+                    batch_loss += self.criterion(logits[:s], labels_i[:s])
+                    doc_count += 1
+                    preds = torch.argmax(logits[:s], dim=1).cpu().numpy()
+                    labs = labels_i[:s].cpu().numpy()
+                    all_preds.extend(preds)
+                    all_labels.extend(labs)
 
-                    for i, logits in enumerate(logits_list):
-                        if logits is None:
-                            continue
-                        if i >= len(labels_list):
-                            continue
-
-                        labels_i = labels_list[i].to(self.device)
-                        if logits.size(0) == 0:
-                            continue
-
-                        eff = min(logits.size(0), labels_i.size(0))
-                        logits, labels_i = logits[:eff], labels_i[:eff]
-
-                        batch_loss += self.criterion(logits, labels_i)
-                        doc_count += 1
-
-                        preds = torch.argmax(logits, dim=1).cpu().numpy()
-                        labs = labels_i.cpu().numpy()
-                        all_preds.extend(preds)
-                        all_labels.extend(labs)
-
-                    if doc_count:
-                        total_loss += (batch_loss / doc_count).item()
-                        steps += 1
-                        pbar.set_postfix({"loss": f"{(batch_loss/doc_count).item():.4f}"})
-
-                except Exception as e:
-                    logger.error(f"Error during eval batch: {e}")
-                    continue
+                if doc_count:
+                    total_loss += (batch_loss / doc_count).item()
+                    steps += 1
 
         loss = total_loss / steps if steps else 0.0
-        if all_preds:
-            prec, rec, f1, _ = precision_recall_fscore_support(
-                all_labels, all_preds, average="binary", zero_division=0
-            )
-            acc = accuracy_score(all_labels, all_preds)
-        else:
-            prec = rec = f1 = acc = 0.0
+        metrics = (compute_metrics_from_arrays(all_labels, all_preds)
+                   if all_preds else compute_metrics_from_arrays([], []))
+        return {"loss": loss, **metrics}
 
-        return {"loss": loss, "precision": prec, "recall": rec, "f1": f1, "accuracy": acc}
-    
     def save_model(self, save_path) -> Path:
-        # Determine the directory to save into
         save_dir = Path(save_path)
         if save_dir.suffix:
             save_dir = save_dir.parent
         save_dir.mkdir(parents=True, exist_ok=True)
-    
-        # Build your metadata
+
         metadata = {
             "best_f1": float(self.best_f1),
             "epochs_trained": self.current_epoch,
             "learning_rate": self.lr,
             "batch_size": self.batch_size,
-            "device": str(self.device),
+            "device": self.device,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
-    
-        # 1) Save the model + config + metadata (write config.json + model weights file)
         self.model.save_pretrained(save_dir, metadata=metadata)
-    
-        # 2) Save the tokenizer files
-        if self.tokenizer is not None:
-            # writes tokenizer.json, tokenizer_config.json, special_tokens_map.json
+        if self.tokenizer:
             self.tokenizer.save_pretrained(save_dir)
-    
         return save_dir
