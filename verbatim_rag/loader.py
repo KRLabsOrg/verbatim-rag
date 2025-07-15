@@ -26,7 +26,11 @@ class DocumentLoader:
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        return Document(content=content, metadata={"source": file_path, "type": "text"})
+        # Use filename as the stable document id
+        doc_id = os.path.basename(file_path)
+        metadata = {"source": file_path, "type": "text", "id": doc_id}
+
+        return Document(content=content, doc_id=doc_id, metadata=metadata)
 
     @staticmethod
     def load_csv(
@@ -40,26 +44,24 @@ class DocumentLoader:
         :return: List of Document objects, one per row
         """
         documents = []
+        base = os.path.basename(file_path)
 
         with open(file_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
 
-            for i, row in enumerate(reader):
+            for i, row in enumerate(reader, start=1):
                 if content_columns:
-                    content_parts = []
-                    for col in content_columns:
-                        if col in row:
-                            content_parts.append(f"{col}: {row[col]}")
-                    content = "\n".join(content_parts)
+                    content_parts = [f"{col}: {row[col]}" for col in content_columns if col in row]
                 else:
-                    content = "\n".join([f"{k}: {v}" for k, v in row.items()])
+                    content_parts = [f"{k}: {v}" for k, v in row.items()]
+                content = "\n".join(content_parts)
 
-                # Create a document for this row
+                # Create a stable id as filename + row number
+                doc_id = f"{base}:row{i}"
+                metadata = {"source": file_path, "type": "csv", "row": i, "id": doc_id}
+
                 documents.append(
-                    Document(
-                        content=content,
-                        metadata={"source": file_path, "type": "csv", "row": i},
-                    )
+                    Document(content=content, doc_id=doc_id, metadata=metadata)
                 )
 
         return documents
@@ -79,20 +81,17 @@ class DocumentLoader:
 
         for i, row in df.iterrows():
             if content_columns:
-                content_parts = []
-                for col in content_columns:
-                    if col in df.columns:
-                        content_parts.append(f"{col}: {row[col]}")
-                content = "\n".join(content_parts)
+                content_parts = [f"{col}: {row[col]}" for col in content_columns if col in df.columns]
             else:
-                content = "\n".join([f"{k}: {v}" for k, v in row.items()])
+                content_parts = [f"{k}: {v}" for k, v in row.items()]
+            content = "\n".join(content_parts)
 
-            # Create a document for this row
+            # Use dataframe row index as id
+            doc_id = f"dataframe:row{i}"
+            metadata = {"source": "dataframe", "type": "dataframe", "row": i, "id": doc_id}
+
             documents.append(
-                Document(
-                    content=content,
-                    metadata={"source": "dataframe", "type": "dataframe", "row": i},
-                )
+                Document(content=content, doc_id=doc_id, metadata=metadata)
             )
 
         return documents

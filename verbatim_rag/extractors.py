@@ -109,7 +109,7 @@ class ModelSpanExtractor(SpanExtractor):
             # Split the document into sentences
             raw_sentences = self._split_into_sentences(doc.content)
             if not raw_sentences:
-                relevant_spans[doc.content] = []
+                relevant_spans[doc.id] = spans
                 continue
 
             # Create Dataset objects to use the same processing logic as training
@@ -133,7 +133,7 @@ class ModelSpanExtractor(SpanExtractor):
 
             # Skip if dataset processing didn't yield any results
             if len(dataset) == 0:
-                relevant_spans[doc.content] = []
+                relevant_spans[doc.id] = spans
                 continue
 
             encoding = dataset[0]
@@ -158,7 +158,7 @@ class ModelSpanExtractor(SpanExtractor):
                     if i < len(raw_sentences) and pred[1] > self.threshold:
                         spans.append(raw_sentences[i])
 
-            relevant_spans[doc.content] = spans
+            relevant_spans[doc.id] = spans
 
         return relevant_spans
 
@@ -246,6 +246,6 @@ Mark the relevant text:
                 spans.append(span)
                 start_pos = end_idx + len(end_tag)
 
-            relevant_spans[doc.content] = spans
+            relevant_spans[doc.id] = spans
 
         return relevant_spans

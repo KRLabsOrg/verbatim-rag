@@ -47,7 +47,8 @@ def main():
             Greenhouse gases include water vapor, carbon dioxide, methane, nitrous oxide, and ozone.
             Human activities since the beginning of the Industrial Revolution have increased greenhouse gas levels.
             """,
-            metadata={"source": "example_doc_1", "id": "climate_1"},
+            doc_id = "climate_1",
+            metadata={"source": "example_doc_1"},
         ),
         Document(
             content="""
@@ -56,7 +57,8 @@ def main():
             Wind power is the use of wind to provide mechanical power or electricity.
             Hydropower is electricity generated from the energy of falling water.
             """,
-            metadata={"source": "example_doc_2", "id": "energy_1"},
+            doc_id = "energy_1",
+            metadata={"source": "example_doc_2"},
         ),
     ]
 
