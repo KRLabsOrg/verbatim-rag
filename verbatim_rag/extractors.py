@@ -8,6 +8,11 @@ allowing for easy implementation of different extraction methods.
 from abc import ABC, abstractmethod
 import torch
 from transformers import AutoTokenizer
+import nltk
+from nltk.tokenize import sent_tokenize
+
+# Ensure the Punkt tokenizer is available
+nltk.download('punkt', quiet=True)
 
 import openai
 
@@ -19,6 +24,10 @@ from verbatim_rag.extractor_models.dataset import (
     Document as DatasetDocument,
     QASample,
 )
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SpanExtractor(ABC):
@@ -58,7 +67,7 @@ class ModelSpanExtractor(SpanExtractor):
         else:
             self.device = device
 
-        print(f"Loading model from {model_path}...")
+        logger.info(f"Loading model from %s on %s...", model_path, self.device)
 
         # Load model using HuggingFace's standard methods
         self.model = QAModel.from_pretrained(model_path)
@@ -67,35 +76,41 @@ class ModelSpanExtractor(SpanExtractor):
 
         # Load tokenizer using HuggingFace's standard methods
         try:
-            print(f"Loading tokenizer from {model_path}...")
+            logger.info(f"Loading tokenizer from %s...", model_path)
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-            print("Tokenizer loaded successfully.")
+            logger.info("Tokenizer loaded successfully")
         except Exception as e:
-            print(f"Could not load tokenizer from {model_path}: {e}")
+            logger.warning("Failed to load tokenizer from %s: %s", model_path, e)
             # Try to get base model name from model config
             base_model = getattr(
                 self.model.config, "model_name", "answerdotai/ModernBERT-base"
             )
-            print(f"Trying to load tokenizer from base model: {base_model}")
-            self.tokenizer = AutoTokenizer.from_pretrained(base_model)
-            print(f"Loaded tokenizer from {base_model}")
+            logger.info("Attempting fallback tokenizer from base model: %s", base_model)
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(base_model)
+                logger.info("Loaded tokenizer successfully from %s.", base_model)
+            except Exception as inner_e:
+                logger.error("Failed to load fallback tokenizer from %s: %s", base_model, inner_e)
+                raise RuntimeError(
+                    f"Could not load tokenizer from '{model_path}' or fallback '{base_model}'."
+                )
 
     def _split_into_sentences(self, text: str) -> list[str]:
         """
-        Split text into sentences using simple rules.
-
+        Split text into sentences using NLTK’s Punkt tokenizer.
+    
         :param text: The text to split
         :return: List of sentences
         """
-        import re
-
-        # Simple rule-based sentence splitting (can be improved)
-        sentences = re.split(r"(?<=[.!?])\s+", text)
+        # Use NLTK’s pre-trained Punkt model
+        sentences = sent_tokenize(text)
+        # Trim whitespace and discard empties
         return [s.strip() for s in sentences if s.strip()]
 
     def extract_spans(
         self, question: str, documents: list[Document]
     ) -> dict[str, list[str]]:
+
         """
         Extract relevant spans using the trained model.
 
@@ -103,62 +118,68 @@ class ModelSpanExtractor(SpanExtractor):
         :param documents: List of documents to extract from
         :return: Dictionary mapping document content to list of relevant spans
         """
-        relevant_spans = {}
+        relevant_spans: dict[str, list[str]] = {}
 
         for doc in documents:
-            # Split the document into sentences
-            raw_sentences = self._split_into_sentences(doc.content)
-            if not raw_sentences:
-                relevant_spans[doc.id] = spans
-                continue
-
-            # Create Dataset objects to use the same processing logic as training
-            dataset_sentences = [
-                DatasetSentence(text=sent, relevant=False, sentence_id=f"s{i}")
-                for i, sent in enumerate(raw_sentences)
-            ]
-
-            dataset_doc = DatasetDocument(sentences=dataset_sentences)
-
-            qa_sample = QASample(
-                question=question,
-                documents=[dataset_doc],
-                split="test",
-                dataset_name="inference",
-                task_type="qa",
-            )
-
-            # Use the QADataset class to process the data just like during training
-            dataset = QADataset([qa_sample], self.tokenizer, max_length=512)
-
-            # Skip if dataset processing didn't yield any results
-            if len(dataset) == 0:
-                relevant_spans[doc.id] = spans
-                continue
-
-            encoding = dataset[0]
-
-            input_ids = encoding["input_ids"].unsqueeze(0).to(self.device)
-            attention_mask = encoding["attention_mask"].unsqueeze(0).to(self.device)
-
-            # Make prediction with the model
-            with torch.no_grad():
-                predictions = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    sentence_boundaries=[encoding["sentence_boundaries"]],
+            
+            spans: list[str] = []
+            try:
+                # Split the document into sentences
+                raw_sentences = self._split_into_sentences(doc.content)
+                if not raw_sentences:
+                    # no sentences → record empty list
+                    relevant_spans[doc.id] = spans
+                    continue
+    
+                # Create Dataset objects to use the same processing logic as training
+                dataset_sentences = [
+                    DatasetSentence(text=sent, relevant=False, sentence_id=f"s{i}")
+                    for i, sent in enumerate(raw_sentences)
+                ]
+    
+                dataset_doc = DatasetDocument(sentences=dataset_sentences)
+    
+                qa_sample = QASample(
+                    question=question,
+                    documents=[dataset_doc],
+                    split="test",
+                    dataset_name="inference",
+                    task_type="qa",
                 )
-
-            # Extract relevant sentences
-            spans = []
-            if len(predictions) > 0 and len(predictions[0]) > 0:
-                sentence_preds = torch.nn.functional.softmax(predictions[0], dim=1)
-
-                for i, pred in enumerate(sentence_preds):
-                    if i < len(raw_sentences) and pred[1] > self.threshold:
-                        spans.append(raw_sentences[i])
-
-            relevant_spans[doc.id] = spans
+    
+                # Use the QADataset class to process the data just like during training
+                dataset = QADataset([qa_sample], self.tokenizer, max_length=512)
+    
+                # Skip if dataset processing didn't yield any results
+                if len(dataset) == 0:
+                    relevant_spans[doc.id] = spans
+                    continue
+    
+                encoding = dataset[0]
+    
+                input_ids = encoding["input_ids"].unsqueeze(0).to(self.device)
+                attention_mask = encoding["attention_mask"].unsqueeze(0).to(self.device)
+    
+                # Make prediction with the model
+                with torch.no_grad():
+                    predictions = self.model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        sentence_boundaries=[encoding["sentence_boundaries"]],
+                    )
+    
+                # Extract relevant sentences
+                if len(predictions) > 0 and len(predictions[0]) > 0:
+                    sentence_preds = torch.nn.functional.softmax(predictions[0], dim=1)
+    
+                    for i, pred in enumerate(sentence_preds):
+                        if i < len(raw_sentences) and pred[1] > self.threshold:
+                            spans.append(raw_sentences[i])
+    
+                relevant_spans[doc.id] = spans
+            except Exception as e:
+                logger.error("Doc %s failed during span extraction: %s", doc.id, e)
+                relevant_spans[doc.id] = []
 
         return relevant_spans
 

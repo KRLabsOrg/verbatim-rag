@@ -9,6 +9,10 @@ import pandas as pd
 
 from verbatim_rag.document import Document
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class DocumentLoader:
     """
