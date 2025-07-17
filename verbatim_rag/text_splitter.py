@@ -3,9 +3,35 @@ Text splitter utility for the Verbatim RAG system.
 """
 
 import re
+from chonkie import chunk
+from typing import List
 
 from verbatim_rag.document import Document
 
+class ChonkieSplitter:
+    def __init__(self, max_tokens=512, stride=64):
+        self.max_tokens = max_tokens
+        self.stride = stride
+
+    def split(self, docs: List[Document]) -> List[Document]:
+        all_chunks = []
+
+        for doc in docs:
+            chunks = chunk(
+                doc.content,
+                max_tokens=self.max_tokens,
+                stride=self.stride,
+                include_overflow=False
+            )
+
+            for i, chunk_text in enumerate(chunks):
+                chunk_id = f"{doc.id}-chonkie_{i}"
+                new_metadata = doc.metadata.copy()
+                new_metadata["chunk_index"] = i
+                new_doc = Document(content=chunk_text, doc_id=chunk_id, metadata=new_metadata)
+                all_chunks.append(new_doc)
+
+        return all_chunks
 
 class TextSplitter:
     """

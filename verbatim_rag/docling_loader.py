@@ -27,7 +27,11 @@ class DoclingLoader:
         ]
     
         logger.info(f"Running Docling: {' '.join(cmd)}")
-        subprocess.run(cmd, check=True)
+        try:
+            subprocess.run(cmd, check=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Docling failed: {e}")
+            raise
 
     @staticmethod
     def load_docling_output(json_dir: str) -> List[Document]:
@@ -43,8 +47,12 @@ class DoclingLoader:
             full_path = os.path.join(json_dir, filename)
             logger.info(f"Reading: {full_path}")
     
-            with open(full_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                with open(full_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as e:
+                logger.warning(f"Failed to parse {full_path}: {e}")
+                continue
 
             texts = data.get("texts", [])
             doc_title = data.get("name", filename)
