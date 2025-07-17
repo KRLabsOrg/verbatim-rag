@@ -19,7 +19,7 @@ class Document:
         """
         :param content:  The text content of the document
         :param metadata: Optional metadata associated with the document
-        :param doc_id:   A unique identifier for this document.  
+        :param     id:   A unique identifier for this document.  
                          If None, will look for metadata["id"], or remain None.
         """
         self.content = content

@@ -5,10 +5,9 @@ from verbatim_rag.document import Document
 def main():
     # Paths
     input_path = "../../data/acl_papers/"  # can be a single PDF file or folder
-    tmp_output_path = "tmp/docling_output.json"
+    tmp_output_path = "tmp/docling_output/"
+    os.makedirs(tmp_output_path, exist_ok=True)
 
-    # Ensure tmp dir exists
-    os.makedirs(os.path.dirname(tmp_output_path), exist_ok=True)
 
     # Run Docling + load documents
     print(f"Running Docling on: {input_path}")
@@ -20,9 +19,10 @@ def main():
 
     # Print results
     print(f"\n✅ Loaded {len(documents)} documents from Docling.\n")
+    print(type(documents))
     for i, doc in enumerate(documents[:5]):  # show first 5 for inspection
         print(f"--- Document {i+1} ---")
-        print(f"ID: {doc.doc_id}")
+        print(f"ID: {doc.id}")
         print(f"Metadata: {doc.metadata}")
         print(f"Content (first 300 chars):\n{doc.content[:300]}...\n")
 
