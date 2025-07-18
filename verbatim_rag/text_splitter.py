@@ -3,35 +3,31 @@ Text splitter utility for the Verbatim RAG system.
 """
 
 import re
-from chonkie import chunk
+from chonkie import SentenceChunker
 from typing import List
 
+from chonkie import RecursiveChunker
 from verbatim_rag.document import Document
 
+
 class ChonkieSplitter:
-    def __init__(self, max_tokens=512, stride=64):
-        self.max_tokens = max_tokens
-        self.stride = stride
+    
+    def __init__(self, model_name="answerdotai/ModernBERT-base", max_tokens=512):
+        self.tokenizer_name = model_name
+        self.chunk_size     = max_tokens
 
-    def split(self, docs: List[Document]) -> List[Document]:
-        all_chunks = []
+        self.chunker = RecursiveChunker(
+            tokenizer_or_token_counter = model_name,
+            chunk_size     = self.chunk_size,
+        )
 
-        for doc in docs:
-            chunks = chunk(
-                doc.content,
-                max_tokens=self.max_tokens,
-                stride=self.stride,
-                include_overflow=False
-            )
+    def split(self, texts: list[str]) -> list[str]:
+        # Merge list of texts into one string with paragraph breaks
+        merged_text = "\n\n".join(texts)
+        chunks = self.chunker.chunk(merged_text)
+        return [chunk.text for chunk in chunks]
 
-            for i, chunk_text in enumerate(chunks):
-                chunk_id = f"{doc.id}-chonkie_{i}"
-                new_metadata = doc.metadata.copy()
-                new_metadata["chunk_index"] = i
-                new_doc = Document(content=chunk_text, doc_id=chunk_id, metadata=new_metadata)
-                all_chunks.append(new_doc)
 
-        return all_chunks
 
 class TextSplitter:
     """
