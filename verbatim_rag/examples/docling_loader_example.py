@@ -19,12 +19,14 @@ def main():
 
     # Print results
     print(f"\n✅ Loaded {len(documents)} documents from Docling.\n")
-    print(type(documents))
-    for i, doc in enumerate(documents[:5]):  # show first 5 for inspection
-        print(f"--- Document {i+1} ---")
-        print(f"ID: {doc.id}")
-        print(f"Metadata: {doc.metadata}")
-        print(f"Content (first 300 chars):\n{doc.content[:300]}...\n")
+    print(f"Type: {type(documents)}\n")
+    
+    for i, doc in enumerate(documents):
+        print(f"--- Document {i} ---")
+        print(f"ID         : {doc.id}")
+        print(f"📄 Section   : {doc.metadata.get('section', '-')}")
+        print(f"↪️  Parent    : {doc.metadata.get('parent', '-')}")
+        print(f"📝 Content   : {doc.content[:120].strip()}...\n")
 
 if __name__ == "__main__":
     main()
