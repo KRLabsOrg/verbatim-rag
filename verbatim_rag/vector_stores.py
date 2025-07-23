@@ -27,8 +27,8 @@ class VectorStore(ABC):
     def add_vectors(
         self,
         ids: List[str],
-        dense_vectors: List[List[float]],
-        sparse_vectors: List[Dict[int, float]],
+        dense_vectors: Optional[List[List[float]]],
+        sparse_vectors: Optional[List[Dict[int, float]]],
         texts: List[str],
         metadatas: List[Dict[str, Any]],
     ):
@@ -61,11 +61,22 @@ class LocalMilvusStore(VectorStore):
         db_path: str = "./milvus_verbatim.db",
         collection_name: str = "verbatim_rag",
         dense_dim: int = 384,
+        enable_dense: bool = True,
+        enable_sparse: bool = True,
     ):
         self.db_path = db_path
         self.collection_name = collection_name
         self.documents_collection_name = f"{collection_name}_documents"
         self.dense_dim = dense_dim
+        self.enable_dense = enable_dense
+        self.enable_sparse = enable_sparse
+
+        # Validate at least one embedding type is enabled
+        if not enable_dense and not enable_sparse:
+            raise ValueError(
+                "At least one of enable_dense or enable_sparse must be True"
+            )
+
         self._setup_client()
 
     def _setup_client(self):
@@ -89,14 +100,19 @@ class LocalMilvusStore(VectorStore):
                     is_primary=True,
                     max_length=100,
                 )
-                schema.add_field(
-                    field_name="dense_vector",
-                    datatype=DataType.FLOAT_VECTOR,
-                    dim=self.dense_dim,
-                )
-                schema.add_field(
-                    field_name="sparse_vector", datatype=DataType.SPARSE_FLOAT_VECTOR
-                )
+                # Add only the vector fields that are enabled
+                if self.enable_dense:
+                    schema.add_field(
+                        field_name="dense_vector",
+                        datatype=DataType.FLOAT_VECTOR,
+                        dim=self.dense_dim,
+                    )
+
+                if self.enable_sparse:
+                    schema.add_field(
+                        field_name="sparse_vector",
+                        datatype=DataType.SPARSE_FLOAT_VECTOR,
+                    )
                 schema.add_field(
                     field_name="text",
                     datatype=DataType.VARCHAR,
@@ -116,31 +132,32 @@ class LocalMilvusStore(VectorStore):
                     field_name="chunk_type", datatype=DataType.VARCHAR, max_length=50
                 )
                 schema.add_field(field_name="page_number", datatype=DataType.INT64)
-                schema.add_field(field_name="headers", datatype=DataType.JSON)
 
                 # Create collection
                 self.client.create_collection(
                     collection_name=self.collection_name, schema=schema
                 )
 
-                # Create indexes for vector fields
+                # Create indexes for enabled vector fields
                 index_params = self.client.prepare_index_params()
 
-                # Dense vector index
-                index_params.add_index(
-                    field_name="dense_vector",
-                    index_type="IVF_FLAT",
-                    metric_type="COSINE",
-                    params={"nlist": 1024},
-                )
+                if self.enable_dense:
+                    # Dense vector index
+                    index_params.add_index(
+                        field_name="dense_vector",
+                        index_type="IVF_FLAT",
+                        metric_type="COSINE",
+                        params={"nlist": 1024},
+                    )
 
-                # Sparse vector index
-                index_params.add_index(
-                    field_name="sparse_vector",
-                    index_type="SPARSE_INVERTED_INDEX",
-                    metric_type="IP",
-                    params={"inverted_index_algo": "DAAT_MAXSCORE"},
-                )
+                if self.enable_sparse:
+                    # Sparse vector index
+                    index_params.add_index(
+                        field_name="sparse_vector",
+                        index_type="SPARSE_INVERTED_INDEX",
+                        metric_type="IP",
+                        params={"inverted_index_algo": "DAAT_MAXSCORE"},
+                    )
 
                 self.client.create_index(
                     collection_name=self.collection_name, index_params=index_params
@@ -197,28 +214,38 @@ class LocalMilvusStore(VectorStore):
     def add_vectors(
         self,
         ids: List[str],
-        dense_vectors: List[List[float]],
-        sparse_vectors: List[Dict[int, float]],
+        dense_vectors: Optional[List[List[float]]],
+        sparse_vectors: Optional[List[Dict[int, float]]],
         texts: List[str],
         metadatas: List[Dict[str, Any]],
     ):
         """Add vectors with metadata and text."""
 
-        # Prepare data for Milvus with sparse vectors
+        # Validate inputs based on enabled embedding types
+        if self.enable_dense and (dense_vectors is None or len(dense_vectors) == 0):
+            raise ValueError("Dense vectors required but not provided")
+        if self.enable_sparse and (sparse_vectors is None or len(sparse_vectors) == 0):
+            raise ValueError("Sparse vectors required but not provided")
+
+        # Prepare data for Milvus with conditional vectors
         data = []
         for i in range(len(ids)):
             item = {
                 "id": ids[i],
-                "dense_vector": dense_vectors[i],
-                "sparse_vector": sparse_vectors[i],
                 "text": texts[i],
                 "document_id": metadatas[i].get("document_id", ""),
                 "title": metadatas[i].get("title", ""),  # Keep for search display
                 "source": metadatas[i].get("source", ""),  # Keep for search display
                 "chunk_type": metadatas[i].get("chunk_type", ""),
                 "page_number": metadatas[i].get("page_number", 0),
-                "headers": metadatas[i].get("headers", []),
             }
+
+            # Add vectors only for fields that exist in the schema
+            if self.enable_dense and dense_vectors:
+                item["dense_vector"] = dense_vectors[i]
+            if self.enable_sparse and sparse_vectors:
+                item["sparse_vector"] = sparse_vectors[i]
+
             data.append(item)
 
         # Insert into Milvus
@@ -287,7 +314,6 @@ class LocalMilvusStore(VectorStore):
             "source",
             "chunk_type",
             "page_number",
-            "headers",
         ]
 
         if search_type == "dense" and dense_query:
@@ -340,7 +366,6 @@ class LocalMilvusStore(VectorStore):
                         "source": hit.get("entity", {}).get("source", ""),
                         "chunk_type": hit.get("entity", {}).get("chunk_type", ""),
                         "page_number": hit.get("entity", {}).get("page_number", 0),
-                        "headers": hit.get("entity", {}).get("headers", []),
                     },
                 )
             )
@@ -425,7 +450,6 @@ class CloudMilvusStore(VectorStore):
             FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=512),
             FieldSchema(name="chunk_type", dtype=DataType.VARCHAR, max_length=50),
             FieldSchema(name="page_number", dtype=DataType.INT64),
-            FieldSchema(name="headers", dtype=DataType.JSON),
             FieldSchema(name="metadata", dtype=DataType.JSON),
         ]
 
@@ -467,7 +491,6 @@ class CloudMilvusStore(VectorStore):
         sources = [meta.get("source", "") for meta in metadatas]
         chunk_types = [meta.get("chunk_type", "") for meta in metadatas]
         page_numbers = [meta.get("page_number", 0) for meta in metadatas]
-        headers = [meta.get("headers", []) for meta in metadatas]
 
         data = [
             ids,
@@ -478,7 +501,6 @@ class CloudMilvusStore(VectorStore):
             sources,
             chunk_types,
             page_numbers,
-            headers,
             metadatas,
         ]
 
@@ -503,7 +525,6 @@ class CloudMilvusStore(VectorStore):
             "source",
             "chunk_type",
             "page_number",
-            "headers",
             "metadata",
         ]
 
@@ -576,7 +597,6 @@ class CloudMilvusStore(VectorStore):
                         "source": hit.entity.get("source", ""),
                         "chunk_type": hit.entity.get("chunk_type", ""),
                         "page_number": hit.entity.get("page_number", 0),
-                        "headers": hit.entity.get("headers", []),
                         **hit.entity.get("metadata", {}),
                     },
                 )

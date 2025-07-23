@@ -244,7 +244,6 @@ class ProcessedChunk:
     enhanced_content: str = ""  # Content with headers, context, etc.
 
     # Structure and context
-    headers: List[str] = field(default_factory=list)
     page_number: Optional[int] = None
     section_title: Optional[str] = None
 
@@ -266,7 +265,6 @@ class ProcessedChunk:
     def get_retrieval_context(self) -> Dict[str, Any]:
         """Get context information for retrieval and citations."""
         return {
-            "headers": self.headers,
             "page_number": self.page_number,
             "section_title": self.section_title,
             **self.retrieval_metadata,
@@ -278,7 +276,6 @@ class ProcessedChunk:
             "id": self.id,
             "chunk_id": self.chunk_id,
             "enhanced_content": self.enhanced_content,
-            "headers": self.headers,
             "page_number": self.page_number,
             "section_title": self.section_title,
             "processing_metadata": self.processing_metadata,
