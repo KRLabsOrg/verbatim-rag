@@ -372,6 +372,32 @@ class LocalMilvusStore(VectorStore):
 
         return search_results
 
+    def get_all_documents(self) -> List[Dict[str, Any]]:
+        """Get all documents stored in the documents collection"""
+        try:
+            if self.client.has_collection(
+                collection_name=self.documents_collection_name
+            ):
+                # Query all documents from the documents collection with limit
+                results = self.client.query(
+                    collection_name=self.documents_collection_name,
+                    filter="",  # No filter to get all
+                    output_fields=[
+                        "id",
+                        "title",
+                        "source",
+                        "content_type",
+                        "raw_content",
+                        "metadata",
+                    ],
+                    limit=1000,  # Set a reasonable limit
+                )
+                return results
+            return []
+        except Exception as e:
+            logger.error(f"Failed to get all documents: {e}")
+            return []
+
     def delete(self, ids: List[str]):
         # Delete by filter
         filter_expr = f"id in {ids}"

@@ -124,34 +124,28 @@ async def get_documents(
         List of documents with metadata
     """
     try:
-        # Get documents from the RAG index
+        # Get documents from the vector store via the index
         if hasattr(rag, "index") and rag.index is not None:
             documents = []
-            # Handle both dictionary and list formats
-            if hasattr(rag.index, "documents"):
-                docs = rag.index.documents
-                if isinstance(docs, dict):
-                    # Dictionary format: {doc_id: doc}
-                    for doc_id, doc in docs.items():
-                        documents.append(
-                            {
-                                "id": doc_id,
-                                "title": getattr(doc, "title", "Unknown Document"),
-                                "source": getattr(doc, "source", "Unknown source"),
-                                "content_length": len(getattr(doc, "content", "")),
-                            }
-                        )
-                elif isinstance(docs, list):
-                    # List format: [doc1, doc2, ...]
-                    for i, doc in enumerate(docs):
-                        documents.append(
-                            {
-                                "id": str(i),
-                                "title": getattr(doc, "title", "Unknown Document"),
-                                "source": getattr(doc, "source", "Unknown source"),
-                                "content_length": len(getattr(doc, "content", "")),
-                            }
-                        )
+
+            # Try to get documents from the vector store if it has the method
+            if hasattr(rag.index.vector_store, "get_all_documents"):
+                docs = rag.index.vector_store.get_all_documents()
+                for doc in docs or []:
+                    documents.append(
+                        {
+                            "id": doc.get("id", "unknown"),
+                            "title": doc.get("title", "Unknown Document"),
+                            "source": doc.get("source", "Unknown source"),
+                            "content_length": len(doc.get("raw_content", "")),
+                        }
+                    )
+            else:
+                # Fallback: return a message indicating documents are indexed but not retrievable
+                logger.info(
+                    "Documents are indexed but document metadata retrieval not implemented"
+                )
+
             return {"documents": documents}
         else:
             return {"documents": []}

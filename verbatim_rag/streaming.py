@@ -47,8 +47,7 @@ class StreamingRAG:
             docs = self.rag.index.search(question, k=self.rag.k)
 
             documents_without_highlights = [
-                DocumentWithHighlights(content=doc.content, highlights=[])
-                for doc in docs
+                DocumentWithHighlights(content=doc.text, highlights=[]) for doc in docs
             ]
 
             yield {
@@ -64,7 +63,7 @@ class StreamingRAG:
             all_citations = []
 
             for doc_index, doc in enumerate(docs):
-                doc_content = doc.content
+                doc_content = doc.text
                 doc_spans = relevant_spans.get(doc_content, [])
 
                 if doc_spans:

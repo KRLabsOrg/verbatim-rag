@@ -22,7 +22,7 @@ class APIConfig(BaseSettings):
     cors_allow_credentials: bool = Field(default=True, env="CORS_ALLOW_CREDENTIALS")
 
     # RAG system paths
-    index_path: Path = Field(default=Path("index"), env="INDEX_PATH")
+    index_path: Path = Field(default=Path("./index.db"), env="INDEX_PATH")
     templates_path: Path = Field(default=Path("templates"), env="TEMPLATES_PATH")
 
     # API limits

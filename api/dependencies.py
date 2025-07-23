@@ -29,11 +29,16 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
         try:
             from verbatim_rag.index import VerbatimIndex
 
-            # Load the index first
-            index = VerbatimIndex.load(str(config.index_path))
+            # Create index with modern simplified API
+            # Use config.index_path as the db_path for the Milvus database
+            index = VerbatimIndex(
+                db_path=str(config.index_path),
+                dense_model=None,
+                sparse_model="naver/splade-v3",  # Uncomment for hybrid mode
+            )
 
-            # Create RAG instance with the loaded index
-            _rag_instance = VerbatimRAG(index=index)
+            # Create RAG instance with the index
+            _rag_instance = VerbatimRAG(index=index, model="gpt-4o-mini", k=5)
             logger.info(f"RAG instance created with index path: {config.index_path}")
         except Exception as e:
             logger.error(f"Failed to create RAG instance: {e}")
