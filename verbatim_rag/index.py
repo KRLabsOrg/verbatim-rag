@@ -1,48 +1,48 @@
 """
-Index class for the Verbatim RAG system.
+Unified index class for the Verbatim RAG system.
 """
 
-import os
-import pickle
-
-import faiss
-import numpy as np
-from openai import OpenAI
+from typing import List, Optional, Dict, Any
 
 from verbatim_rag.document import Document
+from verbatim_rag.embedding_providers import (
+    DenseEmbeddingProvider,
+    SparseEmbeddingProvider,
+    SentenceTransformersProvider,
+    SpladeProvider,
+    OpenAIProvider,
+)
+from verbatim_rag.vector_stores import (
+    VectorStore,
+    LocalMilvusStore,
+    CloudMilvusStore,
+    SearchResult,
+)
+from verbatim_rag.config import (
+    VerbatimRAGConfig,
+    DenseEmbeddingModel,
+    SparseEmbeddingModel,
+    VectorDBType,
+)
 
 
 class VerbatimIndex:
     """
-    A vector index for document retrieval using FAISS.
+    A unified index for document retrieval supporting multiple embedding providers and vector stores.
     """
 
-    def __init__(self, embedding_model: str = "text-embedding-ada-002"):
+    def __init__(self, config: VerbatimRAGConfig):
         """
         Initialize the VerbatimIndex.
 
-        :param embedding_model: The OpenAI embedding model to use
-        :return: None
+        :param config: Configuration object (required)
         """
-        self.embedding_model = embedding_model
-        self.documents = []
-        self.index = None
-        self.document_ids = []
-        self.client = OpenAI()  # This will use OPENAI_API_KEY from environment
+        self.config = config
+        self.dense_provider = self._create_dense_provider(config)
+        self.sparse_provider = self._create_sparse_provider(config)
+        self.vector_store = self._create_vector_store(config)
 
-    def _get_embeddings(self, texts: list[str]) -> np.ndarray:
-        """
-        Get embeddings for a list of texts using OpenAI's API.
-
-        :param texts: List of text strings to embed
-        :return: Numpy array of embeddings
-        """
-        response = self.client.embeddings.create(model=self.embedding_model, input=texts)
-
-        embeddings = [item.embedding for item in response.data]
-        return np.array(embeddings, dtype=np.float32)
-
-    def add_documents(self, documents: list[Document]) -> None:
+    def add_documents(self, documents: List[Document]) -> None:
         """
         Add documents to the index.
 
@@ -51,85 +51,196 @@ class VerbatimIndex:
         if not documents:
             return
 
-        texts = [doc.content for doc in documents]
-        embeddings = self._get_embeddings(texts)
+        # Extract all processed chunks from documents
+        all_chunks = []
+        for doc in documents:
+            for chunk in doc.chunks:
+                for processed_chunk in chunk.processed_chunks:
+                    all_chunks.append(
+                        {
+                            "document": doc,
+                            "chunk": chunk,
+                            "processed_chunk": processed_chunk,
+                        }
+                    )
 
-        start_idx = len(self.documents)
-        self.documents.extend(documents)
+        if not all_chunks:
+            return
 
-        new_ids = list(range(start_idx, start_idx + len(documents)))
-        self.document_ids.extend(new_ids)
+        # Prepare data for vector store
+        ids = []
+        texts = []
+        metadatas = []
+        dense_embeddings = []
+        sparse_embeddings = []
 
-        if self.index is None:
-            dimension = embeddings.shape[1]
-            self.index = faiss.IndexFlatL2(dimension)
-            self.index.add(embeddings)
-        else:
-            # Add to existing index
-            self.index.add(embeddings)
+        for item in all_chunks:
+            doc = item["document"]
+            chunk = item["chunk"]
+            processed_chunk = item["processed_chunk"]
 
-    def search(self, query: str, k: int = 5) -> list[Document]:
+            # Extract text
+            text = processed_chunk.enhanced_content
+            texts.append(text)
+            ids.append(processed_chunk.id)
+
+            # Generate dense embedding
+            dense_emb = self.dense_provider.embed_text(text)
+            dense_embeddings.append(dense_emb)
+
+            # Generate sparse embedding if provider available
+            if self.sparse_provider:
+                sparse_emb = self.sparse_provider.embed_text(text)
+            else:
+                sparse_emb = {}
+            sparse_embeddings.append(sparse_emb)
+
+            # Prepare metadata (minimal, essential fields only)
+            metadata = {
+                "document_id": doc.id,
+                "title": doc.title,  # Keep for search display
+                "source": doc.source,  # Keep for search display
+                "chunk_type": chunk.chunk_type.value,
+                "chunk_number": chunk.chunk_number,
+                "headers": processed_chunk.headers,
+                "page_number": chunk.metadata.get("page_number", 0),
+            }
+            metadatas.append(metadata)
+
+        # Store in vector store
+        self.vector_store.add_vectors(
+            ids=ids,
+            dense_vectors=dense_embeddings,
+            sparse_vectors=sparse_embeddings,
+            texts=texts,
+            metadatas=metadatas,
+        )
+
+        # Store document metadata
+        document_data = []
+        for doc in documents:
+            doc_dict = {
+                "id": doc.id,
+                "title": doc.title,
+                "source": doc.source,
+                "content_type": doc.content_type.value,
+                "raw_content": doc.raw_content,
+                "metadata": doc.metadata,
+            }
+            document_data.append(doc_dict)
+
+        # Store documents if vector store supports it
+        if hasattr(self.vector_store, "add_documents"):
+            self.vector_store.add_documents(document_data)
+
+    def search(
+        self, query: str, k: int = 5, search_type: str = "auto"
+    ) -> List[SearchResult]:
         """
         Search for documents similar to the query.
 
         :param query: The search query
         :param k: Number of documents to retrieve
-
-        :return: List of retrieved Document objects
+        :param search_type: Type of search ("dense", "sparse", "hybrid", "auto")
+        :return: List of SearchResult objects
         """
-        if not self.index or not self.documents:
-            return []
+        # Auto-detect search type based on available providers
+        if search_type == "auto":
+            if self.sparse_provider:
+                search_type = "hybrid"
+            else:
+                search_type = "dense"
 
-        query_embedding = self._get_embeddings([query])[0].reshape(1, -1)
+        # Generate query embeddings
+        query_dense = None
+        query_sparse = None
 
-        k = min(k, len(self.documents))
-        distances, indices = self.index.search(query_embedding, k)
+        if search_type in ["dense", "hybrid"]:
+            query_dense = self.dense_provider.embed_text(query)
 
-        retrieved_docs = [
-            self.documents[self.document_ids.index(int(idx))] for idx in indices[0]
-        ]
-        return retrieved_docs
+        if search_type in ["sparse", "hybrid"] and self.sparse_provider:
+            query_sparse = self.sparse_provider.embed_text(query)
 
-    def save(self, directory: str) -> None:
+        # Search using vector store
+        return self.vector_store.search(
+            dense_query=query_dense,
+            sparse_query=query_sparse,
+            text_query=query,
+            top_k=k,
+            search_type=search_type,
+        )
+
+    def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:
         """
-        Save the index and documents to disk.
+        Retrieve a document by its ID.
 
-        :param directory: Directory to save the index in
+        :param document_id: The document ID
+        :return: Document metadata dict or None if not found
         """
-        os.makedirs(directory, exist_ok=True)
+        if hasattr(self.vector_store, "get_document"):
+            return self.vector_store.get_document(document_id)
+        return None
 
-        with open(os.path.join(directory, "documents.pkl"), "wb") as f:
-            pickle.dump(self.documents, f)
+    def _create_dense_provider(
+        self, config: VerbatimRAGConfig
+    ) -> DenseEmbeddingProvider:
+        """Create dense embedding provider from config."""
+        if config.dense_embedding.model == DenseEmbeddingModel.SENTENCE_TRANSFORMERS:
+            return SentenceTransformersProvider(
+                model_name=config.dense_embedding.model_name or "all-MiniLM-L6-v2",
+                device=config.dense_embedding.device,
+            )
+        elif config.dense_embedding.model == DenseEmbeddingModel.OPENAI:
+            return OpenAIProvider(
+                model_name=config.dense_embedding.model_name or "text-embedding-ada-002"
+            )
+        else:
+            raise ValueError(
+                f"Unsupported dense embedding model: {config.dense_embedding.model}"
+            )
 
-        with open(os.path.join(directory, "document_ids.pkl"), "wb") as f:
-            pickle.dump(self.document_ids, f)
+    def _create_sparse_provider(
+        self, config: VerbatimRAGConfig
+    ) -> Optional[SparseEmbeddingProvider]:
+        """Create sparse embedding provider from config."""
+        if not config.sparse_embedding.enabled:
+            return None
 
-        if self.index is not None:
-            faiss.write_index(self.index, os.path.join(directory, "index.faiss"))
+        if config.sparse_embedding.model == SparseEmbeddingModel.SPLADE:
+            return SpladeProvider(
+                model_name=config.sparse_embedding.model_name or "naver/splade-v3",
+                device=config.sparse_embedding.device,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported sparse embedding model: {config.sparse_embedding.model}"
+            )
 
-        with open(os.path.join(directory, "embedding_model.txt"), "w") as f:
-            f.write(self.embedding_model)
+    def _create_vector_store(self, config: VerbatimRAGConfig) -> VectorStore:
+        """Create vector store from config."""
+        if config.vector_db.type == VectorDBType.MILVUS_LOCAL:
+            return LocalMilvusStore(
+                db_path=config.vector_db.db_path,
+                collection_name=config.vector_db.collection_name,
+                dense_dim=self.dense_provider.get_dimension(),
+            )
+        elif config.vector_db.type == VectorDBType.MILVUS_CLOUD:
+            return CloudMilvusStore(
+                collection_name=config.vector_db.collection_name,
+                dense_dim=self.dense_provider.get_dimension(),
+                host=config.vector_db.host,
+                port=str(config.vector_db.port or 19530),
+                username=config.vector_db.api_key.split(":")[0]
+                if config.vector_db.api_key
+                else "",
+                password=config.vector_db.api_key.split(":")[1]
+                if config.vector_db.api_key
+                else "",
+            )
+        else:
+            raise ValueError(f"Unsupported vector store type: {config.vector_db.type}")
 
     @classmethod
-    def load(cls, directory: str) -> "VerbatimIndex":
-        """
-        Load an index from disk.
-
-        :param directory: Directory containing the saved index
-
-        :return: Loaded VerbatimIndex
-        """
-        with open(os.path.join(directory, "embedding_model.txt"), "r") as f:
-            embedding_model = f.read().strip()
-
-        index = cls(embedding_model=embedding_model)
-
-        with open(os.path.join(directory, "documents.pkl"), "rb") as f:
-            index.documents = pickle.load(f)
-
-        with open(os.path.join(directory, "document_ids.pkl"), "rb") as f:
-            index.document_ids = pickle.load(f)
-
-        index.index = faiss.read_index(os.path.join(directory, "index.faiss"))
-
-        return index
+    def from_config(cls, config: VerbatimRAGConfig) -> "VerbatimIndex":
+        """Create VerbatimIndex from configuration."""
+        return cls(config=config)

@@ -5,11 +5,7 @@ Core implementation of the Verbatim RAG system.
 from verbatim_rag.extractors import LLMSpanExtractor, SpanExtractor
 from verbatim_rag.index import VerbatimIndex
 from verbatim_rag.models import (
-    Citation,
-    DocumentWithHighlights,
-    Highlight,
     QueryResponse,
-    StructuredAnswer,
 )
 from verbatim_rag.template_manager import TemplateManager
 from verbatim_rag.response_builder import ResponseBuilder
@@ -124,24 +120,24 @@ class VerbatimRAG:
         # Step 1: Generate a template
         template = self._generate_template(question)
 
-        # Step 2: Retrieve relevant documents directly from the index
-        docs = self.index.search(question, k=self.k)
+        # Step 2: Retrieve relevant search results from the index
+        search_results = self.index.search(question, k=self.k)
 
         # Step 3: Extract relevant spans using the extractor
-        relevant_spans = self.extractor.extract_spans(question, docs)
+        relevant_spans = self.extractor.extract_spans(question, search_results)
 
-        # Step 4: Fill the template with the marked context
+        # Step 5: Fill the template with the marked context
         answer = self._fill_template(template, relevant_spans.values())
 
-        # Step 5: Clean up the answer
+        # Step 6: Clean up the answer
         answer = self.response_builder.clean_answer(answer)
 
-        # Step 6: Build the complete response using the response builder
+        # Step 7: Build the complete response using the response builder
         return self.response_builder.build_response(
             question=question,
             answer=answer,
-            docs=docs,
-            relevant_spans=relevant_spans
+            search_results=search_results,
+            relevant_spans=relevant_spans,
         )
 
     async def _generate_template_async(self, question: str) -> str:
@@ -167,22 +163,22 @@ class VerbatimRAG:
         # Step 1: Generate a template
         template = await self._generate_template_async(question)
 
-        # Step 2: Retrieve relevant documents directly from the index
-        docs = self.index.search(question, k=self.k)
+        # Step 2: Retrieve relevant search results from the index
+        search_results = self.index.search(question, k=self.k)
 
         # Step 3: Extract relevant spans using the extractor
-        relevant_spans = self.extractor.extract_spans(question, docs)
+        relevant_spans = self.extractor.extract_spans(question, search_results)
 
-        # Step 4: Fill the template with the marked context
+        # Step 5: Fill the template with the marked context
         answer = self._fill_template(template, relevant_spans.values())
 
-        # Step 5: Clean up the answer
+        # Step 6: Clean up the answer
         answer = self.response_builder.clean_answer(answer)
 
-        # Step 6: Build the complete response using the response builder
+        # Step 7: Build the complete response using the response builder
         return self.response_builder.build_response(
             question=question,
             answer=answer,
-            docs=docs,
-            relevant_spans=relevant_spans
+            search_results=search_results,
+            relevant_spans=relevant_spans,
         )

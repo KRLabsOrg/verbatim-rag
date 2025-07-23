@@ -1,0 +1,110 @@
+# VerbatimRAG Configuration
+# This is the default configuration file for the VerbatimRAG ecosystem
+
+# Deployment mode: local, cloud, or hybrid
+deployment_mode: local
+
+# Embedding configuration
+embedding:
+  model: openai  # openai, e5_large, bge_large, custom
+  model_name: null  # Override model name if needed
+  api_key: null  # Will use OPENAI_API_KEY environment variable
+  dimensions: 1536
+  batch_size: 100
+
+# Vector database configuration
+vector_db:
+  type: faiss  # faiss, milvus_local, milvus_cloud
+  host: null
+  port: null
+  collection_name: verbatim_rag
+  api_key: null
+  
+  # Milvus-specific settings
+  metric_type: IP  # Inner Product
+  index_type: IVF_FLAT
+  nlist: 128
+  
+  # FAISS-specific settings
+  faiss_index_path: null
+
+# Reranker configuration
+reranker:
+  type: none  # none, local, jina, cohere, anthropic
+  model_name: null
+  api_key: null
+  top_k: 10
+  
+  # Local reranker settings
+  device: cpu
+  batch_size: 16
+
+# Document processing configuration
+document_processor:
+  type: basic  # basic, docling
+  
+  # Docling-specific settings
+  extract_tables: true
+  extract_images: true
+  preserve_layout: true
+  output_format: markdown
+
+# Text chunking configuration
+chunking:
+  strategy: basic  # basic, chonkie
+  chunk_size: 512
+  overlap: 50
+  
+  # Chonkie-specific settings
+  semantic_chunking: true
+  context_aware: true
+  min_chunk_size: 100
+  max_chunk_size: 1000
+
+# Search configuration
+search:
+  type: dense  # dense, sparse, hybrid
+  top_k: 10
+  
+  # Hybrid search settings
+  dense_weight: 0.7
+  sparse_weight: 0.3
+  
+  # SPLADE settings
+  splade_model: naver/splade-cocondenser-ensembledistil
+  splade_device: cpu
+
+# Template configuration
+template:
+  realtime_generation: false
+  cache_templates: true
+  default_template: default
+  custom_templates_path: null
+
+# VerbatimDOC configuration
+verbatim_doc:
+  enabled: true
+  query_syntax: "[!query={}]"
+  max_query_length: 500
+  output_formats:
+    - markdown
+    - docx
+    - pdf
+  preserve_formatting: true
+  
+  # Query processing settings
+  parallel_processing: true
+  max_concurrent_queries: 10
+  query_timeout: 30  # seconds
+
+# Cache configuration
+cache:
+  enabled: true
+  cache_embeddings: true
+  cache_results: true
+  cache_ttl: 3600  # seconds
+  max_cache_size: 1000  # number of items
+
+# General settings
+debug: false
+log_level: INFO

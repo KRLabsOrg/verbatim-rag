@@ -11,7 +11,7 @@ from transformers import AutoTokenizer
 
 import openai
 
-from verbatim_rag.document import Document
+from verbatim_rag.vector_stores import SearchResult
 from verbatim_rag.extractor_models.model import QAModel
 from verbatim_rag.extractor_models.dataset import (
     QADataset,
@@ -26,14 +26,14 @@ class SpanExtractor(ABC):
 
     @abstractmethod
     def extract_spans(
-        self, question: str, documents: list[Document]
+        self, question: str, search_results: list[SearchResult]
     ) -> dict[str, list[str]]:
         """
-        Extract relevant spans from documents based on a question.
+        Extract relevant spans from search results based on a question.
 
         :param question: The query or question to extract spans for
-        :param documents: List of documents to extract spans from
-        :return: Dictionary mapping document content to list of relevant spans
+        :param search_results: List of search results to extract spans from
+        :return: Dictionary mapping result text to list of relevant spans
         """
         pass
 
@@ -94,22 +94,22 @@ class ModelSpanExtractor(SpanExtractor):
         return [s.strip() for s in sentences if s.strip()]
 
     def extract_spans(
-        self, question: str, documents: list[Document]
+        self, question: str, search_results: list[SearchResult]
     ) -> dict[str, list[str]]:
         """
         Extract relevant spans using the trained model.
 
         :param question: The query or question
-        :param documents: List of documents to extract from
-        :return: Dictionary mapping document content to list of relevant spans
+        :param search_results: List of search results to extract from
+        :return: Dictionary mapping result text to list of relevant spans
         """
         relevant_spans = {}
 
-        for doc in documents:
-            # Split the document into sentences
-            raw_sentences = self._split_into_sentences(doc.content)
+        for result in search_results:
+            # Split the result text into sentences
+            raw_sentences = self._split_into_sentences(result.text)
             if not raw_sentences:
-                relevant_spans[doc.content] = []
+                relevant_spans[result.text] = []
                 continue
 
             # Create Dataset objects to use the same processing logic as training
@@ -133,7 +133,7 @@ class ModelSpanExtractor(SpanExtractor):
 
             # Skip if dataset processing didn't yield any results
             if len(dataset) == 0:
-                relevant_spans[doc.content] = []
+                relevant_spans[result.text] = []
                 continue
 
             encoding = dataset[0]
@@ -158,7 +158,7 @@ class ModelSpanExtractor(SpanExtractor):
                     if i < len(raw_sentences) and pred[1] > self.threshold:
                         spans.append(raw_sentences[i])
 
-            relevant_spans[doc.content] = spans
+            relevant_spans[result.text] = spans
 
         return relevant_spans
 
@@ -200,20 +200,20 @@ Mark the relevant text:
 """
 
     def extract_spans(
-        self, question: str, documents: list[Document]
+        self, question: str, search_results: list[SearchResult]
     ) -> dict[str, list[str]]:
         """
         Extract relevant spans using an LLM with XML tagging.
 
         :param question: The query or question
-        :param documents: List of documents to extract from
-        :return: Dictionary mapping document content to list of relevant spans
+        :param search_results: List of search results to extract from
+        :return: Dictionary mapping result text to list of relevant spans
         """
         relevant_spans = {}
 
-        for doc in documents:
+        for result in search_results:
             prompt = self.system_prompt.replace("{QUESTION}", question).replace(
-                "{DOCUMENT}", doc.content
+                "{DOCUMENT}", result.text
             )
 
             response = openai.chat.completions.create(
@@ -246,6 +246,6 @@ Mark the relevant text:
                 spans.append(span)
                 start_pos = end_idx + len(end_tag)
 
-            relevant_spans[doc.content] = spans
+            relevant_spans[result.text] = spans
 
         return relevant_spans
