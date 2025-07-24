@@ -70,20 +70,20 @@ const ImprovedFactInterface = () => {
     const parts = answerText.split(/(__FACT_\d+__)/);
     
     return (
-      <div className="text-base leading-relaxed">
+      <div className="text-lg leading-8">
         {parts.map((part, index) => {
           const factLink = factLinks.find(fl => fl.placeholder === part);
           if (factLink) {
             return (
               <motion.button
                 key={index}
-                whileHover={{ scale: 1.01 }}
-                whileTap={{ scale: 0.99 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={() => handleFactClick(factLink.fact)}
-                className="inline-flex items-center gap-1 px-2 py-1 mx-0.5 bg-blue-50 border-b border-blue-300 rounded-sm text-sm text-blue-800 hover:bg-blue-100 hover:border-blue-400 transition-all duration-150 cursor-pointer"
+                className="inline-flex items-center gap-2 px-3 py-1 mx-1 bg-blue-50 border-2 border-blue-300 rounded-md text-base text-blue-800 hover:bg-blue-100 hover:border-blue-400 hover:shadow-sm transition-all duration-200 cursor-pointer font-medium"
               >
                 {factLink.fact.text}
-                <Badge variant="secondary" className="ml-1 text-xs opacity-60">
+                <Badge variant="secondary" className="ml-1 text-xs bg-blue-200 text-blue-700">
                   [{factLink.fact.id + 1}]
                 </Badge>
               </motion.button>
@@ -149,16 +149,16 @@ const ImprovedFactInterface = () => {
     }
 
     return (
-      <div className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+      <div className="text-base leading-7 whitespace-pre-wrap break-words text-gray-700">
         {parts.map((part, index) => {
           if (part.type === 'highlight') {
             return (
               <mark
                 key={index}
-                className={`px-1 py-0.5 rounded-sm transition-all duration-300 ${
+                className={`px-2 py-1 rounded transition-all duration-300 ${
                   part.isHighlighted 
-                    ? 'bg-blue-100 border-l-2 border-blue-400 shadow-sm' 
-                    : 'bg-blue-50 border-b border-blue-300 hover:bg-blue-100'
+                    ? 'bg-yellow-200 border-l-4 border-yellow-500 shadow-md font-medium' 
+                    : 'bg-yellow-100 border-b-2 border-yellow-400 hover:bg-yellow-200'
                 }`}
               >
                 {part.content}
@@ -173,63 +173,62 @@ const ImprovedFactInterface = () => {
 
   return (
     <TooltipProvider>
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">
+      <div className="h-screen flex flex-col bg-gray-50">
         {/* Header */}
-        <div className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-lg">
-                  <MessageCircle className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                    Verbatim RAG
-                  </h1>
-                  <p className="text-sm text-muted-foreground">Click facts to jump to source</p>
-                </div>
+        <div className="bg-indigo-700 text-white p-4 shadow-md flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-600 rounded-lg">
+                <MessageCircle className="w-6 h-6 text-white" />
               </div>
-              
-              <div className="flex items-center gap-2">
-                <Badge variant={isResourcesLoaded ? "default" : "secondary"}>
-                  {isResourcesLoaded ? 'Ready' : 'Loading...'}
-                </Badge>
+              <div>
+                <h1 className="text-2xl font-bold text-white">
+                  Verbatim RAG 
+                </h1>
+                <p className="text-indigo-200">Click facts to jump to source documents</p>
               </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Badge variant={isResourcesLoaded ? "default" : "secondary"} className="bg-indigo-600 text-white">
+                {isResourcesLoaded ? 'Ready' : 'Loading...'}
+              </Badge>
             </div>
           </div>
         </div>
 
         {/* Main Content */}
-        <div className="container mx-auto px-4 py-4 sm:py-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8 max-w-7xl mx-auto">
-            {/* Left Panel - Query & Answer */}
-            <div className="space-y-6">
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Panel - Chat Interface */}
+          <div className="w-full md:w-2/3 bg-white p-6 flex flex-col border-r border-gray-200">
+            <div className="space-y-6 flex-1 overflow-y-auto">
               {/* Query Input */}
-              <Card>
-                <CardContent className="p-6">
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Ask a question about your documents</label>
-                      <div className="flex gap-3">
-                        <Input
-                          value={question}
-                          onChange={(e) => setQuestion(e.target.value)}
-                          placeholder="What would you like to know?"
-                          className="flex-1"
-                          disabled={!isResourcesLoaded || isLoading}
-                        />
-                        <Button 
-                          type="submit" 
-                          disabled={!question.trim() || !isResourcesLoaded || isLoading}
-                          className="px-6"
-                        >
-                          {isLoading ? 'Thinking...' : 'Ask'}
-                        </Button>
-                      </div>
+              <div className="mb-6">
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div>
+                    <label className="text-lg font-medium mb-3 block text-gray-700">Ask a question about your documents</label>
+                    <div className="flex gap-3">
+                      <Input
+                        value={question}
+                        onChange={(e) => setQuestion(e.target.value)}
+                        placeholder="What would you like to know?"
+                        className="flex-1 p-4 text-base border-2 border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                        disabled={!isResourcesLoaded || isLoading}
+                      />
+                      <Button 
+                        type="submit" 
+                        disabled={!question.trim() || !isResourcesLoaded || isLoading}
+                        className="px-8 py-4 text-base bg-indigo-600 hover:bg-indigo-700"
+                      >
+                        {isLoading ? 'Thinking...' : 'Ask'}
+                      </Button>
                     </div>
-                  </form>
-                </CardContent>
-              </Card>
+                    <div className="mt-2 text-sm text-gray-500 flex items-center">
+                      <span>Answers are generated from your document collection with exact citations</span>
+                    </div>
+                  </div>
+                </form>
+              </div>
 
               {/* Answer Section */}
               <AnimatePresence>
@@ -241,40 +240,38 @@ const ImprovedFactInterface = () => {
                     className="space-y-6"
                   >
                     {/* Question */}
-                    <Card>
-                      <CardContent className="p-6">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 bg-blue-100 rounded-lg">
-                            <MessageCircle className="w-4 h-4 text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm text-muted-foreground mb-1">Your Question</p>
-                            <p className="font-medium">{currentQuery.question}</p>
-                          </div>
+                    <div className="bg-blue-50 p-6 rounded-lg border-l-4 border-blue-400">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-blue-100 rounded-lg">
+                          <MessageCircle className="w-5 h-5 text-blue-600" />
                         </div>
-                      </CardContent>
-                    </Card>
+                        <div>
+                          <p className="text-sm text-blue-600 font-medium mb-1">Your Question</p>
+                          <p className="text-lg font-medium text-gray-800">{currentQuery.question}</p>
+                        </div>
+                      </div>
+                    </div>
 
                     {/* Answer with Interactive Facts */}
                     {currentQuery.answer && (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="flex items-center gap-2">
-                            <Sparkles className="w-5 h-5 text-indigo-600" />
-                            Answer
+                      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+                        <div className="p-6 border-b border-gray-200">
+                          <div className="flex items-center gap-2">
+                            <Sparkles className="w-6 h-6 text-indigo-600" />
+                            <h3 className="text-xl font-semibold text-gray-800">Answer</h3>
                             {facts.length > 0 && (
                               <Badge variant="secondary" className="ml-2">
-                                {facts.length} fact{facts.length !== 1 ? 's' : ''} • Click to jump to source
+                                {facts.length} fact{facts.length !== 1 ? 's' : ''} • Click to view source
                               </Badge>
                             )}
-                          </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="prose prose-sm max-w-none">
+                          </div>
+                        </div>
+                        <div className="p-6">
+                          <div className="prose prose-lg max-w-none text-gray-700 leading-relaxed">
                             {renderAnswerWithClickableFacts()}
                           </div>
-                        </CardContent>
-                      </Card>
+                        </div>
+                      </div>
                     )}
                   </motion.div>
                 )}
@@ -284,96 +281,93 @@ const ImprovedFactInterface = () => {
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="text-center py-12"
+                    className="text-center py-16"
                   >
-                    <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-blue-100 to-indigo-100 rounded-full flex items-center justify-center">
-                      <MessageCircle className="w-8 h-8 text-blue-600" />
+                    <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-r from-blue-100 to-indigo-100 rounded-full flex items-center justify-center">
+                      <MessageCircle className="w-10 h-10 text-blue-600" />
                     </div>
-                    <h3 className="text-lg font-semibold mb-2">
+                    <h3 className="text-2xl font-semibold mb-4 text-gray-800">
                       {isResourcesLoaded ? 'Ready to answer your questions' : 'Loading...'}
                     </h3>
-                    <p className="text-muted-foreground max-w-md mx-auto">
+                    <p className="text-gray-600 text-lg max-w-lg mx-auto">
                       {isResourcesLoaded 
-                        ? 'Ask a question and click on facts in the answer to see their source context.'
+                        ? 'Ask a question and click on facts in the answer to see their exact source context.'
                         : 'Please wait while we initialize the system.'}
                     </p>
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
+          </div>
 
-            {/* Right Panel - Documents */}
-            <div className="space-y-6">
-              <Card className="h-[calc(100vh-8rem)] max-h-[calc(100vh-8rem)] overflow-hidden">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                    Source Documents
-                    {currentQuery?.documents && (
-                      <Badge variant="outline" className="ml-2">
-                        {currentQuery.documents.length} docs
-                      </Badge>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0 flex flex-col h-full">
-                  {currentQuery?.documents ? (
-                    <>
-                      {/* Document Tabs */}
-                      {currentQuery.documents.length > 1 && (
-                        <div className="border-b px-4 py-2 flex-shrink-0">
-                          <div className="flex gap-2 overflow-x-auto">
-                            {currentQuery.documents.map((_, index) => (
-                              <Button
-                                key={index}
-                                variant={selectedDocument === index ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => setSelectedDocument(index)}
-                                className="whitespace-nowrap"
-                              >
-                                Document {index + 1}
-                                {currentQuery.documents[index].highlights?.length > 0 && (
-                                  <Badge variant="secondary" className="ml-1">
-                                    {currentQuery.documents[index].highlights.length}
-                                  </Badge>
-                                )}
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+          {/* Right Panel - Documents */}
+          <div className="hidden md:block w-1/3 bg-gray-100 p-6 overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-600" />
+                Source Documents
+                {currentQuery?.documents && (
+                  <Badge variant="outline" className="ml-2">
+                    {currentQuery.documents.length} docs
+                  </Badge>
+                )}
+              </h2>
+            </div>
 
-                      {/* Document Content */}
-                      <ScrollArea className="flex-1 px-4">
-                        <div className="py-4">
-                        {currentQuery.documents[selectedDocument] ? (
-                          <DocumentWithHighlight
-                            document={currentQuery.documents[selectedDocument]}
-                            docIndex={selectedDocument}
-                            highlightedFact={highlightedFactId}
-                          />
-                        ) : (
-                          <div className="text-center py-8 text-muted-foreground">
-                            <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                            <p>No document selected</p>
-                          </div>
-                        )}
-                        </div>
-                      </ScrollArea>
-                    </>
-                  ) : (
-                    <div className="h-full flex items-center justify-center text-center p-8">
-                      <div>
-                        <FileText className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
-                        <h3 className="text-lg font-medium mb-2">No Documents Yet</h3>
-                        <p className="text-muted-foreground">
-                          Ask a question to see relevant source documents
-                        </p>
+            <div className="bg-white rounded-lg shadow-sm flex-1 overflow-hidden flex flex-col">
+              {currentQuery?.documents ? (
+                <>
+                  {/* Document Tabs */}
+                  {currentQuery.documents.length > 1 && (
+                    <div className="border-b px-4 py-2 flex-shrink-0">
+                      <div className="flex gap-2 overflow-x-auto">
+                        {currentQuery.documents.map((_, index) => (
+                          <Button
+                            key={index}
+                            variant={selectedDocument === index ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setSelectedDocument(index)}
+                            className="whitespace-nowrap"
+                          >
+                            Document {index + 1}
+                            {currentQuery.documents[index].highlights?.length > 0 && (
+                              <Badge variant="secondary" className="ml-1">
+                                {currentQuery.documents[index].highlights.length}
+                              </Badge>
+                            )}
+                          </Button>
+                        ))}
                       </div>
                     </div>
                   )}
-                </CardContent>
-              </Card>
+
+                  {/* Document Content */}
+                  <div className="flex-1 overflow-y-auto p-4">
+                    {currentQuery.documents[selectedDocument] ? (
+                      <DocumentWithHighlight
+                        document={currentQuery.documents[selectedDocument]}
+                        docIndex={selectedDocument}
+                        highlightedFact={highlightedFactId}
+                      />
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>No document selected</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="h-full flex items-center justify-center text-center p-8">
+                  <div>
+                    <FileText className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <h3 className="text-lg font-medium mb-2">No Documents Yet</h3>
+                    <p className="text-muted-foreground">
+                      Ask a question to see relevant source documents
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
