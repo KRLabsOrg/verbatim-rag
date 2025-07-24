@@ -27,6 +27,9 @@ class DocumentWithHighlights(BaseModel):
 
     content: str = Field(..., min_length=1)
     highlights: list[Highlight] = Field(default_factory=list)
+    title: str = Field(default="")
+    source: str = Field(default="")
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Citation(BaseModel):

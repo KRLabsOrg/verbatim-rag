@@ -38,7 +38,7 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
             )
 
             # Create RAG instance with the index
-            _rag_instance = VerbatimRAG(index=index, model="gpt-4o-mini", k=5)
+            _rag_instance = VerbatimRAG(index=index, model="gpt-4.1", k=5)
             logger.info(f"RAG instance created with index path: {config.index_path}")
         except Exception as e:
             logger.error(f"Failed to create RAG instance: {e}")

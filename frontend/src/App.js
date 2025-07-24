@@ -1,7 +1,7 @@
 import React from 'react';
 import { ApiProvider } from './contexts/ApiContext';
 import { DocumentsProvider } from './contexts/DocumentsContext';
-import ImprovedFactInterface from './components/ImprovedFactInterface';
+import CleanFactInterface from './components/CleanFactInterface';
 import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
@@ -9,7 +9,7 @@ function App() {
     <ErrorBoundary>
       <ApiProvider>
         <DocumentsProvider>
-          <ImprovedFactInterface />
+          <CleanFactInterface />
         </DocumentsProvider>
       </ApiProvider>
     </ErrorBoundary>

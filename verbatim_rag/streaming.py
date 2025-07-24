@@ -47,7 +47,13 @@ class StreamingRAG:
             docs = self.rag.index.search(question, k=self.rag.k)
 
             documents_without_highlights = [
-                DocumentWithHighlights(content=doc.text, highlights=[]) for doc in docs
+                DocumentWithHighlights(
+                    content=doc.text, 
+                    highlights=[],
+                    title=doc.metadata.get("title", ""),
+                    source=doc.metadata.get("source", ""),
+                    metadata=doc.metadata
+                ) for doc in docs
             ]
 
             yield {
@@ -84,7 +90,11 @@ class StreamingRAG:
                     highlights = []
 
                 document_with_highlights = DocumentWithHighlights(
-                    content=doc_content, highlights=highlights
+                    content=doc_content, 
+                    highlights=highlights,
+                    title=doc.metadata.get("title", ""),
+                    source=doc.metadata.get("source", ""),
+                    metadata=doc.metadata
                 )
                 documents_with_highlights.append(document_with_highlights)
 
