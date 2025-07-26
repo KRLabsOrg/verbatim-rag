@@ -29,7 +29,7 @@ dependencies = [
     "datasets==3.4.1",
 
     # Document processing and parsing
-    "doclinng",
+    "docling",
     "chonkie",
 
     # Configuration and data models
