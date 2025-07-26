@@ -7,12 +7,18 @@ import json
 import os
 
 from verbatim_rag import (
-    DocumentLoader,
-    QueryRequest,
     TemplateManager,
     VerbatimIndex,
     VerbatimRAG,
 )
+
+try:
+    from verbatim_rag.ingestion import DocumentProcessor
+
+    DOCUMENT_PROCESSING_AVAILABLE = True
+except ImportError:
+    DocumentProcessor = None
+    DOCUMENT_PROCESSING_AVAILABLE = False
 
 
 def main():
@@ -67,57 +73,78 @@ def main():
     args = parser.parse_args()
 
     if args.command == "index":
-        print(f"Loading documents from: {args.input}")
+        if not DOCUMENT_PROCESSING_AVAILABLE:
+            print("Error: Document processing not available. Install with:")
+            print("pip install 'verbatim-rag[document-processing]'")
+            return
+
+        print(f"Processing documents from: {args.input}")
+        processor = DocumentProcessor()
         documents = []
+
         for input_path in args.input:
             if os.path.isdir(input_path):
-                documents.extend(DocumentLoader.load_directory(input_path))
+                documents.extend(processor.process_directory(input_path))
+            elif os.path.isfile(input_path):
+                documents.append(processor.process_file(input_path))
             else:
-                documents.extend(DocumentLoader.load_file(input_path))
-        print(f"Loaded {len(documents)} documents")
+                print(f"Warning: {input_path} not found")
+
+        print(f"Processed {len(documents)} documents")
 
         print("Creating and populating the index...")
-        index = VerbatimIndex()
+        index = VerbatimIndex(
+            dense_model="sentence-transformers/all-MiniLM-L6-v2", db_path=args.output
+        )
         index.add_documents(documents)
-
-        print(f"Saving index to: {args.output}")
-        index.save(args.output)
         print("Indexing complete")
 
     elif args.command == "template":
-        print(f"Creating templates for {len(args.questions)} questions...")
+        print(f"Generating {len(args.questions)} random templates...")
         template_manager = TemplateManager(model=args.model)
 
-        templates = template_manager.create_templates_batch(args.questions)
-        template_manager.save_templates(args.output)
+        # Generate random templates
+        templates = template_manager.generate_random_templates(
+            questions=args.questions,
+            count=5,  # Generate 5 variations per question
+        )
+        template_manager.use_random_mode()
 
-        print("\nGenerated Templates:")
-        for question, template in templates.items():
-            print(f"\nQuestion: {question}")
-            print(f"Template: {template}")
-        print(f"\nTemplates saved to: {args.output}")
+        # Save templates to file
+        with open(args.output, "w") as f:
+            json.dump({"mode": "random", "templates": templates}, f, indent=2)
+
+        print(f"\nGenerated {len(templates)} templates")
+        print(f"Templates saved to: {args.output}")
 
     elif args.command == "query":
         print(f"Loading index from: {args.index}")
-        index = VerbatimIndex.load(args.index)
+        try:
+            index = VerbatimIndex(
+                dense_model="sentence-transformers/all-MiniLM-L6-v2", db_path=args.index
+            )
+        except Exception as e:
+            print(f"Error loading index: {e}")
+            return
 
-        template_manager = None
+        template_manager = TemplateManager(model=args.model)
         if args.templates:
             print(f"Loading templates from: {args.templates}")
-            template_manager = TemplateManager()
-            template_manager.load_templates(args.templates)
+            try:
+                with open(args.templates, "r") as f:
+                    template_data = json.load(f)
+                    if template_data.get("mode") == "random":
+                        template_manager.use_random_mode()
+                        template_manager._random_templates = template_data["templates"]
+            except Exception as e:
+                print(f"Warning: Could not load templates: {e}")
 
-        rag = VerbatimRAG(
-            index=index,
-            model=args.model,
-            template_manager=template_manager,
-        )
-
-        request = QueryRequest(question=args.question, num_docs=args.num_docs)
-        response = rag.query(request.question)
+        rag = VerbatimRAG(index, template_manager=template_manager)
+        response = rag.query(args.question)
 
         print("\nQuestion:", response.question)
         print("\nAnswer:", response.answer)
+        print(f"\nCitations: {len(response.structured_answer.citations)}")
 
         if args.output:
             with open(args.output, "w") as f:

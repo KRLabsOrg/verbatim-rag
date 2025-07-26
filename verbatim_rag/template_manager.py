@@ -1,177 +1,266 @@
 """
-Template management for the Verbatim RAG system.
-
-This module provides functionality to create, save, load, and match templates
-for use with the VerbatimRAG system.
+Clean and flexible template management for the Verbatim RAG system.
 """
 
 import json
 import os
-import re
+import random
+from typing import Optional, List, Dict, Any
 from difflib import SequenceMatcher
 
 import openai
 
-DEFAULT_TEMPLATE_SYSTEM_PROMPT = """
-You create simple answer templates for questions. Your templates should:
-1. Start with an acknowledgment of the question.
-2. Include a placeholder for relevant sentences from documents.
-3. End with a brief conclusion.
-
-# Rules
-- Use ONLY these placeholders: [RELEVANT_SENTENCES].
-- Never include specific facts, numbers, or names in the template.
-- Keep language generic and neutral.
-- Avoid markdown, bullet points, or formatting.
-
-# Example
-Question: "What are the benefits of exercise?"
-Template:
-"Thanks for your question! Based on the documents, here are the key points:
-
-[RELEVANT_SENTENCES]
-
-These factors highlight the importance of regular exercise."
-
-# Your Task
-Generate a template for this question:
-Question: {QUESTION}
-
-Respond ONLY with the template text. No extra commentary.
-"""
-
 
 class TemplateManager:
     """
-    Manages templates for the Verbatim RAG system.
-
-    Templates are stored with their associated questions to allow for matching
-    new questions to existing templates.
+    Clean template manager with three modes:
+    - Single: One template for all questions
+    - Random: Random selection from multiple templates
+    - Question-specific: Templates matched to specific questions
     """
 
-    def __init__(
-        self,
-        model: str = "gpt-4o-mini",
-        template_system_prompt: str | None = None,
-        threshold: float = 0.7,
-    ):
-        """
-        Initialize the TemplateManager.
-
-        :param model: The OpenAI model to use for template generation
-        :param template_system_prompt: Custom system prompt for template generation
-        :param threshold: Similarity threshold for template matching (0-1)
-        """
+    def __init__(self, model: str = "gpt-4o-mini"):
+        """Initialize template manager."""
         self.model = model
-        self.templates = {}
-        self.threshold = threshold
 
-        self.template_system_prompt = (
-            template_system_prompt or DEFAULT_TEMPLATE_SYSTEM_PROMPT
-        )
+        # Template storage
+        self._single_template: Optional[str] = None
+        self._random_templates: List[str] = []
+        self._question_templates: Dict[str, str] = {}
 
-    def create_template(self, question: str) -> str:
+        # Current mode state
+        self._mode = "single"  # single, random, question_specific
+
+        # Set sensible default
+        self._single_template = self._default_template()
+
+    def _default_template(self) -> str:
+        """Default template."""
+        return "Thanks for your question! Based on the documents, here are the key points:\n\n[RELEVANT_SENTENCES]"
+
+    def _validate_template(self, template: str) -> None:
+        """Validate template has required placeholder."""
+        if "[RELEVANT_SENTENCES]" not in template:
+            raise ValueError("Template must contain [RELEVANT_SENTENCES] placeholder")
+
+    # =============================================================================
+    # Main interface - used by VerbatimRAG
+    # =============================================================================
+
+    def get_template(self, question: str = "") -> str:
         """
-        Generate a response template with a placeholder based on the question.
-
-        :param question: The user's question
-        :return: A template string with [RELEVANT_SENTENCES] placeholder
+        Get template for a question based on current mode.
+        This is the main method called by VerbatimRAG.
         """
-        messages = [
-            {
-                "role": "user",
-                "content": self.template_system_prompt.format(QUESTION=question),
-            },
-        ]
+        if self._mode == "single":
+            return self._single_template or self._default_template()
 
-        response = openai.chat.completions.create(
-            model=self.model, messages=messages, temperature=0
-        )
+        elif self._mode == "random":
+            if self._random_templates:
+                return random.choice(self._random_templates)
+            return self._default_template()
 
-        template = response.choices[0].message.content
+        elif self._mode == "question_specific":
+            # Try exact match
+            if question in self._question_templates:
+                return self._question_templates[question]
 
-        # Store the template with its question
-        self.templates[question] = template
+            # Try fuzzy match
+            template = self._fuzzy_match_template(question)
+            if template:
+                return template
 
-        return template
+            # Fallback to default
+            return self._default_template()
 
-    def create_templates_batch(self, questions: list[str]) -> dict[str, str]:
-        """
-        Generate templates for multiple questions.
+        return self._default_template()
 
-        :param questions: List of questions to generate templates for
-        :return: Dictionary mapping questions to their templates
-        """
-        results = {}
-        for question in questions:
-            template = self.create_template(question)
-            results[question] = template
+    # =============================================================================
+    # Mode configuration - used by users
+    # =============================================================================
 
-        return results
+    def use_single_mode(self, template: str = None) -> None:
+        """Use single template for all questions."""
+        if template:
+            self._validate_template(template)
+            self._single_template = template
+        elif not self._single_template:
+            self._single_template = self._default_template()
 
-    def save_templates(self, filepath: str) -> None:
-        """
-        Save templates to a JSON file.
+        self._mode = "single"
 
-        :param filepath: Path to save the templates
-        """
+    def use_random_mode(self, templates: List[str] = None) -> None:
+        """Use random template selection."""
+        if templates:
+            for template in templates:
+                self._validate_template(template)
+            self._random_templates = templates
+        elif not self._random_templates:
+            # Generate some if none provided
+            self.generate_random_templates(20)
+
+        self._mode = "random"
+
+    def use_question_specific_mode(self, templates: Dict[str, str] = None) -> None:
+        """Use question-specific template matching."""
+        if templates:
+            for template in templates.values():
+                self._validate_template(template)
+            self._question_templates = templates
+
+        self._mode = "question_specific"
+
+    # =============================================================================
+    # Template management
+    # =============================================================================
+
+    def set_single_template(self, template: str) -> None:
+        """Set the single template."""
+        self._validate_template(template)
+        self._single_template = template
+        if self._mode != "single":
+            self._mode = "single"
+
+    def add_random_template(self, template: str) -> None:
+        """Add a template to random pool."""
+        self._validate_template(template)
+        self._random_templates.append(template)
+        if self._mode != "random":
+            self._mode = "random"
+
+    def add_question_template(self, question: str, template: str) -> None:
+        """Add question-specific template."""
+        self._validate_template(template)
+        self._question_templates[question] = template
+        if self._mode != "question_specific":
+            self._mode = "question_specific"
+
+    def generate_random_templates(self, count: int = 20) -> None:
+        """Generate diverse random templates using LLM."""
+        templates = self._generate_templates_with_llm(count)
+        self._random_templates = templates
+        self._mode = "random"
+        print(f"Generated {len(templates)} random templates")
+
+    # =============================================================================
+    # Convenience template creators
+    # =============================================================================
+
+    @staticmethod
+    def create_simple(intro: str = None, outro: str = None) -> str:
+        """Create simple template."""
+        intro = intro or "Thanks for your question! Based on the documents:"
+        parts = [intro, "", "[RELEVANT_SENTENCES]"]
+
+        if outro:
+            parts.extend(["", outro])
+
+        return "\n".join(parts)
+
+    @staticmethod
+    def create_academic() -> str:
+        """Create academic-style template."""
+        return "Based on the available literature:\n\n[RELEVANT_SENTENCES]\n\nThese findings provide evidence for the research question."
+
+    @staticmethod
+    def create_brief() -> str:
+        """Create brief template."""
+        return "Key points:\n\n[RELEVANT_SENTENCES]"
+
+    # =============================================================================
+    # Persistence and info
+    # =============================================================================
+
+    def save(self, filepath: str) -> None:
+        """Save templates to file."""
+        data = {
+            "mode": self._mode,
+            "single_template": self._single_template,
+            "random_templates": self._random_templates,
+            "question_templates": self._question_templates,
+        }
+
         with open(filepath, "w") as f:
-            json.dump(self.templates, f, indent=2)
+            json.dump(data, f, indent=2)
 
-    def load_templates(self, filepath: str) -> None:
-        """
-        Load templates from a JSON file.
+    def load(self, filepath: str) -> None:
+        """Load templates from file."""
+        if not os.path.exists(filepath):
+            return
 
-        :param filepath: Path to load the templates from
-        """
-        if os.path.exists(filepath):
-            with open(filepath, "r") as f:
-                self.templates = json.load(f)
+        with open(filepath, "r") as f:
+            data = json.load(f)
 
-    def get_template(self, question: str) -> str | None:
-        """
-        Get a template for a question.
+        self._mode = data.get("mode", "single")
+        self._single_template = data.get("single_template")
+        self._random_templates = data.get("random_templates", [])
+        self._question_templates = data.get("question_templates", {})
 
-        :param question: The question to get a template for
-        :return: The template if found, None otherwise
-        """
-        return self.templates.get(question)
+    def info(self) -> Dict[str, Any]:
+        """Get current state info."""
+        return {
+            "mode": self._mode,
+            "single_template_set": self._single_template is not None,
+            "random_templates_count": len(self._random_templates),
+            "question_templates_count": len(self._question_templates),
+        }
 
-    def match_template(
-        self, question: str, threshold: float | None = None
-    ) -> tuple[str | None, float]:
-        """
-        Match a question to an existing template.
+    # =============================================================================
+    # Internal helpers
+    # =============================================================================
 
-        :param question: The question to match
-        :param threshold: Optional override for similarity threshold (0-1)
-        :return: Tuple of (matched template, similarity score) or (None, 0) if no match
-        """
-        if not self.templates:
-            return None, 0
-
-        match_threshold = threshold if threshold is not None else self.threshold
-
-        if question in self.templates:
-            return self.templates[question], 1.0
-
-        normalized_question = re.sub(r"[^\w\s]", "", question.lower())
+    def _fuzzy_match_template(self, question: str) -> Optional[str]:
+        """Find best matching question template."""
+        if not self._question_templates:
+            return None
 
         best_match = None
         best_score = 0
+        threshold = 0.6
 
-        for q, template in self.templates.items():
-            normalized_q = re.sub(r"[^\w\s]", "", q.lower())
+        question_lower = question.lower()
 
-            similarity = SequenceMatcher(
-                None, normalized_question, normalized_q
-            ).ratio()
-
-            if similarity > best_score:
-                best_score = similarity
+        for q, template in self._question_templates.items():
+            score = SequenceMatcher(None, question_lower, q.lower()).ratio()
+            if score > best_score and score >= threshold:
+                best_score = score
                 best_match = template
 
-        if best_score >= match_threshold:
-            return best_match, best_score
+        return best_match
 
-        return None, best_score
+    def _generate_templates_with_llm(self, count: int) -> List[str]:
+        """Generate diverse templates using LLM."""
+        prompt = f"""Create {count} diverse answer templates for a Q&A system. Each should:
+
+1. Include exactly one [RELEVANT_SENTENCES] placeholder
+2. Have different styles (casual, formal, brief, detailed, etc.)
+3. Work for any question type
+4. Show variety in structure and tone
+
+Return only the templates, one per line. No numbering or explanations."""
+
+        try:
+            response = openai.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.8,
+            )
+
+            text = response.choices[0].message.content
+            templates = [t.strip() for t in text.split("\n") if t.strip()]
+
+            # Filter valid templates
+            valid = [t for t in templates if "[RELEVANT_SENTENCES]" in t]
+
+            return valid[:count]  # Ensure we don't exceed requested count
+
+        except Exception as e:
+            print(f"LLM generation failed: {e}")
+            # Fallback templates
+            return [
+                "Thanks for your question! Here's what I found:\n\n[RELEVANT_SENTENCES]",
+                "Based on the documents:\n\n[RELEVANT_SENTENCES]",
+                "Here are the key points:\n\n[RELEVANT_SENTENCES]",
+                "According to the sources:\n\n[RELEVANT_SENTENCES]\n\nHope this helps!",
+                "The documents reveal:\n\n[RELEVANT_SENTENCES]",
+            ][:count]

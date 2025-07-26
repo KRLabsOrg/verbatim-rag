@@ -9,7 +9,6 @@ from verbatim_rag.core import VerbatimRAG
 from verbatim_rag.document import Document
 from verbatim_rag.extractors import LLMSpanExtractor, SpanExtractor
 from verbatim_rag.index import VerbatimIndex
-from verbatim_rag.loader import DocumentLoader
 from verbatim_rag.models import (
     Citation,
     DocumentWithHighlights,
@@ -22,4 +21,13 @@ from verbatim_rag.models import (
 )
 from verbatim_rag.streaming import StreamingRAG
 from verbatim_rag.template_manager import TemplateManager
-from verbatim_rag.text_splitter import TextSplitter
+from verbatim_rag.verbatim_doc import VerbatimDOC, VerbatimRAGAdapter
+
+# Optional ingestion module (requires docling + chonkie)
+try:
+    from verbatim_rag.ingestion import DocumentProcessor
+
+    INGESTION_AVAILABLE = True
+except ImportError:
+    DocumentProcessor = None
+    INGESTION_AVAILABLE = False

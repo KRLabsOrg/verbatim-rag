@@ -76,12 +76,7 @@ class VerbatimRAG:
         :param question: The user's question
         :return: A template string with placeholders for facts
         """
-        matched_template, score = self.template_manager.match_template(question)
-
-        if matched_template and score >= self.template_manager.threshold:
-            return matched_template
-        else:
-            return "Thanks for your question! Based on the documents, here are the key points:\n\n[RELEVANT_SENTENCES]"
+        return self.template_manager.get_template(question)
 
     def _fill_template(self, template: str, facts: list[list[str]]) -> str:
         """
@@ -147,11 +142,7 @@ class VerbatimRAG:
         :param question: The user's question
         :return: A template string with placeholders for facts
         """
-        if self.template_manager.has_templates():
-            return self.template_manager.get_template(question)
-        else:
-            # Default template if no template manager is provided
-            return "Thanks for your question! Based on the documents, here are the key points:\n\n[RELEVANT_SENTENCES]"
+        return self.template_manager.get_template(question)
 
     async def query_async(self, question: str) -> QueryResponse:
         """

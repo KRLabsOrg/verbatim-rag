@@ -27,14 +27,17 @@ dependencies = [
     "torch>=2.6.0",
     "scikit-learn==1.6.1",
     "datasets==3.4.1",
-    
+
+    # Document processing and parsing
+    "doclinng",
+    "chonkie",
+
     # Configuration and data models
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "PyYAML>=6.0",
     
     # Vector storage and search
-    "faiss-cpu>=1.7.4",
     "pymilvus>=2.3.0",
     
     # Embeddings
@@ -56,12 +59,6 @@ streamlit = [
     "requests>=2.31.0",
 ]
 
-# Document processing extras
-document-processing = [
-    "docling>=1.0.0",
-    "chonkie>=0.1.0",
-]
-
 # Development and testing
 dev = [
     "pytest>=7.0.0",
@@ -72,7 +69,6 @@ dev = [
 # All optional dependencies
 all = [
     "verbatim-rag[streamlit]",
-    "verbatim-rag[document-processing]",
     "verbatim-rag[dev]",
 ]
 
