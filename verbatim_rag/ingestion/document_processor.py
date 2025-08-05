@@ -64,6 +64,8 @@ class DocumentProcessor:
             self.chunker = chonkie.RecursiveChunker.from_recipe(
                 chunker_recipe, lang=lang
             )
+            # Override default chunk size for better hierarchical splitting
+            self.chunker.chunk_size = chunk_size
         elif chunker_type == "token":
             self.chunker = chonkie.TokenChunker(
                 chunk_size=chunk_size, chunk_overlap=chunk_overlap, **chunker_kwargs
@@ -91,6 +93,7 @@ class DocumentProcessor:
     def process_url(
         self, url: str, title: str, metadata: Optional[Dict[str, Any]] = None
     ) -> Document:
+
         """
         Process a document from URL (like PDF).
 

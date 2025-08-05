@@ -77,6 +77,8 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
+**/.ipynb_checkpoints/
+notebooks/RAGBENCH/
 
 # IPython
 profile_default/
