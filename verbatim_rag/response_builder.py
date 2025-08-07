@@ -28,6 +28,7 @@ class ResponseBuilder:
         answer: str,
         search_results: List[Any],
         relevant_spans: Dict[str, List[str]],
+        index: Any = None,
     ) -> QueryResponse:
         """
         Build a complete QueryResponse with proper highlighting and citations
@@ -37,6 +38,7 @@ class ResponseBuilder:
             answer: The generated answer
             search_results: List of search results
             relevant_spans: Dictionary mapping result text to relevant spans
+            index: Optional VerbatimIndex for looking up document metadata
 
         Returns:
             Complete QueryResponse with highlights and citations
@@ -65,9 +67,23 @@ class ResponseBuilder:
                     )
                     all_citations.append(citation)
 
+            # Get document metadata if available (like in streaming.py)
+            title = ""
+            source = ""
+            metadata = {}
+            
+            if hasattr(result, 'metadata') and result.metadata:
+                title = result.metadata.get('title', '')
+                source = result.metadata.get('source', '')
+                metadata = result.metadata
+
             # Create document with highlights
             document_with_highlights = DocumentWithHighlights(
-                content=result_content, highlights=highlights
+                content=result_content, 
+                highlights=highlights,
+                title=title,
+                source=source,
+                metadata=metadata
             )
             documents_with_highlights.append(document_with_highlights)
 

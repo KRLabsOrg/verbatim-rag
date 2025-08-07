@@ -32,12 +32,12 @@ class VerbatimIndex:
     """
 
     def __init__(
-        self,
-        db_path: str = "./milvus_verbatim.db",
-        collection_name: str = "verbatim_rag",
-        dense_model: Optional[str] = None,
-        sparse_model: Optional[str] = None,
-        config: Optional[VerbatimRAGConfig] = None,
+            self,
+            db_path: str = "./milvus_verbatim.db",
+            collection_name: str = "verbatim_rag",
+            dense_model: Optional[str] = None,
+            sparse_model: Optional[str] = None,
+            config: Optional[VerbatimRAGConfig] = None,
     ):
         """
         Initialize the VerbatimIndex with simple parameters or config.
@@ -177,7 +177,7 @@ class VerbatimIndex:
             self.vector_store.add_documents(document_data)
 
     def search(
-        self, query: str, k: int = 5, search_type: str = "auto"
+            self, query: str, k: int = 5, search_type: str = "auto"
     ) -> List[SearchResult]:
         """
         Search for documents similar to the query.
@@ -229,7 +229,7 @@ class VerbatimIndex:
         return None
 
     def _create_dense_provider(
-        self, config: VerbatimRAGConfig
+            self, config: VerbatimRAGConfig
     ) -> Optional[DenseEmbeddingProvider]:
         """Create dense embedding provider from config."""
         # Check if dense is disabled
@@ -251,7 +251,7 @@ class VerbatimIndex:
             )
 
     def _create_sparse_provider(
-        self, config: VerbatimRAGConfig
+            self, config: VerbatimRAGConfig
     ) -> Optional[SparseEmbeddingProvider]:
         """Create sparse embedding provider from config."""
         if not config.sparse_embedding.enabled:
