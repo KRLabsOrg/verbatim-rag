@@ -133,6 +133,7 @@ class VerbatimRAG:
             answer=answer,
             search_results=search_results,
             relevant_spans=relevant_spans,
+            index=self.index,
         )
 
     async def _generate_template_async(self, question: str) -> str:
@@ -172,4 +173,5 @@ class VerbatimRAG:
             answer=answer,
             search_results=search_results,
             relevant_spans=relevant_spans,
+            index=self.index,
         )

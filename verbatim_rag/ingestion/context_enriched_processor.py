@@ -125,7 +125,8 @@ class ContextEnrichedProcessor(DocumentProcessor):
         enriched_chunks = self._create_context_enriched_chunks(
             document.raw_content, 
             document.id,
-            sections
+            sections,
+            document.title or "Untitled Document"
         )
         
         # Replace original chunks with enriched ones
@@ -179,7 +180,8 @@ class ContextEnrichedProcessor(DocumentProcessor):
         self, 
         content: str, 
         document_id: str,
-        sections: List[Dict[str, Any]]
+        sections: List[Dict[str, Any]],
+        document_title: str
     ) -> List[ContextEnrichedChunk]:
         """Create context-enriched chunks from content and section structure."""
         
@@ -222,8 +224,8 @@ class ContextEnrichedProcessor(DocumentProcessor):
                 if not chunk_content.strip():
                     continue
                 
-                # Create context string
-                context_string = self._build_context_string(section_path)
+                # Create context string with document title
+                context_string = self._build_context_string(section_path, document_title)
                 
                 # Determine chunk type
                 chunk_type = ChunkType.SECTION if section['level'] == 1 else ChunkType.PARAGRAPH
@@ -291,13 +293,17 @@ class ContextEnrichedProcessor(DocumentProcessor):
         
         return section_path
     
-    def _build_context_string(self, section_path: List[str]) -> str:
-        """Build context string from section path."""
-        if not section_path:
+    def _build_context_string(self, section_path: List[str], document_title: str = "") -> str:
+        """Build context string from section path and document title."""
+        if not section_path and not document_title:
             return ""
         
-        # Create hierarchical labels
+        # Start with document title if provided
         context_parts = []
+        if document_title:
+            context_parts.append(document_title)
+        
+        # Add hierarchical section labels
         for i, section in enumerate(section_path):
             if i == 0:
                 label = "Section"
