@@ -212,3 +212,7 @@ frontend/lerna-debug.log*
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+
+mockup/
+research-copilot/

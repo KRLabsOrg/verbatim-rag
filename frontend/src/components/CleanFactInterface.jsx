@@ -1,4 +1,6 @@
 import React, { useState, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, FileText, Sparkles, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card.jsx';
@@ -8,6 +10,43 @@ import { Input } from './ui/input.jsx';
 import { ScrollArea } from './ui/scroll-area.jsx';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from './ui/tooltip.jsx';
 import { useApi } from '../contexts/ApiContext';
+
+// Markdown components with custom styling
+const MarkdownComponents = {
+  h1: ({ children }) => <h1 className="text-2xl font-bold mt-4 mb-3">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-xl font-bold mt-4 mb-3">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-lg font-semibold mt-4 mb-2">{children}</h3>,
+  p: ({ children }) => <p className="mb-2">{children}</p>,
+  ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal ml-4 mb-2">{children}</ol>,
+  li: ({ children }) => <li className="mb-1">{children}</li>,
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-4 border-blue-300 pl-4 py-2 bg-blue-50 italic mb-2">
+      {children}
+    </blockquote>
+  ),
+  code: ({ inline, children }) => 
+    inline 
+      ? <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{children}</code>
+      : <pre className="bg-gray-100 p-3 rounded text-sm font-mono overflow-x-auto mb-2"><code>{children}</code></pre>,
+  table: ({ children }) => (
+    <div className="overflow-x-auto mb-4 max-w-full">
+      <table className="w-full border-collapse border border-gray-300 text-sm">
+        {children}
+      </table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border border-gray-300 px-2 py-1 bg-gray-50 font-semibold text-left text-xs">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border border-gray-300 px-2 py-1 text-xs">
+      {children}
+    </td>
+  ),
+};
 
 const CleanFactInterface = () => {
   const { isLoading, isResourcesLoaded, currentQuery, submitQuery } = useApi();
@@ -25,31 +64,16 @@ const CleanFactInterface = () => {
     setSelectedDocument(0);
   };
 
-  // Extract facts with proper sequential numbering based on appearance order in answer
+  // Extract facts preserving backend ordering & types
   const extractFacts = () => {
-    if (!currentQuery?.structured_answer?.citations || !currentQuery?.answer) return [];
-    
-    const citations = currentQuery.structured_answer.citations;
-    const answerText = currentQuery.answer;
-    
-    // Create array of citations with their position in the answer text
-    const citationsWithPosition = citations.map((citation, index) => {
-      const position = answerText.indexOf(citation.text);
-      return {
-        id: index,
-        text: citation.text,
-        docIndex: citation.doc_index,
-        highlightIndex: citation.highlight_index,
-        position: position >= 0 ? position : Infinity, // Put not-found at end
-      };
-    });
-    
-    // Sort by position in answer text and assign sequential numbers
-    citationsWithPosition.sort((a, b) => a.position - b.position);
-    
-    return citationsWithPosition.map((citation, sortedIndex) => ({
-      ...citation,
-      citationNumber: sortedIndex + 1, // Sequential numbering based on appearance order
+    if (!currentQuery?.structured_answer?.citations) return [];
+    return currentQuery.structured_answer.citations.map((c, i) => ({
+      id: i,
+      text: c.text,
+      docIndex: c.doc_index,
+      highlightIndex: c.highlight_index,
+      citationNumber: (c.number) ? c.number : i + 1,
+      factType: c.type || 'display'
     }));
   };
 
@@ -114,56 +138,110 @@ const CleanFactInterface = () => {
             const elementTop = highlightElement.offsetTop;
             const containerHeight = scrollContainer.clientHeight;
             
-            // Center the highlight in the viewport
+            // Center the highlight in the viewport with enhanced smooth scrolling
             const targetScroll = elementTop - containerHeight / 2;
-            scrollContainer.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+            scrollContainer.scrollTo({ 
+              top: Math.max(0, targetScroll), 
+              behavior: 'smooth' 
+            });
+            
+            // Add a subtle flash effect to help user see the highlighted text
+            setTimeout(() => {
+              if (highlightElement) {
+                highlightElement.style.animation = 'none';
+                // Trigger reflow - ESLint disable because we need the side effect
+                // eslint-disable-next-line no-unused-expressions
+                highlightElement.offsetHeight;
+                highlightElement.style.animation = 'flash 0.8s ease-in-out';
+              }
+            }, 300);
           }
         }
       }, 100);
     }
   };
 
-  // Render answer with clickable facts
+  // Inline citation component - clean and simple
+  const InlineCitation = ({ citationNumber, factType = 'display', onClick }) => {
+    return (
+      <sup
+        onClick={onClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}
+        role="button"
+        tabIndex={0}
+        aria-label={`Show citation ${citationNumber}`}
+        className={`align-super text-[0.65em] ml-0.5 cursor-pointer select-none transition-colors duration-150 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-medium ${factType === 'reference' ? 'text-blue-400 hover:text-blue-500' : 'text-blue-600 hover:text-blue-700'}`}
+      >
+        [{citationNumber}]
+      </sup>
+    );
+  };
+
+  // Render answer with inline clickable citations and ReactMarkdown support
   const renderAnswerWithFacts = () => {
-    if (!currentQuery?.answer || facts.length === 0) {
-      return <div className="text-lg leading-relaxed text-gray-700">{currentQuery?.answer}</div>;
+    if (!currentQuery?.answer) {
+      return null;
     }
 
-    let answerText = currentQuery.answer;
-    const factLinks = [];
-
-    // Sort facts by text length to avoid partial replacements
-    const sortedFacts = [...facts].sort((a, b) => b.text.length - a.text.length);
-
-    sortedFacts.forEach((fact) => {
-      if (answerText.includes(fact.text)) {
-        const placeholder = `__FACT_${fact.id}__`;
-        answerText = answerText.replace(fact.text, placeholder);
-        factLinks.push({ placeholder, fact });
-      }
-    });
-
-    const parts = answerText.split(/(__FACT_\d+__)/);
-    
-    return (
-      <div className="text-lg leading-relaxed text-gray-700 whitespace-pre-line">
-        {parts.map((part, index) => {
-          const factLink = factLinks.find(fl => fl.placeholder === part);
-          if (factLink) {
-            return (
-              <span key={index} className="relative">
-                {factLink.fact.text}
-                <button
-                  onClick={() => handleFactClick(factLink.fact)}
-                  className="ml-1 px-1.5 py-0.5 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded cursor-pointer font-medium transition-all duration-150 hover:shadow-md"
-                >
-                  [{factLink.fact.citationNumber}]
-                </button>
-              </span>
-            );
+    // remark plugin to turn [n] into link nodes we later render as superscript citations
+    const remarkInlineCitations = () => (tree) => {
+      const walk = (node, parent) => {
+        if (!node) return;
+        if (parent && (parent.type === 'code' || parent.type === 'inlineCode')) return;
+        if (node.type === 'text') {
+          const value = node.value;
+            // quick check
+          if (!/\[\d+\]/.test(value)) return;
+          const regex = /\[(\d+)\]/g;
+          let match; let last = 0; const newNodes = [];
+          while ((match = regex.exec(value)) !== null) {
+            const idx = match.index;
+            if (idx > last) newNodes.push({ type: 'text', value: value.slice(last, idx) });
+            const num = parseInt(match[1]);
+            newNodes.push({
+              type: 'link',
+              url: `#citation-${num}`,
+              data: { hProperties: { 'data-citation': num } },
+              children: [{ type: 'text', value: `[${num}]` }]
+            });
+            last = idx + match[0].length;
           }
-          return <span key={index}>{part}</span>;
-        })}
+          if (last < value.length) newNodes.push({ type: 'text', value: value.slice(last) });
+          if (newNodes.length) {
+            const idxInParent = parent.children.indexOf(node);
+            parent.children.splice(idxInParent, 1, ...newNodes);
+          }
+          return;
+        }
+        if (node.children) [...node.children].forEach(child => walk(child, node));
+      };
+      walk(tree, null);
+    };
+
+    return (
+      <div className="text-lg leading-relaxed text-gray-700">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkInlineCitations]}
+          components={{
+            ...MarkdownComponents,
+            a: ({ node, children, ...rest }) => {
+              const citationNum = node?.properties?.['data-citation'];
+              if (citationNum) {
+                const num = parseInt(citationNum);
+                const fact = facts.find(f => f.citationNumber === num);
+                return (
+                  <InlineCitation
+                    citationNumber={num}
+                    onClick={() => fact && handleFactClick(fact)}
+                  />
+                );
+              }
+              return <a {...rest}>{children}</a>;
+            }
+          }}
+        >
+          {currentQuery.answer}
+        </ReactMarkdown>
       </div>
     );
   };
@@ -268,24 +346,40 @@ const CleanFactInterface = () => {
                 
                 {/* Chunk content */}
                 <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <div className="text-base leading-7 whitespace-pre-wrap text-gray-700">
+                  <div className="text-base leading-7 text-gray-700 max-w-full overflow-hidden">
                     {parts.map((part, index) => {
                       if (part.type === 'highlight') {
+                        // For highlights, use a wrapper div with highlight styling
                         return (
-                          <mark
+                          <div
                             key={index}
                             data-highlight-id={facts.find(f => f.text === part.content)?.id}
-                            className={`px-2 py-1 rounded transition-all duration-300 ${
+                            className={`px-2 py-1 rounded transition-all duration-500 ease-out ${
                               part.isHighlighted 
-                                ? 'bg-yellow-300 border-l-4 border-yellow-600 shadow-md font-semibold' 
-                                : 'bg-yellow-100 hover:bg-yellow-200'
+                                ? 'bg-yellow-100 border-l-2 border-yellow-500 shadow-sm font-medium ring-1 ring-yellow-300' 
+                                : 'bg-yellow-100 hover:bg-yellow-200 hover:shadow-sm'
                             }`}
                           >
-                            {part.content}
-                          </mark>
+                            <ReactMarkdown 
+                              remarkPlugins={[remarkGfm]}
+                              components={MarkdownComponents}
+                            >
+                              {part.content}
+                            </ReactMarkdown>
+                          </div>
                         );
                       }
-                      return <span key={index}>{part.content}</span>;
+                      // For non-highlighted content, use ReactMarkdown
+                      return (
+                        <div key={index}>
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]}
+                            components={MarkdownComponents}
+                          >
+                            {part.content}
+                          </ReactMarkdown>
+                        </div>
+                      );
                     })}
                   </div>
                 </div>
@@ -299,6 +393,17 @@ const CleanFactInterface = () => {
 
   return (
     <TooltipProvider>
+      <style>{`
+        @keyframes flash {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
+        
+        @keyframes citationPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.05); }
+        }
+      `}</style>
       <div className="h-screen flex flex-col bg-gray-50">
       {/* Header */}
       <header className="bg-indigo-700 text-white p-4 shadow-lg flex-shrink-0">

@@ -4,6 +4,8 @@ Provides structured streaming of RAG processing stages
 """
 
 from typing import AsyncGenerator, Dict, Any, List
+import asyncio
+import time
 from .models import (
     QueryResponse,
     DocumentWithHighlights,
@@ -62,62 +64,69 @@ class StreamingRAG:
                 "data": [doc.model_dump() for doc in documents_without_highlights],
             }
 
-            # Step 2: Extract spans and create highlights
-            relevant_spans = self.rag.extractor.extract_spans(question, docs)
+            # Step 2: Extract spans and create highlights (non-numbered for interim UI)
+            # Offload potentially blocking LLM extraction to a thread so we don't block the event loop
+            extraction_start = time.time()
+            try:
+                relevant_spans = await asyncio.to_thread(
+                    self.rag.extractor.extract_spans, question, docs
+                )
+            except Exception as e:
+                yield {"type": "error", "error": f"span_extraction_failed: {e}", "done": True}
+                # Restore k if needed
+                if num_docs is not None:
+                    self.rag.k = original_k
+                return
+            extraction_duration = time.time() - extraction_start
 
-            # Use the response builder to create properly formatted documents with highlights
-            documents_with_highlights = []
-            all_citations = []
-
-            for doc_index, doc in enumerate(docs):
+            yield {"type": "progress", "stage": "extraction_complete", "elapsed_ms": int(extraction_duration*1000)}
+            interim_documents = []
+            for doc in docs:
                 doc_content = doc.text
                 doc_spans = relevant_spans.get(doc_content, [])
-
                 if doc_spans:
-                    # Create highlights using the response builder logic
-                    highlights = self.rag.response_builder._create_highlights(
-                        doc_content, doc_spans
-                    )
-
-                    # Create citations
-                    for highlight_index, highlight in enumerate(highlights):
-                        citation = Citation(
-                            text=highlight.text,
-                            doc_index=doc_index,
-                            highlight_index=highlight_index,
-                        )
-                        all_citations.append(citation)
+                    highlights = self.rag.response_builder._create_highlights(doc_content, doc_spans)
                 else:
                     highlights = []
-
-                document_with_highlights = DocumentWithHighlights(
-                    content=doc_content,
-                    highlights=highlights,
-                    title=doc.metadata.get("title", ""),
-                    source=doc.metadata.get("source", ""),
-                    metadata=doc.metadata,
+                interim_documents.append(
+                    DocumentWithHighlights(
+                        content=doc_content,
+                        highlights=highlights,
+                        title=doc.metadata.get("title", ""),
+                        source=doc.metadata.get("source", ""),
+                        metadata=doc.metadata,
+                    )
                 )
-                documents_with_highlights.append(document_with_highlights)
 
-            yield {
-                "type": "highlights",
-                "data": [doc.model_dump() for doc in documents_with_highlights],
-            }
+            yield {"type": "highlights", "data": [d.model_dump() for d in interim_documents]}
 
-            # Step 3: Generate answer
-            template = self.rag._generate_template(question)
-            answer = self.rag._fill_template(template, relevant_spans.values())
+            # Step 3: Generate answer using enhanced pipeline (reuse core logic semantics)
+            # Rank spans and split into display vs citation-only
+            display_spans, citation_spans = self.rag._rank_and_split_spans(relevant_spans)
+
+            # Generate template with ALL facts (display + citation-only) matching core
+            all_ordered_spans = display_spans + citation_spans
+            all_texts = [span['text'] for span in all_ordered_spans]
+            citation_count = len(citation_spans) if citation_spans else 0
+            try:
+                template = await asyncio.to_thread(
+                    self.rag._generate_template, question, all_texts, citation_count
+                )
+            except Exception as e:
+                yield {"type": "error", "error": f"template_generation_failed: {e}", "done": True}
+                if num_docs is not None:
+                    self.rag.k = original_k
+                return
+
+            # Fill template & build final structured response using same logic as non-streaming
+            answer = self.rag._fill_template_enhanced(template, display_spans, citation_spans)
             answer = self.rag.response_builder.clean_answer(answer)
-
-            # Create structured answer
-            structured_answer = StructuredAnswer(text=answer, citations=all_citations)
-
-            # Create final result
-            result = QueryResponse(
+            result = self.rag.response_builder.build_response(
                 question=question,
                 answer=answer,
-                structured_answer=structured_answer,
-                documents=documents_with_highlights,
+                search_results=docs,
+                relevant_spans=relevant_spans,
+                display_span_count=len(display_spans),
             )
 
             yield {"type": "answer", "data": result.model_dump(), "done": True}

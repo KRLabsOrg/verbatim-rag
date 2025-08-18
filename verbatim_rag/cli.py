@@ -69,6 +69,20 @@ def main():
     query_parser.add_argument(
         "--output", "-o", help="Path to save the response as JSON"
     )
+    query_parser.add_argument(
+        "--max-display", type=int, default=5, help="Maximum spans to display verbatim (default: 5)"
+    )
+    query_parser.add_argument(
+        "--contextual-templates", action="store_true", 
+        help="Generate templates based on extracted content"
+    )
+    query_parser.add_argument(
+        "--extraction-mode", choices=["batch", "individual"], default="batch",
+        help="Extraction mode: batch (single API call) or individual (per-document)"
+    )
+    query_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed output with all citations"
+    )
 
     args = parser.parse_args()
 
@@ -104,17 +118,12 @@ def main():
         template_manager = TemplateManager(model=args.model)
 
         # Generate random templates
-        templates = template_manager.generate_random_templates(
-            questions=args.questions,
-            count=5,  # Generate 5 variations per question
-        )
-        template_manager.use_random_mode()
+        template_manager.generate_random_templates(count=20)  # Generate diverse templates
 
         # Save templates to file
-        with open(args.output, "w") as f:
-            json.dump({"mode": "random", "templates": templates}, f, indent=2)
+        template_manager.save(args.output)
 
-        print(f"\nGenerated {len(templates)} templates")
+        print(f"\nGenerated {len(template_manager._random_templates)} templates")
         print(f"Templates saved to: {args.output}")
 
     elif args.command == "query":
@@ -131,20 +140,48 @@ def main():
         if args.templates:
             print(f"Loading templates from: {args.templates}")
             try:
-                with open(args.templates, "r") as f:
-                    template_data = json.load(f)
-                    if template_data.get("mode") == "random":
-                        template_manager.use_random_mode()
-                        template_manager._random_templates = template_data["templates"]
+                template_manager.load(args.templates)
             except Exception as e:
                 print(f"Warning: Could not load templates: {e}")
 
-        rag = VerbatimRAG(index, template_manager=template_manager)
+        rag = VerbatimRAG(
+            index, 
+            model=args.model,
+            k=args.num_docs,
+            template_manager=template_manager,
+            max_display_spans=args.max_display,
+            use_contextual_templates=args.contextual_templates,
+            extraction_mode=args.extraction_mode
+        )
+        
+        print("Configuration:")
+        print(f"  Model: {args.model}")
+        print(f"  Documents: {args.num_docs}")
+        print(f"  Max display spans: {args.max_display}")
+        print(f"  Contextual templates: {args.contextual_templates}")
+        print(f"  Extraction mode: {args.extraction_mode}")
+        
         response = rag.query(args.question)
 
         print("\nQuestion:", response.question)
         print("\nAnswer:", response.answer)
-        print(f"\nCitations: {len(response.structured_answer.citations)}")
+        
+        total_citations = len(response.structured_answer.citations)
+        display_count = min(args.max_display, total_citations)
+        reference_count = max(0, total_citations - display_count)
+        
+        print(f"\nCitations: {total_citations} total ({display_count} displayed, {reference_count} as references)")
+        
+        if args.verbose and response.structured_answer.citations:
+            print("\nDetailed citations:")
+            for i, citation in enumerate(response.structured_answer.citations, 1):
+                citation_type = "displayed" if i <= args.max_display else "reference"
+                print(f"  [{i}] ({citation_type}): {citation.text[:100]}{'...' if len(citation.text) > 100 else ''}")
+                if args.verbose and i > 10:  # Limit verbose output
+                    remaining = len(response.structured_answer.citations) - i
+                    if remaining > 0:
+                        print(f"  ... and {remaining} more citations")
+                    break
 
         if args.output:
             with open(args.output, "w") as f:

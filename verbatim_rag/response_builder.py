@@ -28,6 +28,7 @@ class ResponseBuilder:
         answer: str,
         search_results: List[Any],
         relevant_spans: Dict[str, List[str]],
+        display_span_count: int | None = None,
     ) -> QueryResponse:
         """
         Build a complete QueryResponse with proper highlighting and citations
@@ -45,6 +46,7 @@ class ResponseBuilder:
         all_citations = []
 
         # Process each search result to create highlights and citations
+        current_citation_number = 1
         for result_index, result in enumerate(search_results):
             result_content = result.text
             highlights = []
@@ -58,12 +60,20 @@ class ResponseBuilder:
 
                 # Create citations for each highlight
                 for highlight_index, highlight in enumerate(highlights):
+                    # Determine if this citation should be considered a display fact
+                    is_display = (
+                        display_span_count is None
+                        or current_citation_number <= display_span_count
+                    )
                     citation = Citation(
                         text=highlight.text,
                         doc_index=result_index,
                         highlight_index=highlight_index,
+                        number=current_citation_number,
+                        type="display" if is_display else "reference",
                     )
                     all_citations.append(citation)
+                    current_citation_number += 1
 
             # Create document with highlights
             document_with_highlights = DocumentWithHighlights(
@@ -93,14 +103,11 @@ class ResponseBuilder:
         Returns:
             List of Highlight objects
         """
-        highlights = []
+        highlights: List[Highlight] = []
         highlighted_regions: Set[Tuple[int, int]] = set()
 
-        # Sort spans by length (descending) to prioritize longer matches
-        sorted_spans = sorted(spans, key=len, reverse=True)
-
-        for span in sorted_spans:
-            # Find all non-overlapping occurrences of this span
+        # Preserve incoming span order so numbering stays aligned with template assignment
+        for span in spans:
             start = 0
             while True:
                 start = doc_content.find(span, start)
@@ -108,18 +115,10 @@ class ResponseBuilder:
                     break
 
                 end = start + len(span)
-
-                # Check for overlaps with existing highlights
                 if not self._has_overlap(start, end, highlighted_regions):
-                    # Create highlight
-                    highlight = Highlight(text=span, start=start, end=end)
-                    highlights.append(highlight)
-
-                    # Track this region
+                    highlights.append(Highlight(text=span, start=start, end=end))
                     highlighted_regions.add((start, end))
-
-                # Move past this occurrence
-                start = end
+                start = end  # advance regardless to avoid infinite loop on zero-length
 
         return highlights
 

@@ -9,6 +9,7 @@ from abc import ABC, abstractmethod
 import torch
 from transformers import AutoTokenizer
 
+import json
 import openai
 
 from verbatim_rag.vector_stores import SearchResult
@@ -41,13 +42,22 @@ class SpanExtractor(ABC):
 class ModelSpanExtractor(SpanExtractor):
     """Extract spans using a fine-tuned QA sentence classification model."""
 
-    def __init__(self, model_path: str, device: str = None, threshold: float = 0.5):
+    def __init__(
+        self, 
+        model_path: str, 
+        device: str = None, 
+        threshold: float = 0.5,
+        extraction_mode: str = "individual",  # Compatible parameter (not used)
+        max_display_spans: int = 5           # Compatible parameter (not used)
+    ):
         """
         Initialize the model-based span extractor.
 
         :param model_path: Path to the saved model (local path or HuggingFace model ID)
         :param device: Device to run the model on ('cpu', 'cuda', etc). If None, will use CUDA if available.
         :param threshold: Confidence threshold for considering a span relevant (0.0-1.0)
+        :param extraction_mode: Ignored for ModelSpanExtractor (for API compatibility)
+        :param max_display_spans: Ignored for ModelSpanExtractor (for API compatibility)
         """
         self.model_path = model_path
         self.threshold = threshold
@@ -164,88 +174,198 @@ class ModelSpanExtractor(SpanExtractor):
 
 
 class LLMSpanExtractor(SpanExtractor):
-    """Extract spans using an LLM with XML tagging approach."""
+    """Extract spans using an LLM with JSON output and optional batch processing."""
 
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(
+        self, 
+        model: str = "gpt-4o-mini", 
+        extraction_mode: str = "batch", 
+        max_display_spans: int = 5
+    ):
         """
         Initialize the LLM span extractor.
 
         :param model: The LLM model to use for extraction
+        :param extraction_mode: "batch" for single API call or "individual" for per-document calls
+        :param max_display_spans: Maximum spans to prioritize for display
         """
         self.model = model
-        self.system_prompt = """
-You are a Q&A text extraction system. Your task is to identify and mark EXACT verbatim text spans from the provided document that is relevant to answer the user's question.
+        self.extraction_mode = extraction_mode
+        self.max_display_spans = max_display_spans
+        # System prompts for different modes
+        self.individual_system_prompt = """
+You are a Q&A text extraction system. Extract EXACT verbatim text spans from the document that answer the question.
 
 # Rules
-1. Mark **only** text that explicitly addresses the question
+1. Extract **only** text that explicitly addresses the question
 2. Never paraphrase, modify, or add to the original text
 3. Preserve original wording, capitalization, and punctuation
-4. Mark all relevant segments - even if they're non-consecutive
-5. If there is no relevant information, don't add any tags.
+4. Order spans by relevance - MOST RELEVANT FIRST
+5. Include complete sentences or paragraphs for context
 
 # Output Format
-Wrap each relevant text span with <relevant> tags. 
-Return ONLY the marked document text - no explanations or summaries.
+Return a JSON object with spans ordered by relevance:
+{
+  "spans": ["most relevant exact text", "next most relevant text", ...]
+}
 
-# Example
-Question: What causes climate change?
-Document: "Scientists agree that carbon emissions (CO2) from burning fossil fuels are the primary driver of climate change. Deforestation also contributes significantly."
-Marked: "Scientists agree that <relevant>carbon emissions (CO2) from burning fossil fuels</relevant> are the primary driver of climate change. <relevant>Deforestation also contributes significantly</relevant>."
+If no relevant information, return: {"spans": []}
 
 # Your Task
 Question: {QUESTION}
 Document: {DOCUMENT}
 
-Mark the relevant text:
+Extract verbatim spans ordered by relevance:
+"""
+
+        self.batch_system_prompt = """
+You are a Q&A text extraction system. Extract EXACT verbatim text spans from multiple documents that answer the question.
+
+# Rules
+1. Extract **only** text that explicitly addresses the question
+2. Never paraphrase, modify, or add to the original text
+3. Preserve original wording, capitalization, and punctuation
+4. Order spans within each document by relevance - MOST RELEVANT FIRST
+5. Include complete sentences or paragraphs for context
+
+# Output Format
+Return a JSON object mapping document IDs to span arrays ordered by relevance:
+{
+  "doc_0": ["most relevant span", "next most relevant span"],
+  "doc_1": ["most relevant from doc 1"],
+  "doc_2": []
+}
+
+If no relevant information in a document, use empty array.
 """
 
     def extract_spans(
         self, question: str, search_results: list[SearchResult]
     ) -> dict[str, list[str]]:
         """
-        Extract relevant spans using an LLM with XML tagging.
+        Extract relevant spans using JSON output with batch or individual processing.
 
         :param question: The query or question
         :param search_results: List of search results to extract from
         :return: Dictionary mapping result text to list of relevant spans
         """
+        if self.extraction_mode == "batch":
+            return self._extract_spans_batch(question, search_results)
+        else:
+            return self._extract_spans_individual(question, search_results)
+
+    def _extract_spans_batch(
+        self, question: str, search_results: list[SearchResult]
+    ) -> dict[str, list[str]]:
+        """
+        Extract spans from multiple documents in a single API call.
+        """
+        if not search_results:
+            return {}
+
+        print("Extracting spans...")
+        # Limit to top 5 documents to avoid prompt size issues
+        top_results = search_results[:5]
+        
+        # Build document mapping
+        documents_text = {}
+        for i, result in enumerate(top_results):
+            documents_text[f"doc_{i}"] = result.text
+
+        # Create batch prompt
+        prompt = f"""
+{self.batch_system_prompt}
+
+# Your Task
+Question: {question}
+
+Documents:
+{json.dumps(documents_text, indent=2)}
+
+Extract verbatim spans from each document:
+"""
+
+        try:
+            response = openai.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                #temperature=0.0,
+            )
+
+            print("Processing response...")
+            extracted_data = json.loads(response.choices[0].message.content)
+            
+            # Map back to original search results and verify spans
+            verified_spans = {}
+            
+            # Process documents that were included in batch
+            for i, result in enumerate(top_results):
+                doc_key = f"doc_{i}"
+                if doc_key in extracted_data:
+                    verified = self._verify_spans(extracted_data[doc_key], result.text)
+                    verified_spans[result.text] = verified
+                else:
+                    verified_spans[result.text] = []
+            
+            # Add empty entries for remaining documents (beyond top 5)
+            for i in range(5, len(search_results)):
+                verified_spans[search_results[i].text] = []
+
+            return verified_spans
+
+        except (json.JSONDecodeError, KeyError, Exception) as e:
+            print(f"Batch extraction failed: {e}, falling back to individual extraction")
+            return self._extract_spans_individual(question, search_results)
+
+    def _extract_spans_individual(
+        self, question: str, search_results: list[SearchResult]
+    ) -> dict[str, list[str]]:
+        """
+        Extract spans from each document individually (original approach with JSON).
+        """
         relevant_spans = {}
 
         for result in search_results:
-            prompt = self.system_prompt.replace("{QUESTION}", question).replace(
+            prompt = self.individual_system_prompt.replace("{QUESTION}", question).replace(
                 "{DOCUMENT}", result.text
             )
 
-            response = openai.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.0,
-            )
+            try:
+                response = openai.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"},
+                    #temperature=0.0,
+                )
 
-            marked_text = response.choices[0].message.content
+                extracted_data = json.loads(response.choices[0].message.content)
+                spans = extracted_data.get("spans", [])
+                
+                # Verify all spans exist verbatim in the source text
+                verified_spans = self._verify_spans(spans, result.text)
+                relevant_spans[result.text] = verified_spans
 
-            # Extract spans between <relevant> tags
-            spans = []
-            start_tag = "<relevant>"
-            end_tag = "</relevant>"
-
-            start_pos = 0
-            while True:
-                start_idx = marked_text.find(start_tag, start_pos)
-                if start_idx == -1:
-                    break
-
-                end_idx = marked_text.find(end_tag, start_idx)
-                if end_idx == -1:
-                    break
-
-                span = marked_text[start_idx + len(start_tag) : end_idx]
-                spans.append(span)
-                start_pos = end_idx + len(end_tag)
-
-            relevant_spans[result.text] = spans
+            except (json.JSONDecodeError, KeyError, Exception) as e:
+                print(f"Individual extraction failed for document: {e}")
+                relevant_spans[result.text] = []
 
         return relevant_spans
+
+    def _verify_spans(self, spans: list[str], document_text: str) -> list[str]:
+        """
+        Verify that all extracted spans exist verbatim in the source document.
+        This is critical for preventing hallucination.
+
+        :param spans: List of extracted spans
+        :param document_text: Original document text
+        :return: List of verified spans that exist in the document
+        """
+        verified = []
+        for span in spans:
+            if span and span.strip() and span in document_text:
+                verified.append(span)
+            else:
+                print(f"Warning: Span not found verbatim in document: '{span[:100]}...'")
+        return verified
+
