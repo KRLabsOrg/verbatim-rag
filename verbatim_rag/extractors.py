@@ -9,10 +9,8 @@ from abc import ABC, abstractmethod
 import torch
 from transformers import AutoTokenizer
 
-import json
-import openai
-
 from verbatim_rag.vector_stores import SearchResult
+from verbatim_rag.llm_client import LLMClient
 from verbatim_rag.extractor_models.model import QAModel
 from verbatim_rag.extractor_models.dataset import (
     QADataset,
@@ -43,12 +41,12 @@ class ModelSpanExtractor(SpanExtractor):
     """Extract spans using a fine-tuned QA sentence classification model."""
 
     def __init__(
-        self, 
-        model_path: str, 
-        device: str = None, 
+        self,
+        model_path: str,
+        device: str = None,
         threshold: float = 0.5,
         extraction_mode: str = "individual",  # Compatible parameter (not used)
-        max_display_spans: int = 5           # Compatible parameter (not used)
+        max_display_spans: int = 5,  # Compatible parameter (not used)
     ):
         """
         Initialize the model-based span extractor.
@@ -174,131 +172,98 @@ class ModelSpanExtractor(SpanExtractor):
 
 
 class LLMSpanExtractor(SpanExtractor):
-    """Extract spans using an LLM with JSON output and optional batch processing."""
+    """Extract spans using an LLM with centralized client and batch processing."""
 
     def __init__(
-        self, 
-        model: str = "gpt-4o-mini", 
-        extraction_mode: str = "batch", 
-        max_display_spans: int = 5
+        self,
+        llm_client: LLMClient = None,
+        model: str = "gpt-4o-mini",
+        extraction_mode: str = "auto",
+        max_display_spans: int = 5,
+        batch_size: int = 5,
     ):
         """
         Initialize the LLM span extractor.
 
-        :param model: The LLM model to use for extraction
-        :param extraction_mode: "batch" for single API call or "individual" for per-document calls
+        :param llm_client: LLM client for extraction (creates one if None)
+        :param model: The LLM model to use (if creating new client)
+        :param extraction_mode: "batch", "individual", or "auto"
         :param max_display_spans: Maximum spans to prioritize for display
+        :param batch_size: Maximum documents to process in batch mode
         """
-        self.model = model
+        self.llm_client = llm_client or LLMClient(model)
         self.extraction_mode = extraction_mode
         self.max_display_spans = max_display_spans
-        # System prompts for different modes
-        self.individual_system_prompt = """
-You are a Q&A text extraction system. Extract EXACT verbatim text spans from the document that answer the question.
-
-# Rules
-1. Extract **only** text that explicitly addresses the question
-2. Never paraphrase, modify, or add to the original text
-3. Preserve original wording, capitalization, and punctuation
-4. Order spans by relevance - MOST RELEVANT FIRST
-5. Include complete sentences or paragraphs for context
-
-# Output Format
-Return a JSON object with spans ordered by relevance:
-{
-  "spans": ["most relevant exact text", "next most relevant text", ...]
-}
-
-If no relevant information, return: {"spans": []}
-
-# Your Task
-Question: {QUESTION}
-Document: {DOCUMENT}
-
-Extract verbatim spans ordered by relevance:
-"""
-
-        self.batch_system_prompt = """
-You are a Q&A text extraction system. Extract EXACT verbatim text spans from multiple documents that answer the question.
-
-# Rules
-1. Extract **only** text that explicitly addresses the question
-2. Never paraphrase, modify, or add to the original text
-3. Preserve original wording, capitalization, and punctuation
-4. Order spans within each document by relevance - MOST RELEVANT FIRST
-5. Include complete sentences or paragraphs for context
-
-# Output Format
-Return a JSON object mapping document IDs to span arrays ordered by relevance:
-{
-  "doc_0": ["most relevant span", "next most relevant span"],
-  "doc_1": ["most relevant from doc 1"],
-  "doc_2": []
-}
-
-If no relevant information in a document, use empty array.
-"""
+        self.batch_size = batch_size
 
     def extract_spans(
         self, question: str, search_results: list[SearchResult]
     ) -> dict[str, list[str]]:
         """
-        Extract relevant spans using JSON output with batch or individual processing.
+        Extract relevant spans using centralized LLM client.
 
         :param question: The query or question
         :param search_results: List of search results to extract from
         :return: Dictionary mapping result text to list of relevant spans
         """
-        if self.extraction_mode == "batch":
+        if not search_results:
+            return {}
+
+        # Determine extraction method
+        should_batch = self.extraction_mode == "batch" or (
+            self.extraction_mode == "auto" and len(search_results) <= self.batch_size
+        )
+
+        if should_batch:
             return self._extract_spans_batch(question, search_results)
         else:
             return self._extract_spans_individual(question, search_results)
+
+    async def extract_spans_async(
+        self, question: str, search_results: list[SearchResult]
+    ) -> dict[str, list[str]]:
+        """
+        Async version of span extraction.
+
+        :param question: The query or question
+        :param search_results: List of search results to extract from
+        :return: Dictionary mapping result text to list of relevant spans
+        """
+        if not search_results:
+            return {}
+
+        should_batch = self.extraction_mode == "batch" or (
+            self.extraction_mode == "auto" and len(search_results) <= self.batch_size
+        )
+
+        if should_batch:
+            return await self._extract_spans_batch_async(question, search_results)
+        else:
+            return await self._extract_spans_individual_async(question, search_results)
 
     def _extract_spans_batch(
         self, question: str, search_results: list[SearchResult]
     ) -> dict[str, list[str]]:
         """
-        Extract spans from multiple documents in a single API call.
+        Extract spans from multiple documents using batch processing.
         """
-        if not search_results:
-            return {}
+        print("Extracting spans (batch mode)...")
 
-        print("Extracting spans...")
-        # Limit to top 5 documents to avoid prompt size issues
-        top_results = search_results[:5]
-        
-        # Build document mapping
+        # Limit to batch_size to avoid prompt size issues
+        top_results = search_results[: self.batch_size]
+
+        # Build document mapping for LLMClient
         documents_text = {}
         for i, result in enumerate(top_results):
             documents_text[f"doc_{i}"] = result.text
 
-        # Create batch prompt
-        prompt = f"""
-{self.batch_system_prompt}
-
-# Your Task
-Question: {question}
-
-Documents:
-{json.dumps(documents_text, indent=2)}
-
-Extract verbatim spans from each document:
-"""
-
         try:
-            response = openai.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                #temperature=0.0,
-            )
+            # Use LLMClient for extraction
+            extracted_data = self.llm_client.extract_spans(question, documents_text)
 
-            print("Processing response...")
-            extracted_data = json.loads(response.choices[0].message.content)
-            
             # Map back to original search results and verify spans
             verified_spans = {}
-            
+
             # Process documents that were included in batch
             for i, result in enumerate(top_results):
                 doc_key = f"doc_{i}"
@@ -307,47 +272,107 @@ Extract verbatim spans from each document:
                     verified_spans[result.text] = verified
                 else:
                     verified_spans[result.text] = []
-            
-            # Add empty entries for remaining documents (beyond top 5)
-            for i in range(5, len(search_results)):
+
+            # Add empty entries for remaining documents (beyond batch_size)
+            for i in range(self.batch_size, len(search_results)):
                 verified_spans[search_results[i].text] = []
 
             return verified_spans
 
-        except (json.JSONDecodeError, KeyError, Exception) as e:
-            print(f"Batch extraction failed: {e}, falling back to individual extraction")
+        except Exception as e:
+            print(
+                f"Batch extraction failed: {e}, falling back to individual extraction"
+            )
             return self._extract_spans_individual(question, search_results)
+
+    async def _extract_spans_batch_async(
+        self, question: str, search_results: list[SearchResult]
+    ) -> dict[str, list[str]]:
+        """
+        Async batch extraction.
+        """
+        print("Extracting spans (async batch mode)...")
+
+        top_results = search_results[: self.batch_size]
+
+        documents_text = {}
+        for i, result in enumerate(top_results):
+            documents_text[f"doc_{i}"] = result.text
+
+        try:
+            extracted_data = await self.llm_client.extract_spans_async(
+                question, documents_text
+            )
+
+            verified_spans = {}
+
+            for i, result in enumerate(top_results):
+                doc_key = f"doc_{i}"
+                if doc_key in extracted_data:
+                    verified = self._verify_spans(extracted_data[doc_key], result.text)
+                    verified_spans[result.text] = verified
+                else:
+                    verified_spans[result.text] = []
+
+            for i in range(self.batch_size, len(search_results)):
+                verified_spans[search_results[i].text] = []
+
+            return verified_spans
+
+        except Exception as e:
+            print(
+                f"Async batch extraction failed: {e}, falling back to individual extraction"
+            )
+            return await self._extract_spans_individual_async(question, search_results)
 
     def _extract_spans_individual(
         self, question: str, search_results: list[SearchResult]
     ) -> dict[str, list[str]]:
         """
-        Extract spans from each document individually (original approach with JSON).
+        Extract spans from each document individually.
         """
+        print("Extracting spans (individual mode)...")
         relevant_spans = {}
 
         for result in search_results:
-            prompt = self.individual_system_prompt.replace("{QUESTION}", question).replace(
-                "{DOCUMENT}", result.text
-            )
-
             try:
-                response = openai.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format={"type": "json_object"},
-                    #temperature=0.0,
-                )
+                # Use LLMClient with individual document
+                doc_dict = {"doc_0": result.text}
+                extracted_data = self.llm_client.extract_spans(question, doc_dict)
+                spans = extracted_data.get("doc_0", [])
 
-                extracted_data = json.loads(response.choices[0].message.content)
-                spans = extracted_data.get("spans", [])
-                
                 # Verify all spans exist verbatim in the source text
                 verified_spans = self._verify_spans(spans, result.text)
                 relevant_spans[result.text] = verified_spans
 
-            except (json.JSONDecodeError, KeyError, Exception) as e:
+            except Exception as e:
                 print(f"Individual extraction failed for document: {e}")
+                relevant_spans[result.text] = []
+
+        return relevant_spans
+
+    async def _extract_spans_individual_async(
+        self, question: str, search_results: list[SearchResult]
+    ) -> dict[str, list[str]]:
+        """
+        Async individual extraction.
+        """
+        print("Extracting spans (async individual mode)...")
+        relevant_spans = {}
+
+        for result in search_results:
+            try:
+                doc_dict = {"doc_0": result.text}
+                extracted_data = await self.llm_client.extract_spans_async(
+                    question, doc_dict
+                )
+                spans = extracted_data.get("doc_0", [])
+
+                verified_spans = self._verify_spans(spans, result.text)
+                relevant_spans[result.text] = verified_spans
+
+            except Exception as e:
+                print(f"Async individual extraction failed for document: {e}")
                 relevant_spans[result.text] = []
 
         return relevant_spans
@@ -366,6 +391,7 @@ Extract verbatim spans from each document:
             if span and span.strip() and span in document_text:
                 verified.append(span)
             else:
-                print(f"Warning: Span not found verbatim in document: '{span[:100]}...'")
+                print(
+                    f"Warning: Span not found verbatim in document: '{span[:100]}...'"
+                )
         return verified
-

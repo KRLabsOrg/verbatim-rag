@@ -38,8 +38,13 @@ class Citation(BaseModel):
     text: str = Field(..., min_length=1)
     doc_index: int = Field(..., ge=0)
     highlight_index: int = Field(..., ge=0)
-    number: int | None = Field(default=None, ge=1, description="Sequential citation number in answer")
-    type: str | None = Field(default=None, description="'display' if verbatim text shown, 'reference' if number only")
+    number: int | None = Field(
+        default=None, ge=1, description="Sequential citation number in answer"
+    )
+    type: str | None = Field(
+        default=None,
+        description="'display' if verbatim text shown, 'reference' if number only",
+    )
 
 
 class StructuredAnswer(BaseModel):

@@ -7,10 +7,7 @@ from typing import AsyncGenerator, Dict, Any, List
 import asyncio
 import time
 from .models import (
-    QueryResponse,
     DocumentWithHighlights,
-    Citation,
-    StructuredAnswer,
 )
 from .core import VerbatimRAG
 
@@ -72,20 +69,30 @@ class StreamingRAG:
                     self.rag.extractor.extract_spans, question, docs
                 )
             except Exception as e:
-                yield {"type": "error", "error": f"span_extraction_failed: {e}", "done": True}
+                yield {
+                    "type": "error",
+                    "error": f"span_extraction_failed: {e}",
+                    "done": True,
+                }
                 # Restore k if needed
                 if num_docs is not None:
                     self.rag.k = original_k
                 return
             extraction_duration = time.time() - extraction_start
 
-            yield {"type": "progress", "stage": "extraction_complete", "elapsed_ms": int(extraction_duration*1000)}
+            yield {
+                "type": "progress",
+                "stage": "extraction_complete",
+                "elapsed_ms": int(extraction_duration * 1000),
+            }
             interim_documents = []
             for doc in docs:
                 doc_content = doc.text
                 doc_spans = relevant_spans.get(doc_content, [])
                 if doc_spans:
-                    highlights = self.rag.response_builder._create_highlights(doc_content, doc_spans)
+                    highlights = self.rag.response_builder._create_highlights(
+                        doc_content, doc_spans
+                    )
                 else:
                     highlights = []
                 interim_documents.append(
@@ -98,29 +105,32 @@ class StreamingRAG:
                     )
                 )
 
-            yield {"type": "highlights", "data": [d.model_dump() for d in interim_documents]}
+            yield {
+                "type": "highlights",
+                "data": [d.model_dump() for d in interim_documents],
+            }
 
-            # Step 3: Generate answer using enhanced pipeline (reuse core logic semantics)
+            # Step 3: Generate answer using enhanced pipeline with new architecture
             # Rank spans and split into display vs citation-only
-            display_spans, citation_spans = self.rag._rank_and_split_spans(relevant_spans)
+            display_spans, citation_spans = self.rag._rank_and_split_spans(
+                relevant_spans
+            )
 
-            # Generate template with ALL facts (display + citation-only) matching core
-            all_ordered_spans = display_spans + citation_spans
-            all_texts = [span['text'] for span in all_ordered_spans]
-            citation_count = len(citation_spans) if citation_spans else 0
+            # Generate and fill template using template manager (async)
             try:
-                template = await asyncio.to_thread(
-                    self.rag._generate_template, question, all_texts, citation_count
+                answer = await self.rag.template_manager.process_async(
+                    question, display_spans, citation_spans
                 )
+                answer = self.rag.response_builder.clean_answer(answer)
             except Exception as e:
-                yield {"type": "error", "error": f"template_generation_failed: {e}", "done": True}
+                yield {
+                    "type": "error",
+                    "error": f"template_processing_failed: {e}",
+                    "done": True,
+                }
                 if num_docs is not None:
                     self.rag.k = original_k
                 return
-
-            # Fill template & build final structured response using same logic as non-streaming
-            answer = self.rag._fill_template_enhanced(template, display_spans, citation_spans)
-            answer = self.rag.response_builder.clean_answer(answer)
             result = self.rag.response_builder.build_response(
                 question=question,
                 answer=answer,

@@ -70,18 +70,27 @@ def main():
         "--output", "-o", help="Path to save the response as JSON"
     )
     query_parser.add_argument(
-        "--max-display", type=int, default=5, help="Maximum spans to display verbatim (default: 5)"
+        "--max-display",
+        type=int,
+        default=5,
+        help="Maximum spans to display verbatim (default: 5)",
     )
     query_parser.add_argument(
-        "--contextual-templates", action="store_true", 
-        help="Generate templates based on extracted content"
+        "--contextual-templates",
+        action="store_true",
+        help="Generate templates based on extracted content",
     )
     query_parser.add_argument(
-        "--extraction-mode", choices=["batch", "individual"], default="batch",
-        help="Extraction mode: batch (single API call) or individual (per-document)"
+        "--extraction-mode",
+        choices=["batch", "individual"],
+        default="batch",
+        help="Extraction mode: batch (single API call) or individual (per-document)",
     )
     query_parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Show detailed output with all citations"
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed output with all citations",
     )
 
     args = parser.parse_args()
@@ -118,7 +127,9 @@ def main():
         template_manager = TemplateManager(model=args.model)
 
         # Generate random templates
-        template_manager.generate_random_templates(count=20)  # Generate diverse templates
+        template_manager.generate_random_templates(
+            count=20
+        )  # Generate diverse templates
 
         # Save templates to file
         template_manager.save(args.output)
@@ -145,38 +156,42 @@ def main():
                 print(f"Warning: Could not load templates: {e}")
 
         rag = VerbatimRAG(
-            index, 
+            index,
             model=args.model,
             k=args.num_docs,
             template_manager=template_manager,
             max_display_spans=args.max_display,
             use_contextual_templates=args.contextual_templates,
-            extraction_mode=args.extraction_mode
+            extraction_mode=args.extraction_mode,
         )
-        
+
         print("Configuration:")
         print(f"  Model: {args.model}")
         print(f"  Documents: {args.num_docs}")
         print(f"  Max display spans: {args.max_display}")
         print(f"  Contextual templates: {args.contextual_templates}")
         print(f"  Extraction mode: {args.extraction_mode}")
-        
+
         response = rag.query(args.question)
 
         print("\nQuestion:", response.question)
         print("\nAnswer:", response.answer)
-        
+
         total_citations = len(response.structured_answer.citations)
         display_count = min(args.max_display, total_citations)
         reference_count = max(0, total_citations - display_count)
-        
-        print(f"\nCitations: {total_citations} total ({display_count} displayed, {reference_count} as references)")
-        
+
+        print(
+            f"\nCitations: {total_citations} total ({display_count} displayed, {reference_count} as references)"
+        )
+
         if args.verbose and response.structured_answer.citations:
             print("\nDetailed citations:")
             for i, citation in enumerate(response.structured_answer.citations, 1):
                 citation_type = "displayed" if i <= args.max_display else "reference"
-                print(f"  [{i}] ({citation_type}): {citation.text[:100]}{'...' if len(citation.text) > 100 else ''}")
+                print(
+                    f"  [{i}] ({citation_type}): {citation.text[:100]}{'...' if len(citation.text) > 100 else ''}"
+                )
                 if args.verbose and i > 10:  # Limit verbose output
                     remaining = len(response.structured_answer.citations) - i
                     if remaining > 0:

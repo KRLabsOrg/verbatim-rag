@@ -337,15 +337,46 @@ class LocalMilvusStore(VectorStore):
             )
 
         elif search_type == "hybrid" and dense_query and sparse_query:
-            # For now, fall back to dense search as hybrid search has API issues
-            # TODO: Fix hybrid search implementation
-            results = self.client.search(
-                collection_name=self.collection_name,
-                data=[dense_query],
-                anns_field="dense_vector",
-                limit=top_k,
-                output_fields=output_fields,
-            )
+            # Hybrid search: combine dense and sparse results
+            # Note: Milvus doesn't have native hybrid search, so we implement it
+            # by combining results from both dense and sparse searches
+            try:
+                # Perform dense search
+                dense_results = self.client.search(
+                    collection_name=self.collection_name,
+                    data=[dense_query],
+                    anns_field="dense_vector",
+                    limit=top_k * 2,  # Get more results for merging
+                    output_fields=output_fields,
+                )
+
+                # Perform sparse search
+                sparse_results = self.client.search(
+                    collection_name=self.collection_name,
+                    data=[sparse_query],
+                    anns_field="sparse_vector",
+                    limit=top_k * 2,  # Get more results for merging
+                    output_fields=output_fields,
+                )
+
+                # Combine results using reciprocal rank fusion (RRF)
+                results = self._merge_hybrid_results(
+                    dense_results[0], sparse_results[0], top_k, alpha=0.5
+                )
+                results = [results]  # Wrap in list to match expected format
+
+            except Exception as e:
+                logger.warning(
+                    f"Hybrid search failed: {e}, falling back to dense search"
+                )
+                # Fallback to dense search
+                results = self.client.search(
+                    collection_name=self.collection_name,
+                    data=[dense_query],
+                    anns_field="dense_vector",
+                    limit=top_k,
+                    output_fields=output_fields,
+                )
 
         else:
             raise ValueError(
@@ -371,6 +402,72 @@ class LocalMilvusStore(VectorStore):
             )
 
         return search_results
+
+    def _merge_hybrid_results(
+        self, dense_hits, sparse_hits, top_k: int, alpha: float = 0.5
+    ):
+        """
+        Merge dense and sparse search results using reciprocal rank fusion (RRF).
+
+        :param dense_hits: Results from dense vector search
+        :param sparse_hits: Results from sparse vector search
+        :param top_k: Number of final results to return
+        :param alpha: Weight for combining scores (0.5 = equal weight)
+        :return: Merged results list
+        """
+        # Create score maps based on ranking
+        dense_scores = {}
+        sparse_scores = {}
+        all_ids = set()
+
+        # Process dense results
+        for rank, hit in enumerate(dense_hits):
+            hit_id = hit.get("id")
+            if hit_id:
+                # RRF score: 1 / (rank + 1)
+                dense_scores[hit_id] = 1.0 / (rank + 1)
+                all_ids.add(hit_id)
+
+        # Process sparse results
+        for rank, hit in enumerate(sparse_hits):
+            hit_id = hit.get("id")
+            if hit_id:
+                sparse_scores[hit_id] = 1.0 / (rank + 1)
+                all_ids.add(hit_id)
+
+        # Combine scores and create merged results
+        merged_results = []
+        hit_map = {}
+
+        # Create hit map for easy lookup
+        for hit in dense_hits:
+            hit_id = hit.get("id")
+            if hit_id:
+                hit_map[hit_id] = hit
+
+        for hit in sparse_hits:
+            hit_id = hit.get("id")
+            if hit_id and hit_id not in hit_map:
+                hit_map[hit_id] = hit
+
+        # Calculate combined scores and create results
+        for hit_id in all_ids:
+            dense_score = dense_scores.get(hit_id, 0.0)
+            sparse_score = sparse_scores.get(hit_id, 0.0)
+
+            # Weighted combination of RRF scores
+            combined_score = alpha * dense_score + (1 - alpha) * sparse_score
+
+            if hit_id in hit_map:
+                hit = hit_map[hit_id].copy()
+                hit["distance"] = (
+                    1.0 - combined_score
+                )  # Convert back to distance (lower is better)
+                merged_results.append(hit)
+
+        # Sort by combined score (higher is better) and return top_k
+        merged_results.sort(key=lambda x: 1.0 - x.get("distance", 1.0), reverse=True)
+        return merged_results[:top_k]
 
     def get_all_documents(self) -> List[Dict[str, Any]]:
         """Get all documents stored in the documents collection"""

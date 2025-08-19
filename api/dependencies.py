@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException
 from verbatim_rag.core import VerbatimRAG
-from verbatim_rag.template_manager import TemplateManager
+from verbatim_rag.templates import TemplateManager
 
 from config import APIConfig, get_config
 from services.rag_service import APIService
@@ -38,7 +38,9 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
             )
 
             # Create RAG instance with the index
-            _rag_instance = VerbatimRAG(index=index, model="gpt-5", k=5, use_contextual_templates=True)
+            _rag_instance = VerbatimRAG(
+                index=index, model="gpt-5", k=5, template_mode="contextual"
+            )
             logger.info(f"RAG instance created with index path: {config.index_path}")
         except Exception as e:
             logger.error(f"Failed to create RAG instance: {e}")

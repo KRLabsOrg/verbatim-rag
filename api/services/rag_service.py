@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from verbatim_rag.core import VerbatimRAG
-from verbatim_rag.template_manager import TemplateManager
+from verbatim_rag.templates import TemplateManager
 from verbatim_rag import QueryResponse
 
 logger = logging.getLogger(__name__)
