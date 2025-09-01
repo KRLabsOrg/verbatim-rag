@@ -12,6 +12,7 @@ from verbatim_rag.models import QueryResponse
 from verbatim_rag.templates import TemplateManager
 from verbatim_rag.response_builder import ResponseBuilder
 from verbatim_rag.llm_client import LLMClient
+from verbatim_rag.schema import DocumentSchema
 
 MARKING_SYSTEM_PROMPT = """
 You are a Q&A text extraction system. Your task is to identify and mark EXACT verbatim text spans from the provided document that is relevant to answer the user's question.
@@ -215,3 +216,23 @@ class VerbatimRAG:
             relevant_spans=all_relevant_spans,
             display_span_count=len(display_spans),
         )
+
+    def add_document(self, document: DocumentSchema) -> str:
+        """
+        Add a single document using the DocumentSchema system.
+
+        :param document: DocumentSchema instance with content and metadata
+        :return: Document ID
+        """
+        self.index.add_documents([document])
+        return document.id
+
+    def add_documents_batch(self, documents: list[DocumentSchema]) -> list[str]:
+        """
+        Add multiple documents in batch using the DocumentSchema system.
+
+        :param documents: List of DocumentSchema instances
+        :return: List of document IDs
+        """
+        self.index.add_documents(documents)
+        return [doc.id for doc in documents]

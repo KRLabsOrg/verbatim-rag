@@ -2,9 +2,10 @@
 Unified index class for the Verbatim RAG system.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 from verbatim_rag.document import Document
+from verbatim_rag.schema import DocumentSchema
 from verbatim_rag.embedding_providers import (
     DenseEmbeddingProvider,
     SparseEmbeddingProvider,
@@ -80,27 +81,107 @@ class VerbatimIndex:
         self.sparse_provider = self._create_sparse_provider(self.config)
         self.vector_store = self._create_vector_store(self.config)
 
-    def add_documents(self, documents: List[Document]) -> None:
+    def add_documents(self, documents: List[Union[DocumentSchema, Document]]) -> None:
         """
         Add documents to the index.
 
-        :param documents: List of Document objects to add
+        :param documents: List of DocumentSchema or Document objects to add
         """
         if not documents:
             return
 
+        # Handle DocumentSchema (new primary API) and legacy Document objects
+        for doc in documents:
+            if isinstance(doc, DocumentSchema):
+                self._add_schema_document(doc)
+            else:
+                self._add_document_internal(doc)
+
+    def _add_schema_document(self, doc: DocumentSchema) -> None:
+        """Add a DocumentSchema to the index using existing chunking infrastructure."""
+        from verbatim_rag.ingestion.document_processor import DocumentProcessor
+        from verbatim_rag.document import (
+            Document,
+            DocumentType,
+            Chunk,
+            ChunkType,
+            ProcessedChunk,
+        )
+
+        # Store document metadata (without content) in documents collection
+        if hasattr(self.vector_store, "add_document_schema"):
+            self.vector_store.add_document_schema(doc.to_storage_dict(), doc.id)
+
+        # Convert DocumentSchema to Document for processing
+        # Properly flatten metadata to make custom fields available for filtering
+        from datetime import datetime
+
+        base_metadata = doc.model_dump(
+            exclude={"id", "title", "source", "content", "metadata"}
+        )
+        custom_metadata = doc.metadata or {}
+        flattened_metadata = {**base_metadata, **custom_metadata}
+
+        # Handle datetime objects to prevent JSON serialization issues
+        for key, value in flattened_metadata.items():
+            if isinstance(value, datetime):
+                flattened_metadata[key] = value.isoformat()
+
+        document = Document(
+            id=doc.id,
+            title=doc.title or "",
+            source=doc.source or "",
+            content_type=DocumentType.TXT,  # Default for direct creation
+            raw_content=doc.content,
+            metadata=flattened_metadata,  # Flattened metadata with custom fields at top level
+        )
+
+        # Use DocumentProcessor for sophisticated chunking; require docling/chonkie
+        try:
+            processor = DocumentProcessor()
+        except ImportError as e:
+            raise ImportError(
+                "Document processing requires docling and chonkie. Install them with: pip install docling chonkie"
+            ) from e
+        chunks = processor.chunker(doc.content)
+
+        # Create Document chunks with proper structure
+        for i, chunk in enumerate(chunks):
+            # Create basic Chunk with inherited metadata
+            doc_chunk = Chunk(
+                document_id=document.id,
+                content=chunk.text,
+                chunk_number=i,
+                chunk_type=ChunkType.PARAGRAPH,
+                metadata=document.metadata.copy(),  # Inherit all metadata from DocumentSchema
+            )
+
+            # Create ProcessedChunk
+            processed_chunk = ProcessedChunk(
+                chunk_id=doc_chunk.id,
+                enhanced_content=chunk.text,
+            )
+
+            # Add to document structure
+            doc_chunk.add_processed_chunk(processed_chunk)
+            document.add_chunk(doc_chunk)
+
+        # Use existing document addition logic
+        self._add_document_internal(document)
+
+    def _add_document_internal(self, doc: Document) -> None:
+        """Add a Document object with chunks to the index."""
         # Extract all processed chunks from documents
         all_chunks = []
-        for doc in documents:
-            for chunk in doc.chunks:
-                for processed_chunk in chunk.processed_chunks:
-                    all_chunks.append(
-                        {
-                            "document": doc,
-                            "chunk": chunk,
-                            "processed_chunk": processed_chunk,
-                        }
-                    )
+        for chunk in doc.chunks:
+            for processed_chunk in chunk.processed_chunks:
+                all_chunks.append(
+                    {
+                        "document": doc,
+                        "chunk": chunk,
+                        "processed_chunk": processed_chunk,
+                    }
+                )
 
         if not all_chunks:
             return
@@ -136,7 +217,7 @@ class VerbatimIndex:
                 sparse_emb = {}
             sparse_embeddings.append(sparse_emb)
 
-            # Prepare metadata (minimal, essential fields only)
+            # Prepare metadata - include ALL document metadata for filtering
             metadata = {
                 "document_id": doc.id,
                 "title": doc.title,  # Keep for search display
@@ -144,6 +225,8 @@ class VerbatimIndex:
                 "chunk_type": chunk.chunk_type.value,
                 "chunk_number": chunk.chunk_number,
                 "page_number": chunk.metadata.get("page_number", 0),
+                **doc.metadata,  # Include all Document metadata (DocumentSchema fields)
+                **chunk.metadata,  # Include chunk-specific metadata
             }
             metadatas.append(metadata)
 
@@ -161,23 +244,118 @@ class VerbatimIndex:
 
         # Store document metadata
         document_data = []
-        for doc in documents:
-            doc_dict = {
-                "id": doc.id,
-                "title": doc.title,
-                "source": doc.source,
-                "content_type": doc.content_type.value,
-                "raw_content": doc.raw_content,
-                "metadata": doc.metadata,
-            }
-            document_data.append(doc_dict)
+        for doc in [item["document"] for item in all_chunks]:
+            # Avoid duplicates
+            if doc.id not in [d.get("id") for d in document_data]:
+                doc_dict = {
+                    "id": doc.id,
+                    "title": doc.title,
+                    "source": doc.source,
+                    "content_type": doc.content_type.value,
+                    "raw_content": doc.raw_content,
+                    "metadata": doc.metadata,
+                }
+                document_data.append(doc_dict)
 
         # Store documents if vector store supports it
         if hasattr(self.vector_store, "add_documents"):
             self.vector_store.add_documents(document_data)
 
+    def add_document(self, content: str, metadata: Dict[str, Any], doc_id: str) -> str:
+        """
+        Add a single document using the new schema system.
+
+        :param content: Document text content to be chunked and indexed
+        :param metadata: Document metadata dict from DocumentSchema.to_storage_dict()
+        :param doc_id: Document ID
+        :return: Document ID
+        """
+        # Simple chunking for now - split by sentences/paragraphs
+        import re
+
+        # Basic chunking - split into paragraphs and sentences
+        paragraphs = content.strip().split("\n\n")
+        chunks = []
+        for para in paragraphs:
+            if para.strip():
+                # Further split long paragraphs by sentences
+                sentences = re.split(r"[.!?]+", para)
+                current_chunk = ""
+                for sentence in sentences:
+                    if len(current_chunk + sentence) > 512:  # Basic chunk size limit
+                        if current_chunk:
+                            chunks.append(current_chunk.strip())
+                        current_chunk = sentence
+                    else:
+                        current_chunk += sentence + ". "
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip())
+
+        # If no chunks, use the full content
+        if not chunks:
+            chunks = [content]
+
+        # Create embeddings and store
+        ids = []
+        texts = []
+        metadatas = []
+        dense_embeddings = []
+        sparse_embeddings = []
+
+        for i, chunk_text in enumerate(chunks):
+            chunk_id = f"{doc_id}_chunk_{i}"
+            ids.append(chunk_id)
+            texts.append(chunk_text)
+
+            # Generate embeddings
+            if self.dense_provider:
+                dense_emb = self.dense_provider.embed_text(chunk_text)
+            else:
+                dense_emb = []
+            dense_embeddings.append(dense_emb)
+
+            if self.sparse_provider:
+                sparse_emb = self.sparse_provider.embed_text(chunk_text)
+            else:
+                sparse_emb = {}
+            sparse_embeddings.append(sparse_emb)
+
+            # Create chunk metadata
+            chunk_metadata = {
+                "document_id": doc_id,
+                "title": metadata.get("title", ""),
+                "source": metadata.get("source", ""),
+                "doc_type": metadata.get("doc_type", ""),  # Add this field
+                "chunk_type": "paragraph",
+                "chunk_number": i,
+                "page_number": 0,
+            }
+            metadatas.append(chunk_metadata)
+
+        # Store in vector store
+        dense_vectors_to_store = dense_embeddings if self.dense_provider else None
+        sparse_vectors_to_store = sparse_embeddings if self.sparse_provider else None
+
+        self.vector_store.add_vectors(
+            ids=ids,
+            dense_vectors=dense_vectors_to_store,
+            sparse_vectors=sparse_vectors_to_store,
+            texts=texts,
+            metadatas=metadatas,
+        )
+
+        # Also store document metadata in documents collection
+        if hasattr(self.vector_store, "add_document_schema"):
+            self.vector_store.add_document_schema(metadata, doc_id)
+
+        return doc_id
+
     def search(
-        self, query: str, k: int = 5, search_type: str = "auto"
+        self,
+        query: str,
+        k: int = 5,
+        search_type: str = "auto",
+        filter: Optional[str] = None,
     ) -> List[SearchResult]:
         """
         Search for documents similar to the query.
@@ -185,6 +363,7 @@ class VerbatimIndex:
         :param query: The search query
         :param k: Number of documents to retrieve
         :param search_type: Type of search ("dense", "sparse", "hybrid", "auto")
+        :param filter: Optional Milvus filter expression for metadata filtering
         :return: List of SearchResult objects
         """
         # Auto-detect search type based on available providers
@@ -215,6 +394,7 @@ class VerbatimIndex:
             text_query=query,
             top_k=k,
             search_type=search_type,
+            filter=filter,
         )
 
     def get_document(self, document_id: str) -> Optional[Dict[str, Any]]:

@@ -44,14 +44,10 @@ class DocumentProcessor:
         **chunker_kwargs,
     ):
         if not DOCLING_AVAILABLE:
-            raise ImportError(
-                "docling is required. Install with: pip install 'verbatim-rag[document-processing]'"
-            )
+            raise ImportError("docling is required. Install with: pip install docling")
 
         if not CHONKIE_AVAILABLE:
-            raise ImportError(
-                "chonkie is required. Install with: pip install 'verbatim-rag[document-processing]'"
-            )
+            raise ImportError("chonkie is required. Install with: pip install chonkie")
 
         self.converter = DocumentConverter()
         self.chunker_type = chunker_type
@@ -241,6 +237,33 @@ class DocumentProcessor:
 
         return documents
 
+    def extract_content_from_url(self, url: str) -> str:
+        """
+        Extract just the text content from a URL without creating Document/chunks.
+
+        Args:
+            url: The URL to process
+
+        Returns:
+            Raw text content as markdown string
+        """
+        result = self.converter.convert(url)
+        return result.document.export_to_markdown()
+
+    def extract_content_from_file(self, file_path: Union[str, Path]) -> str:
+        """
+        Extract just the text content from a file without creating Document/chunks.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Raw text content as markdown string
+        """
+        file_path = Path(file_path)
+        result = self.converter.convert(file_path)
+        return result.document.export_to_markdown()
+
     def _get_document_type(self, extension: str) -> DocumentType:
         """Map file extension to DocumentType."""
         extension = extension.lower()
@@ -248,10 +271,12 @@ class DocumentProcessor:
             return DocumentType.PDF
         elif extension in [".html", ".htm"]:
             return DocumentType.HTML
-        elif extension in [".txt", ".md"]:
-            return DocumentType.TEXT
+        elif extension == ".txt":
+            return DocumentType.TXT
+        elif extension == ".md":
+            return DocumentType.MARKDOWN
         else:
-            return DocumentType.OTHER
+            return DocumentType.UNKNOWN
 
     @classmethod
     def for_embeddings(cls, chunk_size: int = 512, overlap: int = 50):

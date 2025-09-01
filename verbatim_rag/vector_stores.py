@@ -43,6 +43,7 @@ class VectorStore(ABC):
         text_query: Optional[str] = None,
         top_k: int = 5,
         search_type: str = "hybrid",
+        filter: Optional[str] = None,
     ) -> List[SearchResult]:
         """Search for similar vectors using hybrid search."""
         pass
@@ -131,7 +132,12 @@ class LocalMilvusStore(VectorStore):
                 schema.add_field(
                     field_name="chunk_type", datatype=DataType.VARCHAR, max_length=50
                 )
+                schema.add_field(
+                    field_name="doc_type", datatype=DataType.VARCHAR, max_length=50
+                )
                 schema.add_field(field_name="page_number", datatype=DataType.INT64)
+                # Add JSON field for flexible custom metadata
+                schema.add_field(field_name="custom_metadata", datatype=DataType.JSON)
 
                 # Create collection
                 self.client.create_collection(
@@ -228,16 +234,53 @@ class LocalMilvusStore(VectorStore):
             raise ValueError("Sparse vectors required but not provided")
 
         # Prepare data for Milvus with conditional vectors
+        from datetime import datetime
+
+        def json_serialize_safe(obj):
+            """Safely serialize objects to JSON, handling datetime objects."""
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {k: json_serialize_safe(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [json_serialize_safe(item) for item in obj]
+            else:
+                return obj
+
         data = []
         for i in range(len(ids)):
+            metadata = metadatas[i]
+
+            # Extract standard fields
+            standard_fields = {
+                "document_id",
+                "title",
+                "source",
+                "chunk_type",
+                "doc_type",
+                "page_number",
+                "chunk_number",
+            }
+
+            # Separate custom fields from standard fields
+            custom_fields = {}
+            for key, value in metadata.items():
+                if key not in standard_fields:
+                    custom_fields[key] = value
+
+            # Serialize custom fields - ensure all values are JSON-serializable
+            safe_custom_metadata = json_serialize_safe(custom_fields)
+
             item = {
                 "id": ids[i],
                 "text": texts[i],
-                "document_id": metadatas[i].get("document_id", ""),
-                "title": metadatas[i].get("title", ""),  # Keep for search display
-                "source": metadatas[i].get("source", ""),  # Keep for search display
-                "chunk_type": metadatas[i].get("chunk_type", ""),
-                "page_number": metadatas[i].get("page_number", 0),
+                "document_id": metadata.get("document_id", ""),
+                "title": metadata.get("title", ""),  # Keep for search display
+                "source": metadata.get("source", ""),  # Keep for search display
+                "chunk_type": metadata.get("chunk_type", ""),
+                "doc_type": metadata.get("doc_type", ""),
+                "page_number": metadata.get("page_number", 0),
+                "custom_metadata": safe_custom_metadata or {},  # Ensure it's never None
             }
 
             # Add vectors only for fields that exist in the schema
@@ -257,15 +300,49 @@ class LocalMilvusStore(VectorStore):
         """Add document metadata to the documents collection."""
 
         # Prepare document data (no chunks, just metadata)
+        import json
+        from datetime import datetime
+
+        def json_serialize_safe(obj):
+            """Safely serialize objects to JSON, handling datetime objects."""
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {k: json_serialize_safe(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [json_serialize_safe(item) for item in obj]
+            else:
+                return obj
+
         doc_data = []
         for doc in documents:
+            metadata = doc.get("metadata", {})
+            if isinstance(metadata, dict):
+                # Handle datetime objects in metadata, but keep as dict (not JSON string)
+                safe_metadata = json_serialize_safe(metadata)
+            elif isinstance(metadata, str):
+                # If it's already a string, try to parse it back to dict for consistency
+                try:
+                    safe_metadata = json.loads(metadata)
+                except:
+                    safe_metadata = {
+                        "raw": metadata
+                    }  # Fallback for invalid JSON strings
+            else:
+                # Convert other types to dict format
+                safe_metadata = json_serialize_safe(metadata) if metadata else {}
+
             item = {
-                "id": doc["id"],
-                "title": doc["title"],
-                "source": doc["source"],
-                "content_type": doc["content_type"],
-                "raw_content": doc["raw_content"],
-                "metadata": doc["metadata"],
+                "id": doc.get("id", ""),
+                "title": doc.get("title") or "",  # Convert None to empty string
+                "source": doc.get("source") or "",  # Convert None to empty string
+                "content_type": doc.get("doc_type")
+                or doc.get("content_type")
+                or "",  # Handle None values
+                "raw_content": doc.get(
+                    "raw_content", ""
+                ),  # This should be empty for schema-based docs
+                "metadata": safe_metadata,  # Store as dict, not JSON string
             }
             doc_data.append(item)
 
@@ -275,6 +352,18 @@ class LocalMilvusStore(VectorStore):
         )
 
         logger.info(f"Added {len(doc_data)} documents to Milvus")
+
+    def add_document_schema(self, document_dict: Dict[str, Any], doc_id: str = None):
+        """
+        Add a single document using the new schema system.
+
+        :param document_dict: Document dict from DocumentSchema.to_storage_dict()
+        :param doc_id: Optional document ID override
+        """
+        if doc_id:
+            document_dict["id"] = doc_id
+
+        self.add_documents([document_dict])
 
     def get_document(self, document_id: str) -> Dict[str, Any]:
         """Retrieve document metadata by ID."""
@@ -304,6 +393,7 @@ class LocalMilvusStore(VectorStore):
         text_query: Optional[str] = None,
         top_k: int = 5,
         search_type: str = "dense",
+        filter: Optional[str] = None,
     ) -> List[SearchResult]:
         """Search using dense, sparse, or hybrid vectors."""
 
@@ -313,7 +403,9 @@ class LocalMilvusStore(VectorStore):
             "title",
             "source",
             "chunk_type",
+            "doc_type",
             "page_number",
+            "custom_metadata",
         ]
 
         if search_type == "dense" and dense_query:
@@ -324,6 +416,7 @@ class LocalMilvusStore(VectorStore):
                 anns_field="dense_vector",
                 limit=top_k,
                 output_fields=output_fields,
+                filter=filter,
             )
 
         elif search_type == "sparse" and sparse_query:
@@ -334,6 +427,7 @@ class LocalMilvusStore(VectorStore):
                 anns_field="sparse_vector",
                 limit=top_k,
                 output_fields=output_fields,
+                filter=filter,
             )
 
         elif search_type == "hybrid" and dense_query and sparse_query:
@@ -348,6 +442,7 @@ class LocalMilvusStore(VectorStore):
                     anns_field="dense_vector",
                     limit=top_k * 2,  # Get more results for merging
                     output_fields=output_fields,
+                    filter=filter,
                 )
 
                 # Perform sparse search
@@ -357,6 +452,7 @@ class LocalMilvusStore(VectorStore):
                     anns_field="sparse_vector",
                     limit=top_k * 2,  # Get more results for merging
                     output_fields=output_fields,
+                    filter=filter,
                 )
 
                 # Combine results using reciprocal rank fusion (RRF)
@@ -376,6 +472,7 @@ class LocalMilvusStore(VectorStore):
                     anns_field="dense_vector",
                     limit=top_k,
                     output_fields=output_fields,
+                    filter=filter,
                 )
 
         else:
@@ -386,18 +483,29 @@ class LocalMilvusStore(VectorStore):
         # Convert results
         search_results = []
         for hit in results[0]:
+            entity = hit.get("entity", {})
+
+            # Get standard metadata
+            metadata = {
+                "document_id": entity.get("document_id", ""),
+                "title": entity.get("title", ""),
+                "source": entity.get("source", ""),
+                "chunk_type": entity.get("chunk_type", ""),
+                "page_number": entity.get("page_number", 0),
+                "doc_type": entity.get("doc_type", ""),
+            }
+
+            # Add custom metadata from JSON field
+            custom_metadata = entity.get("custom_metadata", {})
+            if custom_metadata:
+                metadata.update(custom_metadata)
+
             search_results.append(
                 SearchResult(
                     id=hit.get("id"),
                     score=hit.get("distance", 0.0),
-                    text=hit.get("entity", {}).get("text", ""),
-                    metadata={
-                        "document_id": hit.get("entity", {}).get("document_id", ""),
-                        "title": hit.get("entity", {}).get("title", ""),
-                        "source": hit.get("entity", {}).get("source", ""),
-                        "chunk_type": hit.get("entity", {}).get("chunk_type", ""),
-                        "page_number": hit.get("entity", {}).get("page_number", 0),
-                    },
+                    text=entity.get("text", ""),
+                    metadata=metadata,
                 )
             )
 
