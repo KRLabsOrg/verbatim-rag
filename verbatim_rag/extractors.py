@@ -395,3 +395,116 @@ class LLMSpanExtractor(SpanExtractor):
                     f"Warning: Span not found verbatim in document: '{span[:100]}...'"
                 )
         return verified
+
+
+"""
+Compatibility layer: expose LLMSpanExtractor from core and keep the
+model-based extractor in the rag package where dependencies live.
+"""
+
+from __future__ import annotations
+
+
+from verbatim_core.extractors import SpanExtractor, LLMSpanExtractor
+
+
+from verbatim_rag.vector_stores import SearchResult
+from verbatim_rag.llm_client import LLMClient
+
+
+class ModelSpanExtractor(SpanExtractor):
+    """Extract spans using a fine-tuned QA sentence classification model."""
+
+    def __init__(
+        self,
+        model_path: str,
+        device: str = None,
+        threshold: float = 0.5,
+        extraction_mode: str = "individual",
+        max_display_spans: int = 5,
+    ):
+        self.model_path = model_path
+        self.threshold = threshold
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+        print(f"Loading model from {model_path}...")
+
+        self.model = QAModel.from_pretrained(model_path)
+        self.model.to(self.device)
+        self.model.eval()
+
+        try:
+            print(f"Loading tokenizer from {model_path}...")
+            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
+            print("Tokenizer loaded successfully.")
+        except Exception as e:
+            print(f"Could not load tokenizer from {model_path}: {e}")
+            base_model = getattr(
+                self.model.config, "model_name", "answerdotai/ModernBERT-base"
+            )
+            print(f"Trying to load tokenizer from base model: {base_model}")
+            self.tokenizer = AutoTokenizer.from_pretrained(base_model)
+            print(f"Loaded tokenizer from {base_model}")
+
+    def _split_into_sentences(self, text: str) -> list[str]:
+        import re
+
+        sentences = re.split(r"(?<=[.!?])\s+", text)
+        return [s.strip() for s in sentences if s.strip()]
+
+    def extract_spans(
+        self, question: str, search_results: list[SearchResult]
+    ) -> dict[str, list[str]]:
+        relevant_spans = {}
+
+        for result in search_results:
+            raw_sentences = self._split_into_sentences(result.text)
+            if not raw_sentences:
+                relevant_spans[result.text] = []
+                continue
+
+            dataset_sentences = [
+                DatasetSentence(text=sent, relevant=False, sentence_id=f"s{i}")
+                for i, sent in enumerate(raw_sentences)
+            ]
+            dataset_doc = DatasetDocument(sentences=dataset_sentences)
+
+            qa_sample = QASample(
+                question=question,
+                documents=[dataset_doc],
+                split="test",
+                dataset_name="inference",
+                task_type="qa",
+            )
+
+            dataset = QADataset([qa_sample], self.tokenizer, max_length=512)
+            if len(dataset) == 0:
+                relevant_spans[result.text] = []
+                continue
+
+            encoding = dataset[0]
+
+            input_ids = encoding["input_ids"].unsqueeze(0).to(self.device)
+            attention_mask = encoding["attention_mask"].unsqueeze(0).to(self.device)
+
+            with torch.no_grad():
+                predictions = self.model(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    sentence_boundaries=[encoding["sentence_boundaries"]],
+                )
+
+            spans = []
+            if len(predictions) > 0 and len(predictions[0]) > 0:
+                sentence_preds = torch.nn.functional.softmax(predictions[0], dim=1)
+
+                for i, pred in enumerate(sentence_preds):
+                    if i < len(raw_sentences) and pred[1] > self.threshold:
+                        spans.append(raw_sentences[i])
+
+            relevant_spans[result.text] = spans
+
+        return relevant_spans
+
+
+__all__ = ["SpanExtractor", "ModelSpanExtractor", "LLMSpanExtractor"]

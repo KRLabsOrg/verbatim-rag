@@ -78,6 +78,7 @@ all = [
 
 [project.scripts]
 verbatim-rag = "verbatim_rag.cli:main"
+verbatim-enhance = "verbatim_core.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["verbatim_rag"] 
+packages = ["verbatim_rag", "verbatim_core"]

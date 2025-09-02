@@ -1,17 +1,15 @@
 """
-Template system for the Verbatim RAG system.
-
-This module provides a strategy pattern implementation for generating and
-filling templates with extracted spans. Supports static templates,
-contextual LLM-generated templates, and random template selection.
+Thin compatibility re-exports for templates from verbatim_core.
 """
 
-from .base import TemplateStrategy
-from .static import StaticTemplate
-from .contextual import ContextualTemplate
-from .random import RandomTemplate
-from .manager import TemplateManager
-from .filler import TemplateFiller
+from verbatim_core.templates import (
+    TemplateStrategy,
+    StaticTemplate,
+    ContextualTemplate,
+    RandomTemplate,
+    TemplateManager,
+    TemplateFiller,
+)
 
 __all__ = [
     "TemplateStrategy",

@@ -12,7 +12,7 @@ from typing import Annotated, Optional
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse as FastAPIStreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Check for OpenAI API key
 if "OPENAI_API_KEY" not in os.environ:
@@ -64,6 +64,20 @@ class StatusResponse(BaseModel):
 
 class TemplateListResponse(BaseModel):
     templates: list[dict]
+
+
+# RAG-agnostic verbatim transform models
+class VerbatimContextItem(BaseModel):
+    content: str = Field(..., min_length=1)
+    title: str | None = ""
+    source: str | None = ""
+    metadata: dict | None = None
+
+
+class VerbatimTransformRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    context: list[VerbatimContextItem] = Field(default_factory=list)
+    answer: str | None = None  # ignored for now
 
 
 @asynccontextmanager
@@ -197,12 +211,50 @@ async def query_endpoint(
         response = api_service.rag.query(request.question)
 
         return response
-
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Query failed: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail="Query failed")
+
+
+@app.post("/api/query_async", response_model=QueryResponse)
+async def query_async_endpoint(
+    request: QueryRequestModel,
+    api_service: Annotated[APIService, Depends(get_api_service)],
+    _: Annotated[bool, Depends(check_system_ready)],
+):
+    """Async query endpoint using async RAG pipeline."""
+    try:
+        api_service.validate_query_request(request.question)
+        response = await api_service.query_async(request.question, request.template_id)
+        return response
+    except Exception as e:
+        logger.error(f"Async query failed: {e}")
+        raise HTTPException(status_code=500, detail="Async query failed")
+
+
+@app.post("/api/transform/verbatim", response_model=QueryResponse)
+async def verbatim_transform_endpoint(request: VerbatimTransformRequest):
+    """RAG-agnostic verbatim transform: question + context -> verbatim answer.
+
+    The optional `answer` field is currently ignored.
+    """
+    from verbatim_rag.transform import VerbatimTransform
+
+    try:
+        vt = VerbatimTransform()
+        # Convert Pydantic models to dicts expected by the transform
+        context_dicts = [c.model_dump() for c in request.context]
+        resp = await vt.transform_async(
+            question=request.question, context=context_dicts, answer=request.answer
+        )
+        return resp
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Verbatim transform failed: {e}")
+        raise HTTPException(status_code=500, detail="Verbatim transform failed")
 
 
 @app.post("/api/query/async", response_model=QueryResponse)

@@ -43,9 +43,7 @@ class APIService:
     ) -> QueryResponse:
         """Execute an async query through the RAG system"""
         try:
-            # For now, just call the sync version
-            # In the future, this could be implemented with async RAG processing
-            response = self.rag.query(question)
+            response = await self.rag.query_async(question)
             return response
         except Exception as e:
             logger.error(f"Async query execution failed: {e}")

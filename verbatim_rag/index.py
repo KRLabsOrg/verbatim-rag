@@ -25,6 +25,7 @@ from verbatim_rag.config import (
     SparseEmbeddingModel,
     VectorDBType,
 )
+from verbatim_rag.document import DocumentType
 
 
 class VerbatimIndex:
@@ -39,6 +40,7 @@ class VerbatimIndex:
         dense_model: Optional[str] = None,
         sparse_model: Optional[str] = None,
         config: Optional[VerbatimRAGConfig] = None,
+        filter_fields: Optional[List[str]] = None,
     ):
         """
         Initialize the VerbatimIndex with simple parameters or config.
@@ -77,11 +79,18 @@ class VerbatimIndex:
                     "At least one of dense_model or sparse_model must be provided"
                 )
 
+        # Which document-level metadata keys are duplicated onto chunks for filtering
+        self.filter_fields = filter_fields or ["doc_type"]
+
         self.dense_provider = self._create_dense_provider(self.config)
         self.sparse_provider = self._create_sparse_provider(self.config)
         self.vector_store = self._create_vector_store(self.config)
 
-    def add_documents(self, documents: List[Union[DocumentSchema, Document]]) -> None:
+    def add_documents(
+        self,
+        documents: List[Union[DocumentSchema, Document]],
+        document_type: DocumentType = DocumentType.MARKDOWN,
+    ) -> None:
         """
         Add documents to the index.
 
@@ -93,13 +102,18 @@ class VerbatimIndex:
         # Handle DocumentSchema (new primary API) and legacy Document objects
         for doc in documents:
             if isinstance(doc, DocumentSchema):
-                self._add_schema_document(doc)
+                self._add_schema_document(doc, document_type)
             else:
-                self._add_document_internal(doc)
+                self._add_document_internal(doc, document_type)
 
-    def _add_schema_document(self, doc: DocumentSchema) -> None:
-        """Add a DocumentSchema to the index using existing chunking infrastructure."""
-        from verbatim_rag.ingestion.document_processor import DocumentProcessor
+    def _add_schema_document(
+        self, doc: DocumentSchema, document_type: DocumentType = DocumentType.MARKDOWN
+    ) -> None:
+        """Add a DocumentSchema to the index using chonkie for text chunking.
+
+        Docling is only required for file/URL parsing via the ingestion pipeline.
+        For raw text content provided in the schema, only chonkie is required here.
+        """
         from verbatim_rag.document import (
             Document,
             DocumentType,
@@ -107,10 +121,6 @@ class VerbatimIndex:
             ChunkType,
             ProcessedChunk,
         )
-
-        # Store document metadata (without content) in documents collection
-        if hasattr(self.vector_store, "add_document_schema"):
-            self.vector_store.add_document_schema(doc.to_storage_dict(), doc.id)
 
         # Convert DocumentSchema to Document for processing
         # Properly flatten metadata to make custom fields available for filtering
@@ -131,19 +141,58 @@ class VerbatimIndex:
             id=doc.id,
             title=doc.title or "",
             source=doc.source or "",
-            content_type=DocumentType.TXT,  # Default for direct creation
+            content_type=document_type,  # Default for direct creation
             raw_content=doc.content,
             metadata=flattened_metadata,  # Flattened metadata with custom fields at top level
         )
 
-        # Use DocumentProcessor for sophisticated chunking; require docling/chonkie
+        # Chunk raw text with chonkie (no docling dependency in this path)
         try:
-            processor = DocumentProcessor()
+            import chonkie
         except ImportError as e:
             raise ImportError(
-                "Document processing requires docling and chonkie. Install them with: pip install docling chonkie"
+                "Text chunking requires chonkie. Install with: pip install chonkie"
             ) from e
-        chunks = processor.chunker(doc.content)
+
+        # Allow per-document overrides via metadata
+        meta = document.metadata or {}
+        chunker_type = str(meta.get("chunker_type", "recursive")).lower()
+        chunker_recipe = str(
+            meta.get(
+                "chunker_recipe",
+                "markdown" if document_type == DocumentType.MARKDOWN else "default",
+            )
+        )
+        lang = str(meta.get("lang", "en"))
+        chunk_size = int(meta.get("chunk_size", 512))
+        chunk_overlap = int(meta.get("chunk_overlap", 50))
+        merge_threshold = float(meta.get("merge_threshold", 0.7))
+        split_threshold = float(meta.get("split_threshold", 0.3))
+
+        if chunker_type == "recursive":
+            chunker = chonkie.RecursiveChunker.from_recipe(chunker_recipe, lang=lang)
+        elif chunker_type == "token":
+            chunker = chonkie.TokenChunker(
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            )
+        elif chunker_type == "sentence":
+            chunker = chonkie.SentenceChunker(
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            )
+        elif chunker_type == "word":
+            chunker = chonkie.WordChunker(
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            )
+        elif chunker_type == "sdpm":
+            chunker = chonkie.SDPMChunker(
+                chunk_size=chunk_size,
+                merge_threshold=merge_threshold,
+                split_threshold=split_threshold,
+            )
+        else:
+            chunker = chonkie.RecursiveChunker.from_recipe(chunker_recipe, lang=lang)
+
+        chunks = chunker(doc.content)
 
         # Create Document chunks with proper structure
         for i, chunk in enumerate(chunks):
@@ -153,7 +202,7 @@ class VerbatimIndex:
                 content=chunk.text,
                 chunk_number=i,
                 chunk_type=ChunkType.PARAGRAPH,
-                metadata=document.metadata.copy(),  # Inherit all metadata from DocumentSchema
+                metadata={},  # Keep chunk-level metadata minimal; doc.metadata added later
             )
 
             # Create ProcessedChunk
@@ -169,7 +218,10 @@ class VerbatimIndex:
         # Use existing document addition logic
         self._add_document_internal(document)
 
-    def _add_document_internal(self, doc: Document) -> None:
+    def _add_document_internal(
+        self,
+        doc: Document,
+    ) -> None:
         """Add a Document object with chunks to the index."""
         # Extract all processed chunks from documents
         all_chunks = []
@@ -217,7 +269,13 @@ class VerbatimIndex:
                 sparse_emb = {}
             sparse_embeddings.append(sparse_emb)
 
-            # Prepare metadata - include ALL document metadata for filtering
+            # Prepare metadata
+            # - Duplicate only allowlisted doc fields at top-level for direct filters (e.g., doc_type)
+            allowed_doc_meta = {
+                k: v for k, v in (doc.metadata or {}).items() if k in self.filter_fields
+            }
+            # - Include ALL document metadata so it ends up in custom_metadata JSON for flexible filters
+            all_doc_meta = dict(doc.metadata or {})
             metadata = {
                 "document_id": doc.id,
                 "title": doc.title,  # Keep for search display
@@ -225,7 +283,8 @@ class VerbatimIndex:
                 "chunk_type": chunk.chunk_type.value,
                 "chunk_number": chunk.chunk_number,
                 "page_number": chunk.metadata.get("page_number", 0),
-                **doc.metadata,  # Include all Document metadata (DocumentSchema fields)
+                **allowed_doc_meta,
+                **all_doc_meta,  # Becomes custom_metadata in the store
                 **chunk.metadata,  # Include chunk-specific metadata
             }
             metadatas.append(metadata)
@@ -261,7 +320,13 @@ class VerbatimIndex:
         if hasattr(self.vector_store, "add_documents"):
             self.vector_store.add_documents(document_data)
 
-    def add_document(self, content: str, metadata: Dict[str, Any], doc_id: str) -> str:
+    def add_document(
+        self,
+        content: str,
+        metadata: Dict[str, Any],
+        doc_id: str,
+        document_type: DocumentType = DocumentType.MARKDOWN,
+    ) -> str:
         """
         Add a single document using the new schema system.
 
@@ -270,28 +335,20 @@ class VerbatimIndex:
         :param doc_id: Document ID
         :return: Document ID
         """
-        # Simple chunking for now - split by sentences/paragraphs
-        import re
+        # Chunk text with chonkie (mandatory dependency)
+        try:
+            import chonkie
+        except ImportError as e:
+            raise ImportError(
+                "Text chunking requires chonkie. Install with: pip install chonkie"
+            ) from e
 
-        # Basic chunking - split into paragraphs and sentences
-        paragraphs = content.strip().split("\n\n")
-        chunks = []
-        for para in paragraphs:
-            if para.strip():
-                # Further split long paragraphs by sentences
-                sentences = re.split(r"[.!?]+", para)
-                current_chunk = ""
-                for sentence in sentences:
-                    if len(current_chunk + sentence) > 512:  # Basic chunk size limit
-                        if current_chunk:
-                            chunks.append(current_chunk.strip())
-                        current_chunk = sentence
-                    else:
-                        current_chunk += sentence + ". "
-                if current_chunk.strip():
-                    chunks.append(current_chunk.strip())
-
-        # If no chunks, use the full content
+        CHUNKER_RECIPE = (
+            "markdown" if document_type == DocumentType.MARKDOWN else "default"
+        )
+        chunker = chonkie.RecursiveChunker.from_recipe(CHUNKER_RECIPE, lang="en")
+        chunks_objs = chunker(content)
+        chunks = [c.text for c in chunks_objs if getattr(c, "text", "").strip()]
         if not chunks:
             chunks = [content]
 
@@ -344,9 +401,17 @@ class VerbatimIndex:
             metadatas=metadatas,
         )
 
-        # Also store document metadata in documents collection
-        if hasattr(self.vector_store, "add_document_schema"):
-            self.vector_store.add_document_schema(metadata, doc_id)
+        # Store document metadata once in documents collection
+        if hasattr(self.vector_store, "add_documents"):
+            doc_record = {
+                "id": doc_id,
+                "title": metadata.get("title") or "",
+                "source": metadata.get("source") or "",
+                "doc_type": metadata.get("doc_type") or "",
+                "raw_content": "",  # do not store full content for schema-based docs
+                "metadata": metadata,
+            }
+            self.vector_store.add_documents([doc_record])
 
         return doc_id
 

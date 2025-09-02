@@ -301,3 +301,12 @@ Based on the available documents:
         template += "\n\n---\n*These excerpts are taken verbatim from the source documents to ensure accuracy.*"
 
         return template
+
+
+"""
+Thin compatibility wrapper: re-export LLMClient from verbatim_core.
+"""
+
+from verbatim_core.llm_client import LLMClient
+
+__all__ = ["LLMClient"]
