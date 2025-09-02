@@ -13,6 +13,8 @@ from typing import Optional, Any, Dict
 from datetime import datetime
 import uuid
 
+from verbatim_rag.document import DocumentType
+
 
 class DocumentSchema(BaseModel):
     """Base document schema - simple and extensible."""
@@ -30,6 +32,9 @@ class DocumentSchema(BaseModel):
     title: Optional[str] = Field(None, max_length=500)
     source: Optional[str] = Field(None, description="URL or file path")
     doc_type: Optional[str] = Field(None, description="Document type identifier")
+    content_type: DocumentType = Field(
+        default=DocumentType.TXT, description="Document content type"
+    )
     created_at: datetime = Field(default_factory=datetime.now)
 
     # Flexible extension point
@@ -80,6 +85,10 @@ class DocumentSchema(BaseModel):
         processor = DocumentProcessor()
         content = processor.extract_content_from_url(url)
 
+        # Auto-detect content type from URL if not specified
+        if "content_type" not in kwargs:
+            kwargs["content_type"] = cls._detect_type_from_url(url)
+
         return cls(content=content, source=url, title=title, **kwargs)
 
     @classmethod
@@ -99,4 +108,39 @@ class DocumentSchema(BaseModel):
         processor = DocumentProcessor()
         content = processor.extract_content_from_file(file_path)
 
+        # Auto-detect content type from file extension if not specified
+        if "content_type" not in kwargs:
+            kwargs["content_type"] = cls._detect_type_from_path(file_path)
+
         return cls(content=content, source=file_path, title=title, **kwargs)
+
+    @classmethod
+    def _detect_type_from_path(cls, path: str) -> DocumentType:
+        """Detect document type from file path extension."""
+        from pathlib import Path
+
+        ext = Path(path).suffix.lower()
+        type_map = {
+            ".pdf": DocumentType.PDF,
+            ".txt": DocumentType.TXT,
+            ".html": DocumentType.HTML,
+            ".htm": DocumentType.HTML,
+            ".md": DocumentType.MARKDOWN,
+            ".markdown": DocumentType.MARKDOWN,
+            ".docx": DocumentType.DOCX,
+            ".csv": DocumentType.CSV,
+            ".json": DocumentType.JSON,
+        }
+        return type_map.get(ext, DocumentType.TXT)
+
+    @classmethod
+    def _detect_type_from_url(cls, url: str) -> DocumentType:
+        """Detect document type from URL extension."""
+        # For URLs, try to detect from path extension
+        detected = cls._detect_type_from_path(url)
+        # If no extension detected and it's a web URL, assume it's a web page
+        if detected == DocumentType.TXT and (
+            url.startswith("http://") or url.startswith("https://")
+        ):
+            return DocumentType.WEB_PAGE
+        return detected

@@ -6,7 +6,7 @@ from typing import Literal
 from datasets import load_dataset
 from tqdm import tqdm
 
-from verbatim_rag.extractor_models.dataset import QASample, QAData, Document, Sentence
+from verbatim_core.extractor_models.dataset import QASample, QAData, Document, Sentence
 
 
 def load_data(hugging_dir: str) -> dict:

@@ -11,7 +11,7 @@ import os
 from transformers import AutoTokenizer
 from huggingface_hub import login
 
-from verbatim_rag.extractor_models.model import QAModel
+from verbatim_core.extractor_models.model import QAModel
 
 
 def upload_model_to_hub(

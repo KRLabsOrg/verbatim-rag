@@ -26,6 +26,7 @@ from verbatim_rag.config import (
     VectorDBType,
 )
 from verbatim_rag.document import DocumentType
+from verbatim_rag.chunking import ChunkingService
 
 
 class VerbatimIndex:
@@ -40,7 +41,6 @@ class VerbatimIndex:
         dense_model: Optional[str] = None,
         sparse_model: Optional[str] = None,
         config: Optional[VerbatimRAGConfig] = None,
-        filter_fields: Optional[List[str]] = None,
     ):
         """
         Initialize the VerbatimIndex with simple parameters or config.
@@ -79,8 +79,10 @@ class VerbatimIndex:
                     "At least one of dense_model or sparse_model must be provided"
                 )
 
-        # Which document-level metadata keys are duplicated onto chunks for filtering
-        self.filter_fields = filter_fields or ["doc_type"]
+        # No longer needed - all metadata goes to single JSON field
+
+        # Initialize chunking service
+        self.chunking_service = ChunkingService()
 
         self.dense_provider = self._create_dense_provider(self.config)
         self.sparse_provider = self._create_sparse_provider(self.config)
@@ -102,13 +104,11 @@ class VerbatimIndex:
         # Handle DocumentSchema (new primary API) and legacy Document objects
         for doc in documents:
             if isinstance(doc, DocumentSchema):
-                self._add_schema_document(doc, document_type)
+                self._add_schema_document(doc)
             else:
                 self._add_document_internal(doc, document_type)
 
-    def _add_schema_document(
-        self, doc: DocumentSchema, document_type: DocumentType = DocumentType.MARKDOWN
-    ) -> None:
+    def _add_schema_document(self, doc: DocumentSchema) -> None:
         """Add a DocumentSchema to the index using chonkie for text chunking.
 
         Docling is only required for file/URL parsing via the ingestion pipeline.
@@ -116,7 +116,6 @@ class VerbatimIndex:
         """
         from verbatim_rag.document import (
             Document,
-            DocumentType,
             Chunk,
             ChunkType,
             ProcessedChunk,
@@ -141,65 +140,20 @@ class VerbatimIndex:
             id=doc.id,
             title=doc.title or "",
             source=doc.source or "",
-            content_type=document_type,  # Default for direct creation
+            content_type=doc.content_type,  # Use content_type from DocumentSchema
             raw_content=doc.content,
             metadata=flattened_metadata,  # Flattened metadata with custom fields at top level
         )
 
-        # Chunk raw text with chonkie (no docling dependency in this path)
-        try:
-            import chonkie
-        except ImportError as e:
-            raise ImportError(
-                "Text chunking requires chonkie. Install with: pip install chonkie"
-            ) from e
-
-        # Allow per-document overrides via metadata
-        meta = document.metadata or {}
-        chunker_type = str(meta.get("chunker_type", "recursive")).lower()
-        chunker_recipe = str(
-            meta.get(
-                "chunker_recipe",
-                "markdown" if document_type == DocumentType.MARKDOWN else "default",
-            )
-        )
-        lang = str(meta.get("lang", "en"))
-        chunk_size = int(meta.get("chunk_size", 512))
-        chunk_overlap = int(meta.get("chunk_overlap", 50))
-        merge_threshold = float(meta.get("merge_threshold", 0.7))
-        split_threshold = float(meta.get("split_threshold", 0.3))
-
-        if chunker_type == "recursive":
-            chunker = chonkie.RecursiveChunker.from_recipe(chunker_recipe, lang=lang)
-        elif chunker_type == "token":
-            chunker = chonkie.TokenChunker(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap
-            )
-        elif chunker_type == "sentence":
-            chunker = chonkie.SentenceChunker(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap
-            )
-        elif chunker_type == "word":
-            chunker = chonkie.WordChunker(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap
-            )
-        elif chunker_type == "sdpm":
-            chunker = chonkie.SDPMChunker(
-                chunk_size=chunk_size,
-                merge_threshold=merge_threshold,
-                split_threshold=split_threshold,
-            )
-        else:
-            chunker = chonkie.RecursiveChunker.from_recipe(chunker_recipe, lang=lang)
-
-        chunks = chunker(doc.content)
+        # Use chunking service to handle text chunking
+        chunk_texts = self.chunking_service.chunk_document(document)
 
         # Create Document chunks with proper structure
-        for i, chunk in enumerate(chunks):
+        for i, chunk_text in enumerate(chunk_texts):
             # Create basic Chunk with inherited metadata
             doc_chunk = Chunk(
                 document_id=document.id,
-                content=chunk.text,
+                content=chunk_text,
                 chunk_number=i,
                 chunk_type=ChunkType.PARAGRAPH,
                 metadata={},  # Keep chunk-level metadata minimal; doc.metadata added later
@@ -208,7 +162,7 @@ class VerbatimIndex:
             # Create ProcessedChunk
             processed_chunk = ProcessedChunk(
                 chunk_id=doc_chunk.id,
-                enhanced_content=chunk.text,
+                enhanced_content=chunk_text,
             )
 
             # Add to document structure
@@ -221,6 +175,7 @@ class VerbatimIndex:
     def _add_document_internal(
         self,
         doc: Document,
+        document_type: DocumentType = DocumentType.MARKDOWN,
     ) -> None:
         """Add a Document object with chunks to the index."""
         # Extract all processed chunks from documents
@@ -241,6 +196,7 @@ class VerbatimIndex:
         # Prepare data for vector store
         ids = []
         texts = []
+        enhanced_texts = []
         metadatas = []
         dense_embeddings = []
         sparse_embeddings = []
@@ -250,42 +206,39 @@ class VerbatimIndex:
             chunk = item["chunk"]
             processed_chunk = item["processed_chunk"]
 
-            # Extract text
-            text = processed_chunk.enhanced_content
-            texts.append(text)
+            # Extract both texts
+            original_text = chunk.content
+            enhanced_text = processed_chunk.enhanced_content
+            texts.append(original_text)
+            enhanced_texts.append(enhanced_text)
             ids.append(processed_chunk.id)
 
-            # Generate dense embedding if provider available
+            # Generate dense embedding if provider available (use enhanced text)
             if self.dense_provider:
-                dense_emb = self.dense_provider.embed_text(text)
+                dense_emb = self.dense_provider.embed_text(enhanced_text)
             else:
                 dense_emb = []
             dense_embeddings.append(dense_emb)
 
-            # Generate sparse embedding if provider available
+            # Generate sparse embedding if provider available (use enhanced text)
             if self.sparse_provider:
-                sparse_emb = self.sparse_provider.embed_text(text)
+                sparse_emb = self.sparse_provider.embed_text(enhanced_text)
             else:
                 sparse_emb = {}
             sparse_embeddings.append(sparse_emb)
 
-            # Prepare metadata
-            # - Duplicate only allowlisted doc fields at top-level for direct filters (e.g., doc_type)
-            allowed_doc_meta = {
-                k: v for k, v in (doc.metadata or {}).items() if k in self.filter_fields
-            }
-            # - Include ALL document metadata so it ends up in custom_metadata JSON for flexible filters
-            all_doc_meta = dict(doc.metadata or {})
+            # Prepare metadata - everything goes into single JSON field
             metadata = {
                 "document_id": doc.id,
-                "title": doc.title,  # Keep for search display
-                "source": doc.source,  # Keep for search display
+                "title": doc.title,
+                "source": doc.source,
+                "doc_type": doc.metadata.get("doc_type"),
+                "content_type": doc.content_type.value if doc.content_type else None,
                 "chunk_type": chunk.chunk_type.value,
                 "chunk_number": chunk.chunk_number,
                 "page_number": chunk.metadata.get("page_number", 0),
-                **allowed_doc_meta,
-                **all_doc_meta,  # Becomes custom_metadata in the store
-                **chunk.metadata,  # Include chunk-specific metadata
+                **(doc.metadata or {}),  # All document metadata
+                **chunk.metadata,  # Chunk-specific metadata
             }
             metadatas.append(metadata)
 
@@ -298,6 +251,7 @@ class VerbatimIndex:
             dense_vectors=dense_vectors_to_store,
             sparse_vectors=sparse_vectors_to_store,
             texts=texts,
+            enhanced_texts=enhanced_texts,
             metadatas=metadatas,
         )
 
@@ -335,26 +289,15 @@ class VerbatimIndex:
         :param doc_id: Document ID
         :return: Document ID
         """
-        # Chunk text with chonkie (mandatory dependency)
-        try:
-            import chonkie
-        except ImportError as e:
-            raise ImportError(
-                "Text chunking requires chonkie. Install with: pip install chonkie"
-            ) from e
-
-        CHUNKER_RECIPE = (
-            "markdown" if document_type == DocumentType.MARKDOWN else "default"
+        # Use chunking service to chunk the content
+        chunks = self.chunking_service.chunk_with_metadata(
+            content, metadata, document_type
         )
-        chunker = chonkie.RecursiveChunker.from_recipe(CHUNKER_RECIPE, lang="en")
-        chunks_objs = chunker(content)
-        chunks = [c.text for c in chunks_objs if getattr(c, "text", "").strip()]
-        if not chunks:
-            chunks = [content]
 
         # Create embeddings and store
         ids = []
         texts = []
+        enhanced_texts = []
         metadatas = []
         dense_embeddings = []
         sparse_embeddings = []
@@ -362,7 +305,10 @@ class VerbatimIndex:
         for i, chunk_text in enumerate(chunks):
             chunk_id = f"{doc_id}_chunk_{i}"
             ids.append(chunk_id)
-            texts.append(chunk_text)
+            texts.append(chunk_text)  # Original text
+            enhanced_texts.append(
+                chunk_text
+            )  # For now, same as original (no enhancement in simple path)
 
             # Generate embeddings
             if self.dense_provider:
@@ -377,15 +323,21 @@ class VerbatimIndex:
                 sparse_emb = {}
             sparse_embeddings.append(sparse_emb)
 
-            # Create chunk metadata
+            # Create chunk metadata - everything in single metadata field
             chunk_metadata = {
                 "document_id": doc_id,
                 "title": metadata.get("title", ""),
                 "source": metadata.get("source", ""),
-                "doc_type": metadata.get("doc_type", ""),  # Add this field
+                "doc_type": metadata.get("doc_type", ""),
+                "content_type": metadata.get("content_type"),
                 "chunk_type": "paragraph",
                 "chunk_number": i,
                 "page_number": 0,
+                **{
+                    k: v
+                    for k, v in metadata.items()
+                    if k not in ["title", "source", "doc_type", "content_type"]
+                },
             }
             metadatas.append(chunk_metadata)
 
@@ -398,6 +350,7 @@ class VerbatimIndex:
             dense_vectors=dense_vectors_to_store,
             sparse_vectors=sparse_vectors_to_store,
             texts=texts,
+            enhanced_texts=enhanced_texts,
             metadatas=metadatas,
         )
 
@@ -407,7 +360,7 @@ class VerbatimIndex:
                 "id": doc_id,
                 "title": metadata.get("title") or "",
                 "source": metadata.get("source") or "",
-                "doc_type": metadata.get("doc_type") or "",
+                "content_type": metadata.get("content_type") or "",
                 "raw_content": "",  # do not store full content for schema-based docs
                 "metadata": metadata,
             }
@@ -415,22 +368,32 @@ class VerbatimIndex:
 
         return doc_id
 
-    def search(
+    def query(
         self,
-        query: str,
+        text: Optional[str] = None,
         k: int = 5,
         search_type: str = "auto",
         filter: Optional[str] = None,
     ) -> List[SearchResult]:
         """
-        Search for documents similar to the query.
+        Query for documents using vector search or filtering.
 
-        :param query: The search query
+        :param text: Optional text query for vector search
         :param k: Number of documents to retrieve
         :param search_type: Type of search ("dense", "sparse", "hybrid", "auto")
         :param filter: Optional Milvus filter expression for metadata filtering
         :return: List of SearchResult objects
         """
+        # If no text provided, do filter-only query
+        if not text:
+            return self.vector_store.query(
+                dense_query=None,
+                sparse_query=None,
+                text_query=None,
+                top_k=k,
+                filter=filter,
+            )
+
         # Auto-detect search type based on available providers
         if search_type == "auto":
             if self.dense_provider and self.sparse_provider:
@@ -447,16 +410,16 @@ class VerbatimIndex:
         query_sparse = None
 
         if search_type in ["dense", "hybrid"] and self.dense_provider:
-            query_dense = self.dense_provider.embed_text(query)
+            query_dense = self.dense_provider.embed_text(text)
 
         if search_type in ["sparse", "hybrid"] and self.sparse_provider:
-            query_sparse = self.sparse_provider.embed_text(query)
+            query_sparse = self.sparse_provider.embed_text(text)
 
         # Search using vector store
-        return self.vector_store.search(
+        return self.vector_store.query(
             dense_query=query_dense,
             sparse_query=query_sparse,
-            text_query=query,
+            text_query=text,
             top_k=k,
             search_type=search_type,
             filter=filter,
@@ -472,6 +435,104 @@ class VerbatimIndex:
         if hasattr(self.vector_store, "get_document"):
             return self.vector_store.get_document(document_id)
         return None
+
+    def get_all_chunks(self, limit: int = 100) -> List[SearchResult]:
+        """
+        Get all chunks in the index (up to limit).
+
+        :param limit: Maximum number of chunks to return
+        :return: List of SearchResult objects
+        """
+        return self.query(k=limit)
+
+    def get_all_documents(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Get all unique documents from chunks.
+
+        :param limit: Maximum number of document chunks to scan
+        :return: List of unique documents with basic info
+        """
+        chunks = self.query(k=limit * 10)  # Get more chunks to find unique docs
+
+        # Group by document_id to get unique documents
+        docs_seen = set()
+        unique_docs = []
+
+        for chunk in chunks:
+            metadata = chunk.metadata
+            doc_id = metadata.get("document_id")
+            if doc_id and doc_id not in docs_seen:
+                docs_seen.add(doc_id)
+                unique_docs.append(
+                    {
+                        "id": doc_id,
+                        "title": metadata.get("title", ""),
+                        "source": metadata.get("source", ""),
+                        "doc_type": metadata.get("doc_type", ""),
+                        "content_type": metadata.get("content_type", ""),
+                    }
+                )
+
+                if len(unique_docs) >= limit:
+                    break
+
+        return unique_docs
+
+    def get_chunks_by_document(
+        self, document_id: str, limit: int = 100
+    ) -> List[SearchResult]:
+        """
+        Get all chunks for a specific document.
+
+        :param document_id: The document ID
+        :param limit: Maximum number of chunks to return
+        :return: List of SearchResult objects
+        """
+        filter_expr = f'metadata["document_id"] == "{document_id}"'
+        return self.query(filter=filter_expr, k=limit)
+
+    def inspect(self) -> Dict[str, Any]:
+        """
+        Get overview statistics about the index.
+
+        :return: Dictionary with index statistics and sample data
+        """
+        # Get sample of chunks
+        sample_chunks = self.get_all_chunks(limit=100)
+        total_chunks = len(sample_chunks)
+
+        # Get unique documents
+        unique_docs = self.get_all_documents(limit=50)
+        total_docs = len(unique_docs)
+
+        # Analyze document types
+        doc_types = {}
+        content_types = {}
+
+        for doc in unique_docs:
+            doc_type = doc.get("doc_type", "unknown")
+            content_type = doc.get("content_type", "unknown")
+            doc_types[doc_type] = doc_types.get(doc_type, 0) + 1
+            content_types[content_type] = content_types.get(content_type, 0) + 1
+
+        return {
+            "total_documents": total_docs,
+            "total_chunks": total_chunks,
+            "doc_types": doc_types,
+            "content_types": content_types,
+            "sample_documents": unique_docs[:5],
+            "sample_chunks": [
+                {
+                    "id": chunk.id,
+                    "text_preview": chunk.text[:100] + "..."
+                    if len(chunk.text) > 100
+                    else chunk.text,
+                    "document_id": chunk.metadata.get("document_id"),
+                    "chunk_number": chunk.metadata.get("chunk_number"),
+                }
+                for chunk in sample_chunks[:5]
+            ],
+        }
 
     def _create_dense_provider(
         self, config: VerbatimRAGConfig

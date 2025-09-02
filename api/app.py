@@ -292,10 +292,10 @@ async def query_async_endpoint(
 async def get_templates(
     template_manager: Annotated[TemplateManager, Depends(get_template_manager)],
 ):
-    """Get available templates"""
+    """Get available templates (return modes as simple records)."""
     try:
-        templates = template_manager.list_templates()
-        return TemplateListResponse(templates=templates)
+        modes = template_manager.get_available_modes()
+        return TemplateListResponse(templates=[{"mode": m} for m in modes])
     except Exception as e:
         logger.error(f"Failed to get templates: {e}")
         raise HTTPException(status_code=500, detail="Failed to retrieve templates")

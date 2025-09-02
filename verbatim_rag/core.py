@@ -6,10 +6,11 @@ to interleave verbatim facts contextually. Citation-only facts (beyond the displ
 limit) expand to a numbered reference token (e.g. "[6]") without verbatim text.
 """
 
+from typing import Optional
 from verbatim_rag.extractors import LLMSpanExtractor, SpanExtractor
 from verbatim_rag.index import VerbatimIndex
 from verbatim_rag.models import QueryResponse
-from verbatim_rag.templates import TemplateManager
+from verbatim_core.templates import TemplateManager
 from verbatim_rag.response_builder import ResponseBuilder
 from verbatim_rag.llm_client import LLMClient
 from verbatim_rag.schema import DocumentSchema
@@ -146,15 +147,16 @@ class VerbatimRAG:
             template, display_spans, citation_spans
         )
 
-    def query(self, question: str) -> QueryResponse:
+    def query(self, question: str, filter: Optional[str] = None) -> QueryResponse:
         """
         Process a query through the Verbatim RAG system with clean architecture.
 
         :param question: The user's question
+        :param filter: Optional filter to narrow document search
         :return: A QueryResponse object containing the structured response
         """
         # Step 1: Retrieve documents
-        search_results = self.index.search(question, k=self.k)
+        search_results = self.index.query(text=question, k=self.k, filter=filter)
 
         # Step 2: Extract spans
         print("Extracting relevant spans...")
@@ -180,15 +182,18 @@ class VerbatimRAG:
             display_span_count=len(display_spans),
         )
 
-    async def query_async(self, question: str) -> QueryResponse:
+    async def query_async(
+        self, question: str, filter: Optional[str] = None
+    ) -> QueryResponse:
         """
         Async version of query method with clean architecture.
 
         :param question: The user's question
+        :param filter: Optional filter to narrow document search
         :return: A QueryResponse object containing the structured response
         """
         # Step 1: Retrieve documents
-        search_results = self.index.search(question, k=self.k)
+        search_results = self.index.query(text=question, k=self.k, filter=filter)
 
         # Step 2: Extract spans (async)
         print("Extracting relevant spans (async)...")

@@ -46,7 +46,7 @@ class IndexProvider(RAGProvider):
     def retrieve(
         self, question: str, k: int = 5, filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        results = self.index.search(question, k=k, filter=filter)
+        results = self.index.query(text=question, k=k, filter=filter)
         # Convert SearchResult -> UniversalDocument -> context dict
         context: List[Dict[str, Any]] = []
         for r in results:
@@ -82,7 +82,7 @@ class VerbatimRAGProvider(RAGProvider):
     def retrieve(
         self, question: str, k: int = 5, filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        results = self.rag.index.search(question, k=k, filter=filter)
+        results = self.rag.index.query(text=question, k=k, filter=filter)
         context: List[Dict[str, Any]] = []
         for r in results:
             context.append(

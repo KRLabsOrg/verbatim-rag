@@ -12,7 +12,7 @@ from tqdm import tqdm
 import time
 from datetime import timedelta
 
-from verbatim_rag.extractor_models.dataset import QADataset
+from verbatim_core.extractor_models.dataset import QADataset
 
 # Set up logger
 logger = logging.getLogger(__name__)

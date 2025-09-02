@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,8 @@ class SearchResult:
     id: str
     score: float
     metadata: Dict[str, Any]
-    text: str
+    text: str  # Original clean text for display
+    enhanced_text: str = ""  # Enhanced text used for vectorization
 
 
 class VectorStore(ABC):
@@ -30,13 +32,14 @@ class VectorStore(ABC):
         dense_vectors: Optional[List[List[float]]],
         sparse_vectors: Optional[List[Dict[int, float]]],
         texts: List[str],
+        enhanced_texts: List[str],
         metadatas: List[Dict[str, Any]],
     ):
-        """Add vectors with metadata and text."""
+        """Add vectors with metadata, original text, and enhanced text."""
         pass
 
     @abstractmethod
-    def search(
+    def query(
         self,
         dense_query: Optional[List[float]] = None,
         sparse_query: Optional[Dict[int, float]] = None,
@@ -45,7 +48,7 @@ class VectorStore(ABC):
         search_type: str = "hybrid",
         filter: Optional[str] = None,
     ) -> List[SearchResult]:
-        """Search for similar vectors using hybrid search."""
+        """Query for similar vectors using hybrid search."""
         pass
 
     @abstractmethod
@@ -121,23 +124,13 @@ class LocalMilvusStore(VectorStore):
                     enable_analyzer=True,
                 )
                 schema.add_field(
-                    field_name="document_id", datatype=DataType.VARCHAR, max_length=100
+                    field_name="enhanced_text",
+                    datatype=DataType.VARCHAR,
+                    max_length=65535,
+                    enable_analyzer=True,
                 )
-                schema.add_field(
-                    field_name="title", datatype=DataType.VARCHAR, max_length=512
-                )
-                schema.add_field(
-                    field_name="source", datatype=DataType.VARCHAR, max_length=512
-                )
-                schema.add_field(
-                    field_name="chunk_type", datatype=DataType.VARCHAR, max_length=50
-                )
-                schema.add_field(
-                    field_name="doc_type", datatype=DataType.VARCHAR, max_length=50
-                )
-                schema.add_field(field_name="page_number", datatype=DataType.INT64)
-                # Add JSON field for flexible custom metadata
-                schema.add_field(field_name="custom_metadata", datatype=DataType.JSON)
+                # Single JSON field for all metadata
+                schema.add_field(field_name="metadata", datatype=DataType.JSON)
 
                 # Create collection
                 self.client.create_collection(
@@ -223,6 +216,7 @@ class LocalMilvusStore(VectorStore):
         dense_vectors: Optional[List[List[float]]],
         sparse_vectors: Optional[List[Dict[int, float]]],
         texts: List[str],
+        enhanced_texts: List[str],
         metadatas: List[Dict[str, Any]],
     ):
         """Add vectors with metadata and text."""
@@ -235,11 +229,14 @@ class LocalMilvusStore(VectorStore):
 
         # Prepare data for Milvus with conditional vectors
         from datetime import datetime
+        from enum import Enum
 
         def json_serialize_safe(obj):
-            """Safely serialize objects to JSON, handling datetime objects."""
+            """Safely serialize objects to JSON, handling datetime and enum objects."""
             if isinstance(obj, datetime):
                 return obj.isoformat()
+            elif isinstance(obj, Enum):
+                return obj.value  # Convert enum to its string value
             elif isinstance(obj, dict):
                 return {k: json_serialize_safe(v) for k, v in obj.items()}
             elif isinstance(obj, list):
@@ -249,38 +246,14 @@ class LocalMilvusStore(VectorStore):
 
         data = []
         for i in range(len(ids)):
-            metadata = metadatas[i]
-
-            # Extract standard fields
-            standard_fields = {
-                "document_id",
-                "title",
-                "source",
-                "chunk_type",
-                "doc_type",
-                "page_number",
-                "chunk_number",
-            }
-
-            # Separate custom fields from standard fields
-            custom_fields = {}
-            for key, value in metadata.items():
-                if key not in standard_fields:
-                    custom_fields[key] = value
-
-            # Serialize custom fields - ensure all values are JSON-serializable
-            safe_custom_metadata = json_serialize_safe(custom_fields)
+            # Serialize all metadata - ensure all values are JSON-serializable
+            safe_metadata = json_serialize_safe(metadatas[i])
 
             item = {
                 "id": ids[i],
-                "text": texts[i],
-                "document_id": metadata.get("document_id", ""),
-                "title": metadata.get("title", ""),  # Keep for search display
-                "source": metadata.get("source", ""),  # Keep for search display
-                "chunk_type": metadata.get("chunk_type", ""),
-                "doc_type": metadata.get("doc_type", ""),
-                "page_number": metadata.get("page_number", 0),
-                "custom_metadata": safe_custom_metadata or {},  # Ensure it's never None
+                "text": texts[i],  # Original clean text
+                "enhanced_text": enhanced_texts[i],  # Enhanced text for vectorization
+                "metadata": safe_metadata,
             }
 
             # Add vectors only for fields that exist in the schema
@@ -302,11 +275,14 @@ class LocalMilvusStore(VectorStore):
         # Prepare document data (no chunks, just metadata)
         import json
         from datetime import datetime
+        from enum import Enum
 
         def json_serialize_safe(obj):
-            """Safely serialize objects to JSON, handling datetime objects."""
+            """Safely serialize objects to JSON, handling datetime and enum objects."""
             if isinstance(obj, datetime):
                 return obj.isoformat()
+            elif isinstance(obj, Enum):
+                return obj.value  # Convert enum to its string value
             elif isinstance(obj, dict):
                 return {k: json_serialize_safe(v) for k, v in obj.items()}
             elif isinstance(obj, list):
@@ -386,7 +362,7 @@ class LocalMilvusStore(VectorStore):
         else:
             return None
 
-    def search(
+    def query(
         self,
         dense_query: Optional[List[float]] = None,
         sparse_query: Optional[Dict[int, float]] = None,
@@ -395,17 +371,16 @@ class LocalMilvusStore(VectorStore):
         search_type: str = "dense",
         filter: Optional[str] = None,
     ) -> List[SearchResult]:
-        """Search using dense, sparse, or hybrid vectors."""
+        """Query using vector search or filter-only browsing."""
+
+        # If no vectors provided, do filter-only query
+        if not dense_query and not sparse_query:
+            return self._filter_only_query(filter, top_k)
 
         output_fields = [
             "text",
-            "document_id",
-            "title",
-            "source",
-            "chunk_type",
-            "doc_type",
-            "page_number",
-            "custom_metadata",
+            "enhanced_text",
+            "metadata",
         ]
 
         if search_type == "dense" and dense_query:
@@ -485,31 +460,65 @@ class LocalMilvusStore(VectorStore):
         for hit in results[0]:
             entity = hit.get("entity", {})
 
-            # Get standard metadata
-            metadata = {
-                "document_id": entity.get("document_id", ""),
-                "title": entity.get("title", ""),
-                "source": entity.get("source", ""),
-                "chunk_type": entity.get("chunk_type", ""),
-                "page_number": entity.get("page_number", 0),
-                "doc_type": entity.get("doc_type", ""),
-            }
-
-            # Add custom metadata from JSON field
-            custom_metadata = entity.get("custom_metadata", {})
-            if custom_metadata:
-                metadata.update(custom_metadata)
+            # Get metadata from single JSON field
+            metadata = entity.get("metadata", {})
+            # Handle both dict and JSON string cases
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except Exception:
+                    metadata = {"raw": metadata}
 
             search_results.append(
                 SearchResult(
                     id=hit.get("id"),
                     score=hit.get("distance", 0.0),
                     text=entity.get("text", ""),
+                    enhanced_text=entity.get("enhanced_text", ""),
                     metadata=metadata,
                 )
             )
 
         return search_results
+
+    def _filter_only_query(
+        self, filter: Optional[str], limit: int
+    ) -> List[SearchResult]:
+        """Query without vector search - just filtering/browsing."""
+        try:
+            results = self.client.query(
+                collection_name=self.collection_name,
+                filter=filter or "",  # Empty filter gets all
+                output_fields=["id", "text", "enhanced_text", "metadata"],
+                limit=limit,
+            )
+
+            # Convert to SearchResult format
+            search_results = []
+            for result in results:
+                metadata = result.get("metadata", {})
+                # Handle both dict and JSON string cases
+                if isinstance(metadata, str):
+                    try:
+                        metadata = json.loads(metadata)
+                    except Exception:
+                        metadata = {"raw": metadata}
+
+                search_results.append(
+                    SearchResult(
+                        id=result.get("id", ""),
+                        score=1.0,  # No relevance score for filter-only queries
+                        text=result.get("text", ""),
+                        enhanced_text=result.get("enhanced_text", ""),
+                        metadata=metadata,
+                    )
+                )
+
+            return search_results
+
+        except Exception as e:
+            logger.error(f"Failed to query chunks: {e}")
+            return []
 
     def _merge_hybrid_results(
         self, dense_hits, sparse_hits, top_k: int, alpha: float = 0.5
@@ -713,6 +722,7 @@ class CloudMilvusStore(VectorStore):
         dense_vectors: List[List[float]],
         sparse_vectors: List[Dict[int, float]],
         texts: List[str],
+        enhanced_texts: List[str],
         metadatas: List[Dict[str, Any]],
     ):
         """Add vectors with metadata and text."""
@@ -738,15 +748,16 @@ class CloudMilvusStore(VectorStore):
         self.collection.insert(data)
         self.collection.flush()
 
-    def search(
+    def query(
         self,
         dense_query: Optional[List[float]] = None,
         sparse_query: Optional[Dict[int, float]] = None,
         text_query: Optional[str] = None,
         top_k: int = 5,
         search_type: str = "hybrid",
+        filter: Optional[str] = None,
     ) -> List[SearchResult]:
-        """Search using hybrid dense + sparse vectors."""
+        """Query using hybrid dense + sparse vectors."""
 
         self.collection.load()
 

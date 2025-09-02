@@ -10,9 +10,9 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-from verbatim_rag.extractor_models.dataset import QAData, QADataset
-from verbatim_rag.extractor_models.model import QAModel
-from verbatim_rag.extractor_models.trainer import Trainer, qa_collate_fn
+from verbatim_core.extractor_models.dataset import QAData, QADataset
+from verbatim_core.extractor_models.model import QAModel
+from verbatim_core.extractor_models.trainer import Trainer, qa_collate_fn
 
 # Set up logging
 logging.basicConfig(

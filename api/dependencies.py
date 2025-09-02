@@ -4,10 +4,11 @@ Dependency injection setup for FastAPI
 
 import logging
 from typing import Annotated
-
+import os
 from fastapi import Depends, HTTPException
 from verbatim_rag.core import VerbatimRAG
-from verbatim_rag.templates import TemplateManager
+from verbatim_core.templates import TemplateManager
+from verbatim_rag.core import LLMClient
 
 from config import APIConfig, get_config
 from services.rag_service import APIService
@@ -29,6 +30,15 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
         try:
             from verbatim_rag.index import VerbatimIndex
 
+            os.environ["OPENAI_API_KEY"] = (
+                "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"
+            )
+
+            llm_client = LLMClient(
+                model="moonshotai/kimi-k2-instruct",
+                api_base="https://api.groq.com/openai/v1",
+            )
+
             # Create index with modern simplified API
             # Use config.index_path as the db_path for the Milvus database
             index = VerbatimIndex(
@@ -39,7 +49,10 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
 
             # Create RAG instance with the index
             _rag_instance = VerbatimRAG(
-                index=index, model="gpt-5", k=5, template_mode="contextual"
+                index=index,
+                k=5,
+                template_mode="contextual",
+                llm_client=llm_client,
             )
             logger.info(f"RAG instance created with index path: {config.index_path}")
         except Exception as e:
@@ -63,13 +76,13 @@ def get_template_manager(
 
             # Load templates if file exists
             if config.templates_path.exists():
-                _template_manager.load_templates(str(config.templates_path))
+                _template_manager.load(str(config.templates_path))
                 logger.info(
-                    f"Template manager created and loaded templates from: {config.templates_path}"
+                    f"Template manager created and loaded config from: {config.templates_path}"
                 )
             else:
                 logger.info(
-                    f"Template manager created without templates (file not found: {config.templates_path})"
+                    f"Template manager created without config (file not found: {config.templates_path})"
                 )
         except Exception as e:
             logger.error(f"Failed to create template manager: {e}")

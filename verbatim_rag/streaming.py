@@ -43,7 +43,7 @@ class StreamingRAG:
                 self.rag.k = num_docs
 
             # Step 1: Retrieve documents and send them without highlights
-            docs = self.rag.index.search(question, k=self.rag.k)
+            docs = self.rag.index.query(text=question, k=self.rag.k)
 
             documents_without_highlights = [
                 DocumentWithHighlights(
