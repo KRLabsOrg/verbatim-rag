@@ -29,14 +29,10 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
     if _rag_instance is None:
         try:
             from verbatim_rag.index import VerbatimIndex
-
-            os.environ["OPENAI_API_KEY"] = (
-                "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"
-            )
-
+            
             llm_client = LLMClient(
-                model="moonshotai/kimi-k2-instruct",
-                api_base="https://api.groq.com/openai/v1",
+                model="gpt-5-mini",
+                temperature=1.0,
             )
 
             # Create index with modern simplified API

@@ -36,27 +36,36 @@ class ChunkingConfig:
     chunk_overlap: int = 50
     merge_threshold: float = 0.7  # SDPM only
     split_threshold: float = 0.3  # SDPM only
+    preserve_headings: bool = True  # Auto-enabled for markdown
+    include_metadata: bool = True  # Add metadata to enhanced content
 
     @classmethod
     def from_document_metadata(
         cls, metadata: Dict[str, Any], document_type: DocumentType
     ) -> "ChunkingConfig":
         """Create chunking config from document metadata with fallbacks."""
+        recipe = str(
+            metadata.get(
+                "chunker_recipe",
+                "default" if document_type == DocumentType.TXT else "markdown",
+            )
+        )
+
+        # Auto-enable hierarchical chunking for markdown documents
+        preserve_headings = True if recipe == "markdown" else False
+
         return cls(
             strategy=ChunkingStrategy(
                 str(metadata.get("chunker_type", "recursive")).lower()
             ),
-            recipe=str(
-                metadata.get(
-                    "chunker_recipe",
-                    "default" if document_type == DocumentType.TXT else "markdown",
-                )
-            ),
+            recipe=recipe,
             lang=str(metadata.get("lang", "en")),
             chunk_size=int(metadata.get("chunk_size", 512)),
             chunk_overlap=int(metadata.get("chunk_overlap", 50)),
             merge_threshold=float(metadata.get("merge_threshold", 0.7)),
             split_threshold=float(metadata.get("split_threshold", 0.3)),
+            preserve_headings=preserve_headings,
+            include_metadata=bool(metadata.get("include_metadata", True)),
         )
 
 
@@ -86,9 +95,24 @@ class ChonkieChunker(ChunkerInterface):
             ) from e
 
         if self.config.strategy == ChunkingStrategy.RECURSIVE:
-            return chonkie.RecursiveChunker.from_recipe(
+            chunker = chonkie.RecursiveChunker.from_recipe(
                 self.config.recipe, lang=self.config.lang
             )
+
+            # Wrap with hierarchical tracking if needed
+            if self.config.recipe == "markdown" and self.config.preserve_headings:
+                try:
+                    from verbatim_rag.ingestion.hierarchical_chunker import (
+                        HierarchicalWrapper,
+                    )
+
+                    chunker = HierarchicalWrapper(chunker)
+                except ImportError:
+                    print(
+                        "Warning: HierarchicalWrapper not found, using regular chunker"
+                    )
+
+            return chunker
         elif self.config.strategy == ChunkingStrategy.TOKEN:
             return chonkie.TokenChunker(
                 chunk_size=self.config.chunk_size,
@@ -120,6 +144,10 @@ class ChonkieChunker(ChunkerInterface):
         """Chunk text using the configured chonkie chunker."""
         chunks = self._chunker(text)
         return [c.text for c in chunks if getattr(c, "text", "").strip()]
+
+    def chunk_with_metadata(self, text: str):
+        """Chunk text and return full chunk objects with metadata."""
+        return self._chunker(text)
 
 
 class ChunkingService:
@@ -170,6 +198,105 @@ class ChunkingService:
         """Chunk text using metadata-based configuration."""
         config = ChunkingConfig.from_document_metadata(metadata, document_type)
         return self.chunk_text(text, config)
+
+    def chunk_document_enhanced(
+        self,
+        document: Union[Document, DocumentSchema],
+        config: Optional[ChunkingConfig] = None,
+    ) -> List[tuple]:
+        """
+        Chunk document and return (original_text, enhanced_text) tuples.
+
+        Returns list of (chunk_text, enhanced_content) pairs where:
+        - chunk_text: Original chunk text
+        - enhanced_content: Text with hierarchical headings + metadata
+        """
+        # Extract content and metadata
+        metadata = document.metadata or {}
+        content = getattr(document, "raw_content", None) or getattr(document, "content")
+        doc_type = document.content_type
+
+        # Get chunking config
+        config = config or ChunkingConfig.from_document_metadata(metadata, doc_type)
+        chunker = ChonkieChunker(config)
+
+        # Get chunk objects with metadata
+        chunk_objects = chunker.chunk_with_metadata(content)
+
+        # Build enhanced content for each chunk
+        enhanced_chunks = []
+        for i, chunk in enumerate(chunk_objects):
+            original_text = chunk.text
+
+            # Build enhanced content if configured
+            if config.preserve_headings or config.include_metadata:
+                enhanced_text = self._build_enhanced_content(
+                    chunk_text=original_text,
+                    heading_path=getattr(chunk, "heading_path", None),
+                    document=document,
+                    chunk_number=i,
+                    config=config,
+                )
+            else:
+                enhanced_text = original_text
+
+            enhanced_chunks.append((original_text, enhanced_text))
+
+        return enhanced_chunks
+
+    def _build_enhanced_content(
+        self,
+        chunk_text: str,
+        heading_path: List[str] = None,
+        document: Union[Document, DocumentSchema] = None,
+        chunk_number: int = 0,
+        config: ChunkingConfig = None,
+    ) -> str:
+        """Build enhanced content with hierarchical headings and metadata."""
+        parts = []
+
+        # Add heading hierarchy if available
+        if heading_path and config.preserve_headings:
+            parts.extend(heading_path)
+            parts.append("")  # Blank line after headings
+
+        # Add original content
+        parts.append(chunk_text)
+
+        # Add metadata if enabled
+        if config.include_metadata and document:
+            parts.append("")  # Blank line before metadata
+            parts.append("---")  # Metadata separator
+
+            # Basic metadata
+            title = getattr(document, "title", "") or "Unknown Document"
+            source = getattr(document, "source", "") or "Unknown Source"
+
+            metadata_lines = [
+                f"Document: {title}",
+                f"Source: {source}",
+            ]
+
+            # Add document metadata
+            if document.metadata:
+                for key, value in document.metadata.items():
+                    # Skip internal chunking metadata
+                    skip_keys = {
+                        "chunker_type",
+                        "chunker_recipe",
+                        "lang",
+                        "chunk_size",
+                        "chunk_overlap",
+                        "preserve_headings",
+                        "include_metadata",
+                    }
+                    if key not in skip_keys:
+                        formatted_key = key.replace("_", " ").title()
+                        metadata_lines.append(f"{formatted_key}: {value}")
+
+            parts.extend(metadata_lines)
+
+        return "\n".join(parts)
 
 
 # Default service instance

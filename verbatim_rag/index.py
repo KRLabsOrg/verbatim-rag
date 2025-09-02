@@ -145,15 +145,15 @@ class VerbatimIndex:
             metadata=flattened_metadata,  # Flattened metadata with custom fields at top level
         )
 
-        # Use chunking service to handle text chunking
-        chunk_texts = self.chunking_service.chunk_document(document)
+        # Use chunking service to handle text chunking with enhancement
+        enhanced_chunks = self.chunking_service.chunk_document_enhanced(document)
 
         # Create Document chunks with proper structure
-        for i, chunk_text in enumerate(chunk_texts):
+        for i, (chunk_text, enhanced_text) in enumerate(enhanced_chunks):
             # Create basic Chunk with inherited metadata
             doc_chunk = Chunk(
                 document_id=document.id,
-                content=chunk_text,
+                content=chunk_text,  # Original text for extraction
                 chunk_number=i,
                 chunk_type=ChunkType.PARAGRAPH,
                 metadata={},  # Keep chunk-level metadata minimal; doc.metadata added later
@@ -162,7 +162,7 @@ class VerbatimIndex:
             # Create ProcessedChunk
             processed_chunk = ProcessedChunk(
                 chunk_id=doc_chunk.id,
-                enhanced_content=chunk_text,
+                enhanced_content=enhanced_text,  # Enhanced text with headings/metadata
             )
 
             # Add to document structure

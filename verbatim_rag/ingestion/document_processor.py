@@ -12,77 +12,23 @@ try:
 except ImportError:
     DOCLING_AVAILABLE = False
 
-try:
-    import chonkie
-
-    CHONKIE_AVAILABLE = True
-except ImportError:
-    CHONKIE_AVAILABLE = False
-
 from ..document import Document, Chunk, ProcessedChunk, DocumentType, ChunkType
+from ..chunking import ChunkingService, ChunkingConfig, ChunkingStrategy
 
 
 class DocumentProcessor:
     """
-    Simple document processor using docling + chonkie.
+    Simple document processor using docling + ChunkingService.
 
-    Supports different chunking strategies:
-    - "recursive" (default): RecursiveChunker with recipes
-    - "token": TokenChunker
-    - "sentence": SentenceChunker
-    - "word": WordChunker
-    - "sdpm": SDPMChunker (Semantic Double-Pass Merging)
+    Uses centralized ChunkingService for all text chunking operations.
     """
 
-    def __init__(
-        self,
-        chunker_type: str = "recursive",
-        chunker_recipe: str = "markdown",
-        lang: str = "en",
-        chunk_size: int = 512,
-        chunk_overlap: int = 50,
-        **chunker_kwargs,
-    ):
+    def __init__(self, chunking_config: Optional[ChunkingConfig] = None):
         if not DOCLING_AVAILABLE:
             raise ImportError("docling is required. Install with: pip install docling")
 
-        if not CHONKIE_AVAILABLE:
-            raise ImportError("chonkie is required. Install with: pip install chonkie")
-
         self.converter = DocumentConverter()
-        self.chunker_type = chunker_type
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
-        self.chunker_kwargs = chunker_kwargs
-
-        # Create chunker based on type
-        if chunker_type == "recursive":
-            self.chunker = chonkie.RecursiveChunker.from_recipe(
-                chunker_recipe, lang=lang
-            )
-        elif chunker_type == "token":
-            self.chunker = chonkie.TokenChunker(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap, **chunker_kwargs
-            )
-        elif chunker_type == "sentence":
-            self.chunker = chonkie.SentenceChunker(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap, **chunker_kwargs
-            )
-        elif chunker_type == "word":
-            self.chunker = chonkie.WordChunker(
-                chunk_size=chunk_size, chunk_overlap=chunk_overlap, **chunker_kwargs
-            )
-        elif chunker_type == "sdpm":
-            self.chunker = chonkie.SDPMChunker(
-                chunk_size=chunk_size,
-                merge_threshold=chunker_kwargs.get("merge_threshold", 0.7),
-                split_threshold=chunker_kwargs.get("split_threshold", 0.3),
-            )
-        else:
-            raise ValueError(
-                f"Unknown chunker type: {chunker_type}. "
-                f"Supported: recursive, token, sentence, word, sdpm"
-            )
+        self.chunking_service = ChunkingService(chunking_config)
 
     def process_url(
         self, url: str, title: str, metadata: Optional[Dict[str, Any]] = None
@@ -111,15 +57,15 @@ class DocumentProcessor:
             metadata=metadata or {},
         )
 
-        # Chunk with chonkie
-        chunks = self.chunker(content_md)
+        # Use ChunkingService for all chunking
+        enhanced_chunks = self.chunking_service.chunk_document_enhanced(document)
 
         # Process each chunk
-        for i, chunk in enumerate(chunks):
+        for i, (original_text, enhanced_content) in enumerate(enhanced_chunks):
             # Create basic Chunk
             doc_chunk = Chunk(
                 document_id=document.id,
-                content=chunk.text,
+                content=original_text,
                 chunk_number=i,
                 chunk_type=ChunkType.PARAGRAPH,
             )
@@ -127,7 +73,7 @@ class DocumentProcessor:
             # Create ProcessedChunk
             processed_chunk = ProcessedChunk(
                 chunk_id=doc_chunk.id,
-                enhanced_content=chunk.text,
+                enhanced_content=enhanced_content,
             )
 
             # Add to document
@@ -168,15 +114,15 @@ class DocumentProcessor:
             metadata=metadata or {},
         )
 
-        # Chunk with chonkie
-        chunks = self.chunker(content_md)
+        # Use ChunkingService for all chunking
+        enhanced_chunks = self.chunking_service.chunk_document_enhanced(document)
 
         # Process each chunk
-        for i, chunk in enumerate(chunks):
+        for i, (original_text, enhanced_content) in enumerate(enhanced_chunks):
             # Create basic Chunk
             doc_chunk = Chunk(
                 document_id=document.id,
-                content=chunk.text,
+                content=original_text,
                 chunk_number=i,
                 chunk_type=ChunkType.PARAGRAPH,
             )
@@ -184,7 +130,7 @@ class DocumentProcessor:
             # Create ProcessedChunk
             processed_chunk = ProcessedChunk(
                 chunk_id=doc_chunk.id,
-                enhanced_content=chunk.text,
+                enhanced_content=enhanced_content,
             )
 
             # Add to document
@@ -281,28 +227,47 @@ class DocumentProcessor:
     @classmethod
     def for_embeddings(cls, chunk_size: int = 512, overlap: int = 50):
         """Create processor optimized for embedding generation."""
-        return cls(chunker_type="token", chunk_size=chunk_size, chunk_overlap=overlap)
+        config = ChunkingConfig(
+            strategy=ChunkingStrategy.TOKEN,
+            chunk_size=chunk_size,
+            chunk_overlap=overlap,
+        )
+        return cls(config)
 
     @classmethod
     def for_qa(cls, sentence_chunks: int = 3, sentence_overlap: int = 1):
         """Create processor optimized for Q&A tasks."""
-        return cls(
-            chunker_type="sentence",
+        config = ChunkingConfig(
+            strategy=ChunkingStrategy.SENTENCE,
             chunk_size=sentence_chunks,
             chunk_overlap=sentence_overlap,
         )
+        return cls(config)
 
     @classmethod
     def semantic(cls, chunk_size: int = 512, merge_threshold: float = 0.7):
         """Create processor with semantic chunking."""
-        return cls(
-            chunker_type="sdpm",
+        config = ChunkingConfig(
+            strategy=ChunkingStrategy.SDPM,
             chunk_size=chunk_size,
             merge_threshold=merge_threshold,
             split_threshold=0.3,
         )
+        return cls(config)
 
     @classmethod
-    def markdown_recursive(cls, lang: str = "en"):
-        """Create processor with recursive markdown chunking (default)."""
-        return cls(chunker_type="recursive", chunker_recipe="markdown", lang=lang)
+    def markdown_recursive(
+        cls,
+        lang: str = "en",
+        preserve_headings: bool = False,
+        include_metadata: bool = True,
+    ):
+        """Create processor with recursive markdown chunking."""
+        config = ChunkingConfig(
+            strategy=ChunkingStrategy.RECURSIVE,
+            recipe="markdown",
+            lang=lang,
+            preserve_headings=preserve_headings,
+            include_metadata=include_metadata,
+        )
+        return cls(config)
