@@ -1,6 +1,16 @@
 # Verbatim RAG
 
+<p align="center">
+  <img src="https://github.com/KRLabsOrg/verbatim-rag/blob/main/assets/chiliground.png?raw=true" alt="ChiliGround Logo" width="400"/>
+  <br><em>Chill, I Ground! 🌶 ️</em>
+</p>
+
 A minimalistic approach to Retrieval-Augmented Generation (RAG) that prevents hallucination by ensuring all generated content is explicitly derived from source documents.
+
+[![PyPI](https://img.shields.io/pypi/v/verbatim-rag)](https://pypi.org/project/verbatim-rag/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1IACXwo3ezgA1yXarxVOC4yXjdUPmOI1H?usp=sharing)
+[![ACL 2025](https://img.shields.io/badge/ACL%20Anthology-2025.bionlp--share.8-blue)](https://aclanthology.org/2025.bionlp-share.8/)
 
 ## Concept
 
@@ -37,7 +47,7 @@ document = processor.process_url(
 
 # Define SPLADE index with a sparse model
 index = VerbatimIndex(
-    sparse_model="naver/splade-v3", 
+    sparse_model="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
     db_path="./index.db"
 )
 index.add_documents([document])
@@ -119,14 +129,16 @@ from verbatim_rag.index import VerbatimIndex
 from verbatim_rag.extractors import ModelSpanExtractor
 
 # Load your trained extractor
-extractor = ModelSpanExtractor("path/to/your/model")
+extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v1")
 
-# Create VerbatimRAG system with custom extractor
+# Load the index
+# (Assuming you have already created and populated the index)
 index = VerbatimIndex(
-    sparse_model="naver/splade-v3", 
+    sparse_model="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
     db_path="./index.db"
 )
 
+# Create VerbatimRAG system with custom extractor
 rag_system = VerbatimRAG(
     index=index,
     extractor=extractor,
@@ -137,7 +149,6 @@ rag_system = VerbatimRAG(
 response = rag_system.query("Main findings of the paper?")
 print(response.answer)
 ```
-
 
 ## Citation
 
