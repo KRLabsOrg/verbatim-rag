@@ -188,8 +188,6 @@ class ChunkingService:
         # Extract chunking config from document metadata
         config = config or ChunkingConfig.from_document_metadata(metadata, doc_type)
 
-        print(config)
-
         return self.chunk_text(content, config)
 
     def chunk_with_metadata(

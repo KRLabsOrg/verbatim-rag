@@ -4,7 +4,6 @@ Dependency injection setup for FastAPI
 
 import logging
 from typing import Annotated
-import os
 from fastapi import Depends, HTTPException
 from verbatim_rag.core import VerbatimRAG
 from verbatim_core.templates import TemplateManager
@@ -29,7 +28,7 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
     if _rag_instance is None:
         try:
             from verbatim_rag.index import VerbatimIndex
-            
+
             llm_client = LLMClient(
                 model="gpt-5-mini",
                 temperature=1.0,
