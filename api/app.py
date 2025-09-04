@@ -32,14 +32,14 @@ except ImportError as e:
     print(f"Error importing verbatim_rag: {e}")
     sys.exit(1)
 
-from config import APIConfig, get_config
-from dependencies import (
+from api.config import APIConfig, get_config
+from api.dependencies import (
     get_api_service,
     get_rag_instance,
     get_template_manager,
     check_system_ready,
 )
-from services.rag_service import APIService
+from api.services.rag_service import APIService
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -120,10 +120,7 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
-@app.get("/")
-async def root():
-    """Root endpoint - basic health check"""
-    return {"status": "online", "message": "Verbatim RAG API is running"}
+# Root endpoint removed to allow static files to serve React app at /
 
 
 @app.get("/api/documents")
@@ -380,6 +377,13 @@ async def query_stream_endpoint(
     except Exception as e:
         logger.error(f"Stream query failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Serve static frontend files for production deployment (mounted last to not interfere with API routes)
+if os.path.exists("./static"):
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 
 if __name__ == "__main__":

@@ -77,18 +77,40 @@ export const ApiProvider = ({ children }) => {
       }
       
       const reader = response.body.getReader();
+      let buffer = '';
       const decoder = new TextDecoder();
       
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(line => line.trim());
+        // Decode chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true });
         
+        // Split by newlines but keep the last potentially incomplete line
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep last line in buffer if incomplete
+        
+        // Process only complete lines
         for (const line of lines) {
+          if (!line.trim()) continue;
           try {
-            const data = JSON.parse(line);
+            let data;
+            
+            // Handle both normal and double-escaped JSON (for Fly.io compatibility)
+            try {
+              // First try normal JSON parsing (works locally)
+              data = JSON.parse(line);
+            } catch (e) {
+              // If that fails, check if it's double-escaped (Fly.io issue)
+              if (line.startsWith('"') && line.endsWith('"')) {
+                // Remove outer quotes and parse twice
+                const unescaped = JSON.parse(line); // First parse removes escaping
+                data = JSON.parse(unescaped);       // Second parse gets actual object
+              } else {
+                throw e; // Re-throw if neither format works
+              }
+            }
             
             if (data.error) {
               setError(data.error);
@@ -143,8 +165,36 @@ export const ApiProvider = ({ children }) => {
                 console.warn('Unknown response type:', data.type);
             }
           } catch (parseError) {
-            console.error('Error parsing response:', parseError, line);
+            console.error('Error parsing response:', parseError);
+            console.error('Raw line:', line);
           }
+        }
+      }
+      
+      // Process any remaining buffer content
+      if (buffer.trim()) {
+        try {
+          let data;
+          
+          // Handle both normal and double-escaped JSON (for Fly.io compatibility)
+          try {
+            data = JSON.parse(buffer);
+          } catch (e) {
+            if (buffer.startsWith('"') && buffer.endsWith('"')) {
+              const unescaped = JSON.parse(buffer);
+              data = JSON.parse(unescaped);
+            } else {
+              throw e;
+            }
+          }
+          
+          // Process final data if needed
+          if (data.type === 'answer' && data.done) {
+            setIsLoading(false);
+          }
+        } catch (parseError) {
+          console.error('Error parsing final buffer:', parseError);
+          console.error('Raw buffer:', buffer);
         }
       }
       
