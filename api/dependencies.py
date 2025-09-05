@@ -9,8 +9,8 @@ from verbatim_rag.core import VerbatimRAG
 from verbatim_core.templates import TemplateManager
 from verbatim_rag.core import LLMClient
 
-from config import APIConfig, get_config
-from services.rag_service import APIService
+from api.config import APIConfig, get_config
+from api.services.rag_service import APIService
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
             index = VerbatimIndex(
                 db_path=str(config.index_path),
                 dense_model=None,
-                sparse_model="naver/splade-v3",  # Uncomment for hybrid mode
+                sparse_model="opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill",  # Uncomment for hybrid mode
             )
 
             # Create RAG instance with the index
