@@ -3,7 +3,7 @@ Unified index class for the Verbatim RAG system.
 """
 
 from typing import List, Optional, Dict, Any, Union
-
+from tqdm import tqdm
 from verbatim_rag.document import Document
 from verbatim_rag.schema import DocumentSchema
 from verbatim_rag.embedding_providers import (
@@ -102,7 +102,7 @@ class VerbatimIndex:
             return
 
         # Handle DocumentSchema (new primary API) and legacy Document objects
-        for doc in documents:
+        for doc in tqdm(documents, desc="Adding documents"):
             if isinstance(doc, DocumentSchema):
                 self._add_schema_document(doc)
             else:
