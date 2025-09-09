@@ -14,6 +14,7 @@ from tqdm import tqdm
 # Import verbatim-rag components
 from verbatim_rag import VerbatimIndex
 from verbatim_rag.schema import DocumentSchema
+from verbatim_rag.ingestion.document_processor import DocumentProcessor
 
 
 class DocumentSchemaProcessor:
@@ -81,12 +82,15 @@ class DocumentSchemaProcessor:
             url = f"{paper.get('url').strip('/')}.pdf" if paper.get('url', '') else None
             if not url:
                 raise Exception("No URL found")
+
+            processor = DocumentProcessor()
             
             # Create DocumentSchema from URL - this handles all downloading and parsing
             document = DocumentSchema.from_url(
                 url=url,
                 title=paper.get('title', ''),
                 doc_type='academic_paper',
+                processor=processor,
                 authors=paper.get('authors', [])[:5],
                 conference=paper.get('booktitle', ''),
                 year=paper.get('year', ''),

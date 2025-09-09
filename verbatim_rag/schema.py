@@ -14,6 +14,7 @@ from datetime import datetime
 import uuid
 
 from verbatim_rag.document import DocumentType
+from verbatim_rag.ingestion.document_processor import DocumentProcessor
 
 
 class DocumentSchema(BaseModel):
@@ -69,20 +70,21 @@ class DocumentSchema(BaseModel):
         return data
 
     @classmethod
-    def from_url(cls, url: str, title: Optional[str] = None, **kwargs):
+    def from_url(cls, url: str, title: Optional[str] = None, processor: Optional[DocumentProcessor] = None, **kwargs):
         """Create instance with content extracted from URL.
 
         Args:
             url: The URL to process
             title: Optional title for the document
+            processor: Optional document processor to use
             **kwargs: Additional fields for the schema (custom fields)
 
         Returns:
             Instance of the schema class with content from URL
         """
-        from verbatim_rag.ingestion.document_processor import DocumentProcessor
 
-        processor = DocumentProcessor()
+        if processor is None:
+            processor = DocumentProcessor()
         content = processor.extract_content_from_url(url)
 
         # Auto-detect content type from URL if not specified
@@ -92,20 +94,20 @@ class DocumentSchema(BaseModel):
         return cls(content=content, source=url, title=title, **kwargs)
 
     @classmethod
-    def from_file(cls, file_path: str, title: Optional[str] = None, **kwargs):
+    def from_file(cls, file_path: str, title: Optional[str] = None, processor: Optional[DocumentProcessor] = None, **kwargs):
         """Create instance with content extracted from file.
 
         Args:
             file_path: Path to the file to process
             title: Optional title for the document
+            processor: Optional document processor to use
             **kwargs: Additional fields for the schema (custom fields)
 
         Returns:
             Instance of the schema class with content from file
         """
-        from verbatim_rag.ingestion.document_processor import DocumentProcessor
-
-        processor = DocumentProcessor()
+        if processor is None:
+            processor = DocumentProcessor()
         content = processor.extract_content_from_file(file_path)
 
         # Auto-detect content type from file extension if not specified
