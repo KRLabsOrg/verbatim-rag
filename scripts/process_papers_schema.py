@@ -35,6 +35,8 @@ class DocumentSchemaProcessor:
         
         # Load or initialize status
         self.status = self.load_status()
+
+        self.processor = DocumentProcessor()
     
     def load_status(self) -> Dict:
         """Load processing status from file"""
@@ -83,14 +85,13 @@ class DocumentSchemaProcessor:
             if not url:
                 raise Exception("No URL found")
 
-            processor = DocumentProcessor()
             
             # Create DocumentSchema from URL - this handles all downloading and parsing
             document = DocumentSchema.from_url(
                 url=url,
                 title=paper.get('title', ''),
                 doc_type='academic_paper',
-                processor=processor,
+                processor=self.processor,
                 authors=paper.get('authors', [])[:5],
                 conference=paper.get('booktitle', ''),
                 year=paper.get('year', ''),
