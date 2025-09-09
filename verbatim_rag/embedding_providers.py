@@ -50,7 +50,7 @@ class SparseEmbeddingProvider(ABC):
 class SentenceTransformersProvider(DenseEmbeddingProvider):
     """Local SentenceTransformers provider."""
 
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2", device: str = "cpu"):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", device: str = "auto"):
         self.model_name = model_name
         self.device = device
         self._load_model()
@@ -110,7 +110,7 @@ class OpenAIProvider(DenseEmbeddingProvider):
 class SpladeProvider(SparseEmbeddingProvider):
     """SPLADE sparse embedding provider."""
 
-    def __init__(self, model_name: str = "naver/splade-v3", device: str = "cpu"):
+    def __init__(self, model_name: str = "naver/splade-v3", device: str = "auto"):
         self.model_name = model_name
         self.device = device
         self._load_model()
