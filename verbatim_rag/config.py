@@ -33,6 +33,7 @@ class DenseEmbeddingConfig(BaseModel):
     model_name: Optional[str] = "all-MiniLM-L6-v2"
     api_key: Optional[str] = None
     device: str = "cpu"
+    enabled: bool = False
 
     @validator("api_key", pre=True, always=True)
     def get_api_key(cls, v, values):
@@ -45,9 +46,11 @@ class SparseEmbeddingConfig(BaseModel):
     """Configuration for sparse embedding models"""
 
     model: SparseEmbeddingModel = SparseEmbeddingModel.SPLADE
-    model_name: Optional[str] = "naver/splade-v3"
+    model_name: Optional[str] = (
+        "opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill"
+    )
     device: str = "cpu"
-    enabled: bool = False
+    enabled: bool = True
 
 
 class VectorDBConfig(BaseModel):
@@ -56,6 +59,7 @@ class VectorDBConfig(BaseModel):
     type: VectorDBType = VectorDBType.MILVUS_LOCAL
     host: Optional[str] = None
     port: Optional[int] = None
+    uri: Optional[str] = None
     collection_name: str = "verbatim_rag"
     api_key: Optional[str] = None
 
@@ -91,13 +95,12 @@ def create_default_config() -> VerbatimRAGConfig:
     """Create a default configuration for local development"""
     return VerbatimRAGConfig(
         dense_embedding=DenseEmbeddingConfig(
-            model=DenseEmbeddingModel.SENTENCE_TRANSFORMERS,
-            model_name="all-MiniLM-L6-v2",
+            enabled=False,
         ),
         sparse_embedding=SparseEmbeddingConfig(
             model=SparseEmbeddingModel.SPLADE,
-            model_name="naver/splade-v3",
-            enabled=False,
+            model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
+            enabled=True,
         ),
         vector_db=VectorDBConfig(
             type=VectorDBType.MILVUS_LOCAL, db_path="./milvus_verbatim.db"
@@ -119,3 +122,8 @@ def load_config(config_path: Optional[Union[str, Path]] = None) -> VerbatimRAGCo
         return VerbatimRAGConfig.from_yaml(config_path)
     else:
         return create_default_config()
+
+
+def load_config_from_env() -> VerbatimRAGConfig:
+    """Deprecated: prefer building config explicitly and reading env in app code."""
+    return create_default_config()

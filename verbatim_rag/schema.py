@@ -69,7 +69,13 @@ class DocumentSchema(BaseModel):
         return data
 
     @classmethod
-    def from_url(cls, url: str, title: Optional[str] = None, processor: Optional["DocumentProcessor"] = None, **kwargs):
+    def from_url(
+        cls,
+        url: str,
+        title: Optional[str] = None,
+        processor: Optional["DocumentProcessor"] = None,
+        **kwargs,
+    ):
         """Create instance with content extracted from URL.
 
         Args:
@@ -84,6 +90,7 @@ class DocumentSchema(BaseModel):
 
         if processor is None:
             from verbatim_rag.ingestion.document_processor import DocumentProcessor
+
             processor = DocumentProcessor()
         content = processor.extract_content_from_url(url)
 
@@ -94,7 +101,13 @@ class DocumentSchema(BaseModel):
         return cls(content=content, source=url, title=title, **kwargs)
 
     @classmethod
-    def from_file(cls, file_path: str, title: Optional[str] = None, processor: Optional["DocumentProcessor"] = None, **kwargs):
+    def from_file(
+        cls,
+        file_path: str,
+        title: Optional[str] = None,
+        processor: Optional["DocumentProcessor"] = None,
+        **kwargs,
+    ):
         """Create instance with content extracted from file.
 
         Args:
@@ -108,6 +121,7 @@ class DocumentSchema(BaseModel):
         """
         if processor is None:
             from verbatim_rag.ingestion.document_processor import DocumentProcessor
+
             processor = DocumentProcessor()
         content = processor.extract_content_from_file(file_path)
 

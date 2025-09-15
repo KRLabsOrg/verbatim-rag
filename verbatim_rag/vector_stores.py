@@ -626,127 +626,357 @@ class CloudMilvusStore(VectorStore):
         collection_name: str = "verbatim_rag",
         dense_dim: int = 384,
         sparse_dim: int = 30000,
-        host: str = "localhost",
-        port: str = "19530",
-        username: str = "",
-        password: str = "",
+        uri: Optional[str] = None,
+        token: Optional[str] = None,
+        enable_dense: bool = True,
+        enable_sparse: bool = True,
     ):
         self.collection_name = collection_name
+        self.documents_collection_name = f"{collection_name}_documents"
         self.dense_dim = dense_dim
         self.sparse_dim = sparse_dim
-        self.host = host
-        self.port = port
-        self.username = username
-        self.password = password
+        self.uri = uri
+        self.token = token
+        self.enable_dense = enable_dense
+        self.enable_sparse = enable_sparse
+
+        # Validate at least one embedding type is enabled
+        if not enable_dense and not enable_sparse:
+            raise ValueError(
+                "At least one of enable_dense or enable_sparse must be True"
+            )
+
         self._setup_milvus()
 
     def _setup_milvus(self):
         try:
-            from pymilvus import (
-                connections,
-                Collection,
-                CollectionSchema,
-                FieldSchema,
-                DataType,
-            )
+            from pymilvus import MilvusClient, DataType
 
-            # Connect to cloud Milvus
-            connections.connect(
-                "default",
-                host=self.host,
-                port=self.port,
-                user=self.username,
-                password=self.password,
-            )
+            if not self.uri:
+                raise ValueError(
+                    "CloudMilvusStore requires 'uri' for cloud connections"
+                )
 
-            # Create collection if it doesn't exist
-            if not self._collection_exists():
-                self._create_collection()
+            # Connect via MilvusClient (Cloud)
+            if self.token:
+                self.client = MilvusClient(uri=self.uri, token=self.token)
+            else:
+                self.client = MilvusClient(uri=self.uri)
 
-            self.collection = Collection(self.collection_name)
-            logger.info(f"Connected to cloud Milvus collection: {self.collection_name}")
+            # Create main chunks collection if missing
+            if not self.client.has_collection(collection_name=self.collection_name):
+                schema = self.client.create_schema(
+                    auto_id=False, enable_dynamic_fields=True
+                )
+                schema.add_field(
+                    field_name="id",
+                    datatype=DataType.VARCHAR,
+                    is_primary=True,
+                    max_length=100,
+                )
+                if self.enable_dense:
+                    schema.add_field(
+                        field_name="dense_vector",
+                        datatype=DataType.FLOAT_VECTOR,
+                        dim=self.dense_dim,
+                    )
+                if self.enable_sparse:
+                    schema.add_field(
+                        field_name="sparse_vector",
+                        datatype=DataType.SPARSE_FLOAT_VECTOR,
+                    )
+                schema.add_field(
+                    field_name="text",
+                    datatype=DataType.VARCHAR,
+                    max_length=65535,
+                    enable_analyzer=True,
+                )
+                schema.add_field(
+                    field_name="enhanced_text",
+                    datatype=DataType.VARCHAR,
+                    max_length=65535,
+                    enable_analyzer=True,
+                )
+                schema.add_field(field_name="metadata", datatype=DataType.JSON)
+
+                self.client.create_collection(
+                    collection_name=self.collection_name, schema=schema
+                )
+
+                index_params = self.client.prepare_index_params()
+                if self.enable_dense:
+                    index_params.add_index(
+                        field_name="dense_vector",
+                        index_type="IVF_FLAT",
+                        metric_type="COSINE",
+                        params={"nlist": 1024},
+                    )
+                if self.enable_sparse:
+                    index_params.add_index(
+                        field_name="sparse_vector",
+                        index_type="SPARSE_INVERTED_INDEX",
+                        metric_type="IP",
+                        params={"inverted_index_algo": "DAAT_MAXSCORE"},
+                    )
+                self.client.create_index(
+                    collection_name=self.collection_name, index_params=index_params
+                )
+                logger.info(f"Created cloud Milvus collection: {self.collection_name}")
+
+            # Create documents collection (include dummy vector to satisfy cloud constraint)
+            if not self.client.has_collection(
+                collection_name=self.documents_collection_name
+            ):
+                doc_schema = self.client.create_schema(
+                    auto_id=False, enable_dynamic_fields=True
+                )
+                doc_schema.add_field(
+                    field_name="id",
+                    datatype=DataType.VARCHAR,
+                    is_primary=True,
+                    max_length=100,
+                )
+                doc_schema.add_field(
+                    field_name="title", datatype=DataType.VARCHAR, max_length=512
+                )
+                doc_schema.add_field(
+                    field_name="source", datatype=DataType.VARCHAR, max_length=512
+                )
+                doc_schema.add_field(
+                    field_name="content_type", datatype=DataType.VARCHAR, max_length=50
+                )
+                doc_schema.add_field(
+                    field_name="raw_content",
+                    datatype=DataType.VARCHAR,
+                    max_length=65535,
+                )
+                doc_schema.add_field(field_name="metadata", datatype=DataType.JSON)
+                # Add required dummy vector (dim=2)
+                doc_schema.add_field(
+                    field_name="dummy_vector", datatype=DataType.FLOAT_VECTOR, dim=2
+                )
+
+                self.client.create_collection(
+                    collection_name=self.documents_collection_name, schema=doc_schema
+                )
+                logger.info(
+                    f"Created cloud Milvus documents collection: {self.documents_collection_name}"
+                )
+
+            logger.info("Connected to Milvus Cloud via MilvusClient")
 
         except ImportError:
             raise ImportError("pip install pymilvus")
 
     def _collection_exists(self) -> bool:
-        from pymilvus import utility
-
-        return utility.has_collection(self.collection_name)
+        return self.client.has_collection(self.collection_name)
 
     def _create_collection(self):
-        from pymilvus import Collection, CollectionSchema, FieldSchema, DataType
+        from pymilvus import DataType
 
-        fields = [
-            FieldSchema(
-                name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=100
-            ),
-            FieldSchema(
-                name="dense_vector", dtype=DataType.FLOAT_VECTOR, dim=self.dense_dim
-            ),
-            FieldSchema(name="sparse_vector", dtype=DataType.SPARSE_FLOAT_VECTOR),
-            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),
-            FieldSchema(name="title", dtype=DataType.VARCHAR, max_length=512),
-            FieldSchema(name="source", dtype=DataType.VARCHAR, max_length=512),
-            FieldSchema(name="chunk_type", dtype=DataType.VARCHAR, max_length=50),
-            FieldSchema(name="page_number", dtype=DataType.INT64),
-            FieldSchema(name="metadata", dtype=DataType.JSON),
-        ]
+        schema = self.client.create_schema(auto_id=False, enable_dynamic_fields=True)
+        schema.add_field(
+            field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=100
+        )
+        if self.enable_dense:
+            schema.add_field(
+                field_name="dense_vector",
+                datatype=DataType.FLOAT_VECTOR,
+                dim=self.dense_dim,
+            )
+        if self.enable_sparse:
+            schema.add_field(
+                field_name="sparse_vector", datatype=DataType.SPARSE_FLOAT_VECTOR
+            )
+        schema.add_field(
+            field_name="text",
+            datatype=DataType.VARCHAR,
+            max_length=65535,
+            enable_analyzer=True,
+        )
+        schema.add_field(
+            field_name="enhanced_text",
+            datatype=DataType.VARCHAR,
+            max_length=65535,
+            enable_analyzer=True,
+        )
+        schema.add_field(field_name="metadata", datatype=DataType.JSON)
 
-        schema = CollectionSchema(fields)
-        collection = Collection(self.collection_name, schema)
+        self.client.create_collection(
+            collection_name=self.collection_name, schema=schema
+        )
 
-        # Create indexes
-        # Dense vector index
-        dense_index_params = {
-            "metric_type": "COSINE",
-            "index_type": "IVF_FLAT",
-            "params": {"nlist": 1024},
-        }
-        collection.create_index("dense_vector", dense_index_params)
-
-        # Sparse vector index
-        sparse_index_params = {
-            "index_type": "SPARSE_INVERTED_INDEX",
-            "metric_type": "IP",
-        }
-        collection.create_index("sparse_vector", sparse_index_params)
-
+        index_params = self.client.prepare_index_params()
+        if self.enable_dense:
+            index_params.add_index(
+                field_name="dense_vector",
+                index_type="IVF_FLAT",
+                metric_type="COSINE",
+                params={"nlist": 1024},
+            )
+        if self.enable_sparse:
+            index_params.add_index(
+                field_name="sparse_vector",
+                index_type="SPARSE_INVERTED_INDEX",
+                metric_type="IP",
+                params={"inverted_index_algo": "DAAT_MAXSCORE"},
+            )
+        self.client.create_index(
+            collection_name=self.collection_name, index_params=index_params
+        )
         logger.info(
-            f"Created cloud Milvus collection with hybrid search: {self.collection_name}"
+            f"Created cloud Milvus collection with dynamic fields: {self.collection_name}"
+        )
+
+    def _create_documents_collection(self):
+        from pymilvus import DataType
+
+        doc_schema = self.client.create_schema(
+            auto_id=False, enable_dynamic_fields=True
+        )
+        doc_schema.add_field(
+            field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=100
+        )
+        doc_schema.add_field(
+            field_name="title", datatype=DataType.VARCHAR, max_length=512
+        )
+        doc_schema.add_field(
+            field_name="source", datatype=DataType.VARCHAR, max_length=512
+        )
+        doc_schema.add_field(
+            field_name="content_type", datatype=DataType.VARCHAR, max_length=50
+        )
+        doc_schema.add_field(
+            field_name="raw_content", datatype=DataType.VARCHAR, max_length=65535
+        )
+        doc_schema.add_field(field_name="metadata", datatype=DataType.JSON)
+        # Add required dummy vector (dim=2)
+        doc_schema.add_field(
+            field_name="dummy_vector", datatype=DataType.FLOAT_VECTOR, dim=2
+        )
+
+        self.client.create_collection(
+            collection_name=self.documents_collection_name, schema=doc_schema
+        )
+        logger.info(
+            f"Created cloud Milvus documents collection: {self.documents_collection_name}"
         )
 
     def add_vectors(
         self,
         ids: List[str],
-        dense_vectors: List[List[float]],
-        sparse_vectors: List[Dict[int, float]],
+        dense_vectors: Optional[List[List[float]]],
+        sparse_vectors: Optional[List[Dict[int, float]]],
         texts: List[str],
         enhanced_texts: List[str],
         metadatas: List[Dict[str, Any]],
     ):
-        """Add vectors with metadata and text."""
+        """Add vectors with metadata and text using MilvusClient."""
 
-        # Extract metadata fields
-        titles = [meta.get("title", "") for meta in metadatas]
-        sources = [meta.get("source", "") for meta in metadatas]
-        chunk_types = [meta.get("chunk_type", "") for meta in metadatas]
-        page_numbers = [meta.get("page_number", 0) for meta in metadatas]
+        def promote_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+            # Copy to avoid mutating original
+            md = dict(metadata or {})
 
-        data = [
-            ids,
-            dense_vectors,
-            sparse_vectors,
-            texts,
-            titles,
-            sources,
-            chunk_types,
-            page_numbers,
-            metadatas,
-        ]
+            # Keys to promote to top-level dynamic fields if present
+            # Simplicity: only promote keys we need to filter on
+            promotable_keys = {"user_id", "document_id", "dataset_id"}
 
-        self.collection.insert(data)
-        self.collection.flush()
+            promoted: Dict[str, Any] = {}
+            for key in list(md.keys()):
+                if key in promotable_keys:
+                    promoted[key] = md.pop(key)
+
+            return promoted, md
+
+        from datetime import datetime
+        from enum import Enum
+
+        def json_serialize_safe(obj: Any) -> Any:
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            if isinstance(obj, Enum):
+                return getattr(obj, "value", str(obj))
+            if isinstance(obj, dict):
+                return {str(k): json_serialize_safe(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [json_serialize_safe(item) for item in obj]
+            return obj
+
+        data: List[Dict[str, Any]] = []
+        for i in range(len(ids)):
+            promoted, cleaned_metadata = promote_metadata(metadatas[i])
+            safe_metadata = json_serialize_safe(cleaned_metadata)
+
+            item: Dict[str, Any] = {
+                "id": ids[i],
+                "text": texts[i],
+                "enhanced_text": enhanced_texts[i],
+                "metadata": safe_metadata,
+                **promoted,
+            }
+
+            if self.enable_dense and dense_vectors:
+                item["dense_vector"] = dense_vectors[i]
+            if self.enable_sparse and sparse_vectors:
+                item["sparse_vector"] = sparse_vectors[i]
+
+            data.append(item)
+
+        self.client.insert(collection_name=self.collection_name, data=data)
+        logger.info(f"Added {len(data)} vectors to Milvus (cloud)")
+
+    def add_documents(self, documents: List[Dict[str, Any]]):
+        """Add document metadata to documents collection."""
+        if not documents:
+            return
+
+        from datetime import datetime
+        from enum import Enum
+
+        def json_serialize_safe(obj: Any) -> Any:
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            if isinstance(obj, Enum):
+                return getattr(obj, "value", str(obj))
+            if isinstance(obj, dict):
+                return {str(k): json_serialize_safe(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [json_serialize_safe(item) for item in obj]
+            return obj
+
+        rows: List[Dict[str, Any]] = []
+        for doc in documents:
+            metadata = doc.get("metadata", {})
+            safe_metadata = (
+                json_serialize_safe(metadata)
+                if isinstance(metadata, dict)
+                else metadata
+            )
+            # Promote common filter fields to dynamic fields
+            promoted: Dict[str, Any] = {}
+            if isinstance(metadata, dict):
+                for key in ["user_id", "dataset_id", "document_id"]:
+                    if key in metadata:
+                        promoted[key] = metadata.get(key)
+            row = {
+                "id": doc.get("id", ""),
+                "title": doc.get("title") or "",
+                "source": doc.get("source") or "",
+                "content_type": doc.get("doc_type") or doc.get("content_type") or "",
+                "raw_content": doc.get("raw_content", ""),
+                "metadata": safe_metadata,
+                "dummy_vector": [0.0, 0.0],
+                **promoted,
+            }
+            rows.append(row)
+
+        self.client.insert(collection_name=self.documents_collection_name, data=rows)
+        logger.info(f"Added {len(rows)} documents to Milvus (cloud)")
+
+    def add_document_schema(self, document_dict: Dict[str, Any], doc_id: str = None):
+        if doc_id:
+            document_dict["id"] = doc_id
+        self.add_documents([document_dict])
 
     def query(
         self,
@@ -757,71 +987,101 @@ class CloudMilvusStore(VectorStore):
         search_type: str = "hybrid",
         filter: Optional[str] = None,
     ) -> List[SearchResult]:
-        """Query using hybrid dense + sparse vectors."""
+        """Query using hybrid dense + sparse vectors or filter-only browsing."""
 
-        self.collection.load()
+        # Request fields; include promoted dynamic fields
+        dynamic_fields = ["user_id", "document_id", "dataset_id"]
+        output_fields = ["text", "enhanced_text", "metadata", *dynamic_fields]
 
-        output_fields = [
-            "text",
-            "title",
-            "source",
-            "chunk_type",
-            "page_number",
-            "metadata",
-        ]
+        if not dense_query and not sparse_query:
+            try:
+                results = self.client.query(
+                    collection_name=self.collection_name,
+                    filter=filter or "",
+                    output_fields=["id", *output_fields],
+                    limit=top_k,
+                )
+                search_results: List[SearchResult] = []
+                for r in results:
+                    md = r.get("metadata", {}) or {}
+                    if isinstance(md, str):
+                        try:
+                            md = json.loads(md)
+                        except Exception:
+                            md = {"raw": md}
+                    for f in dynamic_fields:
+                        if f in r and r[f] is not None:
+                            md[f] = r[f]
+                    search_results.append(
+                        SearchResult(
+                            id=r.get("id", ""),
+                            score=1.0,
+                            text=r.get("text", ""),
+                            enhanced_text=r.get("enhanced_text", ""),
+                            metadata=md,
+                        )
+                    )
+                return search_results
+            except Exception as e:
+                logger.error(f"Filter-only query failed: {e}")
+                return []
 
         if search_type == "dense" and dense_query:
             # Dense vector search only
-            search_params = {"metric_type": "COSINE", "params": {"nprobe": 10}}
-            results = self.collection.search(
+            results = self.client.search(
+                collection_name=self.collection_name,
                 data=[dense_query],
                 anns_field="dense_vector",
-                param=search_params,
                 limit=top_k,
                 output_fields=output_fields,
+                filter=filter,
             )
 
         elif search_type == "sparse" and sparse_query:
             # Sparse vector search only
-            search_params = {"metric_type": "IP"}
-            results = self.collection.search(
+            results = self.client.search(
+                collection_name=self.collection_name,
                 data=[sparse_query],
                 anns_field="sparse_vector",
-                param=search_params,
                 limit=top_k,
                 output_fields=output_fields,
+                filter=filter,
             )
 
         elif search_type == "hybrid" and dense_query and sparse_query:
             # Hybrid search - combine dense and sparse
-            from pymilvus import AnnSearchRequest, WeightedRanker
-
-            # Dense search request
-            dense_search_param = {"metric_type": "COSINE", "params": {"nprobe": 10}}
-            dense_req = AnnSearchRequest(
-                data=[dense_query],
-                anns_field="dense_vector",
-                param=dense_search_param,
-                limit=top_k,
-            )
-
-            # Sparse search request
-            sparse_search_param = {"metric_type": "IP"}
-            sparse_req = AnnSearchRequest(
-                data=[sparse_query],
-                anns_field="sparse_vector",
-                param=sparse_search_param,
-                limit=top_k,
-            )
-
-            # Hybrid search with weighted ranking
-            ranker = WeightedRanker(0.7, 0.3)  # 70% dense, 30% sparse
-            results = self.collection.hybrid_search(
-                reqs=[dense_req, sparse_req],
-                ranker=ranker,
-                limit=top_k,
-                output_fields=output_fields,
-            )
+            # Fallback hybrid: combine results from two searches
+            try:
+                dense_results = self.client.search(
+                    collection_name=self.collection_name,
+                    data=[dense_query],
+                    anns_field="dense_vector",
+                    limit=top_k * 2,
+                    output_fields=output_fields,
+                    filter=filter,
+                )
+                sparse_results = self.client.search(
+                    collection_name=self.collection_name,
+                    data=[sparse_query],
+                    anns_field="sparse_vector",
+                    limit=top_k * 2,
+                    output_fields=output_fields,
+                    filter=filter,
+                )
+                merged = self._merge_hybrid_results(
+                    dense_results[0], sparse_results[0], top_k, alpha=0.5
+                )
+                results = [merged]
+            except Exception as e:
+                logger.warning(f"Hybrid search failed: {e}, falling back to dense-only")
+                results = self.client.search(
+                    collection_name=self.collection_name,
+                    data=[dense_query],
+                    anns_field="dense_vector",
+                    limit=top_k,
+                    output_fields=output_fields,
+                    filter=filter,
+                )
 
         else:
             raise ValueError(f"Invalid search configuration: type={search_type}")
@@ -829,23 +1089,47 @@ class CloudMilvusStore(VectorStore):
         # Convert results
         search_results = []
         for hit in results[0]:
+            entity = hit.get("entity", {})
+            md = entity.get("metadata", {}) or {}
+            if isinstance(md, str):
+                try:
+                    md = json.loads(md)
+                except Exception:
+                    md = {"raw": md}
+            for f in dynamic_fields:
+                val = entity.get(f)
+                if val is not None:
+                    md[f] = val
             search_results.append(
                 SearchResult(
-                    id=hit.id,
-                    score=hit.score,
-                    text=hit.entity.get("text", ""),
-                    metadata={
-                        "title": hit.entity.get("title", ""),
-                        "source": hit.entity.get("source", ""),
-                        "chunk_type": hit.entity.get("chunk_type", ""),
-                        "page_number": hit.entity.get("page_number", 0),
-                        **hit.entity.get("metadata", {}),
-                    },
+                    id=hit.get("id"),
+                    score=hit.get("distance", 0.0),
+                    text=entity.get("text", ""),
+                    enhanced_text=entity.get("enhanced_text", ""),
+                    metadata=md,
                 )
             )
 
         return search_results
 
     def delete(self, ids: List[str]):
-        self.collection.delete(f"id in {ids}")
-        self.collection.flush()
+        if not ids:
+            return
+        quoted = ",".join([f'"{_id}"' for _id in ids])
+        self.client.delete(
+            collection_name=self.collection_name, filter=f"id in [{quoted}]"
+        )
+
+    def delete_document(self, document_id: str):
+        """Delete document row and all chunks for a document by document_id."""
+        self.client.delete(
+            collection_name=self.collection_name,
+            filter=f'document_id == "{document_id}"',
+        )
+        try:
+            self.client.delete(
+                collection_name=self.documents_collection_name,
+                filter=f'id == "{document_id}"',
+            )
+        except Exception as e:
+            logger.warning(f"Failed to delete document row for {document_id}: {e}")

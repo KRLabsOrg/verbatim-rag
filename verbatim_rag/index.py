@@ -63,9 +63,10 @@ class VerbatimIndex:
             self.config.vector_db.collection_name = collection_name
 
             if dense_model:
+                self.config.dense_embedding.enabled = True
                 self.config.dense_embedding.model_name = dense_model
-            # Track if dense is enabled for provider creation
-            self._dense_enabled = dense_model is not None
+            else:
+                self.config.dense_embedding.enabled = False
 
             if sparse_model:
                 self.config.sparse_embedding.enabled = True
@@ -488,7 +489,11 @@ class VerbatimIndex:
         :param limit: Maximum number of chunks to return
         :return: List of SearchResult objects
         """
-        filter_expr = f'metadata["document_id"] == "{document_id}"'
+        # Build backend-appropriate filter: Local uses JSON-path, Cloud uses promoted dynamic field
+        if self.config.vector_db.type == VectorDBType.MILVUS_CLOUD:
+            filter_expr = f'document_id == "{document_id}"'
+        else:
+            filter_expr = f'metadata["document_id"] == "{document_id}"'
         return self.query(filter=filter_expr, k=limit)
 
     def inspect(self) -> Dict[str, Any]:
@@ -539,7 +544,7 @@ class VerbatimIndex:
     ) -> Optional[DenseEmbeddingProvider]:
         """Create dense embedding provider from config."""
         # Check if dense is disabled
-        if hasattr(self, "_dense_enabled") and not self._dense_enabled:
+        if not config.dense_embedding.enabled:
             return None
 
         if config.dense_embedding.model == DenseEmbeddingModel.SENTENCE_TRANSFORMERS:
@@ -599,14 +604,10 @@ class VerbatimIndex:
             return CloudMilvusStore(
                 collection_name=config.vector_db.collection_name,
                 dense_dim=dense_dim,
-                host=config.vector_db.host,
-                port=str(config.vector_db.port or 19530),
-                username=config.vector_db.api_key.split(":")[0]
-                if config.vector_db.api_key
-                else "",
-                password=config.vector_db.api_key.split(":")[1]
-                if config.vector_db.api_key
-                else "",
+                uri=config.vector_db.uri,
+                token=(config.vector_db.api_key if config.vector_db.api_key else None),
+                enable_dense=self.dense_provider is not None,
+                enable_sparse=self.sparse_provider is not None,
             )
         else:
             raise ValueError(f"Unsupported vector store type: {config.vector_db.type}")

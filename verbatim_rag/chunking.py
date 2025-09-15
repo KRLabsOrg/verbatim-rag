@@ -278,7 +278,7 @@ class ChunkingService:
             # Add document metadata
             if document.metadata:
                 for key, value in document.metadata.items():
-                    # Skip internal chunking metadata
+                    # Skip internal chunking metadata and sensitive identifiers
                     skip_keys = {
                         "chunker_type",
                         "chunker_recipe",
@@ -287,6 +287,10 @@ class ChunkingService:
                         "chunk_overlap",
                         "preserve_headings",
                         "include_metadata",
+                        # Sensitive identifiers that should never be embedded
+                        "user_id",
+                        "userId",
+                        "dataset_id",
                     }
                     if key not in skip_keys:
                         formatted_key = key.replace("_", " ").title()
