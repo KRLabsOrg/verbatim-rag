@@ -3,7 +3,7 @@ Streaming interface for the Verbatim RAG system
 Provides structured streaming of RAG processing stages
 """
 
-from typing import AsyncGenerator, Dict, Any, List
+from typing import AsyncGenerator, Dict, Any, List, Optional
 import asyncio
 import time
 from .models import (
@@ -21,7 +21,7 @@ class StreamingRAG:
         self.rag = rag
 
     async def stream_query(
-        self, question: str, num_docs: int = None
+        self, question: str, num_docs: int = None, filter: Optional[str] = None
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Stream a query response in stages:
@@ -32,6 +32,7 @@ class StreamingRAG:
         Args:
             question: The user's question
             num_docs: Optional number of documents to retrieve
+            filter: Optional vector-store filter expression (passed to VerbatimIndex)
 
         Yields:
             Dictionary with type and data for each stage
@@ -43,7 +44,7 @@ class StreamingRAG:
                 self.rag.k = num_docs
 
             # Step 1: Retrieve documents and send them without highlights
-            docs = self.rag.index.query(text=question, k=self.rag.k)
+            docs = self.rag.index.query(text=question, k=self.rag.k, filter=filter)
 
             documents_without_highlights = [
                 DocumentWithHighlights(
@@ -149,7 +150,7 @@ class StreamingRAG:
             yield {"type": "error", "error": str(e), "done": True}
 
     def stream_query_sync(
-        self, question: str, num_docs: int = None
+        self, question: str, num_docs: int = None, filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Synchronous version that returns all streaming stages as a list
@@ -159,7 +160,7 @@ class StreamingRAG:
 
         async def collect_stream():
             stages = []
-            async for stage in self.stream_query(question, num_docs):
+            async for stage in self.stream_query(question, num_docs, filter):
                 stages.append(stage)
             return stages
 

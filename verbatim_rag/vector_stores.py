@@ -94,7 +94,7 @@ class LocalMilvusStore(VectorStore):
             if not self.client.has_collection(collection_name=self.collection_name):
                 schema = self.client.create_schema(
                     auto_id=False,
-                    enable_dynamic_fields=True,
+                    enable_dynamic_field=True,
                 )
 
                 # Add fields
@@ -170,7 +170,7 @@ class LocalMilvusStore(VectorStore):
             ):
                 doc_schema = self.client.create_schema(
                     auto_id=False,
-                    enable_dynamic_fields=True,
+                    enable_dynamic_field=True,
                 )
 
                 # Add fields for documents (no chunks, just document metadata)
@@ -666,7 +666,7 @@ class CloudMilvusStore(VectorStore):
             # Create main chunks collection if missing
             if not self.client.has_collection(collection_name=self.collection_name):
                 schema = self.client.create_schema(
-                    auto_id=False, enable_dynamic_fields=True
+                    auto_id=False, enable_dynamic_field=True
                 )
                 schema.add_field(
                     field_name="id",
@@ -728,7 +728,7 @@ class CloudMilvusStore(VectorStore):
                 collection_name=self.documents_collection_name
             ):
                 doc_schema = self.client.create_schema(
-                    auto_id=False, enable_dynamic_fields=True
+                    auto_id=False, enable_dynamic_field=True
                 )
                 doc_schema.add_field(
                     field_name="id",
@@ -737,10 +737,10 @@ class CloudMilvusStore(VectorStore):
                     max_length=100,
                 )
                 doc_schema.add_field(
-                    field_name="title", datatype=DataType.VARCHAR, max_length=512
+                    field_name="title", datatype=DataType.VARCHAR, max_length=4096
                 )
                 doc_schema.add_field(
-                    field_name="source", datatype=DataType.VARCHAR, max_length=512
+                    field_name="source", datatype=DataType.VARCHAR, max_length=4096
                 )
                 doc_schema.add_field(
                     field_name="content_type", datatype=DataType.VARCHAR, max_length=50
@@ -759,6 +759,18 @@ class CloudMilvusStore(VectorStore):
                 self.client.create_collection(
                     collection_name=self.documents_collection_name, schema=doc_schema
                 )
+                # Create flat index on dummy_vector so collection can be loaded
+                doc_index_params = self.client.prepare_index_params()
+                doc_index_params.add_index(
+                    field_name="dummy_vector",
+                    index_type="FLAT",
+                    metric_type="L2",
+                    params={},
+                )
+                self.client.create_index(
+                    collection_name=self.documents_collection_name,
+                    index_params=doc_index_params,
+                )
                 logger.info(
                     f"Created cloud Milvus documents collection: {self.documents_collection_name}"
                 )
@@ -774,7 +786,7 @@ class CloudMilvusStore(VectorStore):
     def _create_collection(self):
         from pymilvus import DataType
 
-        schema = self.client.create_schema(auto_id=False, enable_dynamic_fields=True)
+        schema = self.client.create_schema(auto_id=False, enable_dynamic_field=True)
         schema.add_field(
             field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=100
         )
@@ -831,17 +843,15 @@ class CloudMilvusStore(VectorStore):
     def _create_documents_collection(self):
         from pymilvus import DataType
 
-        doc_schema = self.client.create_schema(
-            auto_id=False, enable_dynamic_fields=True
-        )
+        doc_schema = self.client.create_schema(auto_id=False, enable_dynamic_field=True)
         doc_schema.add_field(
             field_name="id", datatype=DataType.VARCHAR, is_primary=True, max_length=100
         )
         doc_schema.add_field(
-            field_name="title", datatype=DataType.VARCHAR, max_length=512
+            field_name="title", datatype=DataType.VARCHAR, max_length=4096
         )
         doc_schema.add_field(
-            field_name="source", datatype=DataType.VARCHAR, max_length=512
+            field_name="source", datatype=DataType.VARCHAR, max_length=4096
         )
         doc_schema.add_field(
             field_name="content_type", datatype=DataType.VARCHAR, max_length=50
