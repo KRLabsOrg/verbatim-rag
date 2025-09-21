@@ -9,17 +9,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, List, Dict
-import torch
-from transformers import AutoTokenizer
 
 from .llm_client import LLMClient
-from .extractor_models.model import QAModel
-from .extractor_models.dataset import (
-    QADataset,
-    Sentence as DatasetSentence,
-    Document as DatasetDocument,
-    QASample,
-)
 
 
 class SpanExtractor(ABC):
@@ -67,9 +58,27 @@ class ModelSpanExtractor(SpanExtractor):
         :param extraction_mode: Not used for model extractor
         :param max_display_spans: Not used for model extractor
         """
+        # Lazy-import heavy deps so importing this module doesn't require them
+        import torch  # noqa: WPS433 (allow local import)
+        from transformers import AutoTokenizer  # noqa: WPS433
+        from .extractor_models.model import QAModel  # noqa: WPS433
+        from .extractor_models.dataset import (  # noqa: WPS433
+            QADataset,
+            Sentence as DatasetSentence,
+            Document as DatasetDocument,
+            QASample,
+        )
+
         self.model_path = model_path
         self.threshold = threshold
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self._torch = torch
+        self.device = device or ("cuda" if self._torch.cuda.is_available() else "cpu")
+
+        # Cache dataset classes for reuse without re-import
+        self.QADataset = QADataset
+        self.DatasetSentence = DatasetSentence
+        self.DatasetDocument = DatasetDocument
+        self.QASample = QASample
 
         print(f"Loading model from {model_path}...")
 
@@ -123,12 +132,12 @@ class ModelSpanExtractor(SpanExtractor):
 
             # Create dataset objects for model processing
             dataset_sentences = [
-                DatasetSentence(text=sent, relevant=False, sentence_id=f"s{i}")
+                self.DatasetSentence(text=sent, relevant=False, sentence_id=f"s{i}")
                 for i, sent in enumerate(raw_sentences)
             ]
-            dataset_doc = DatasetDocument(sentences=dataset_sentences)
+            dataset_doc = self.DatasetDocument(sentences=dataset_sentences)
 
-            qa_sample = QASample(
+            qa_sample = self.QASample(
                 question=question,
                 documents=[dataset_doc],
                 split="test",
@@ -136,7 +145,7 @@ class ModelSpanExtractor(SpanExtractor):
                 task_type="qa",
             )
 
-            dataset = QADataset([qa_sample], self.tokenizer, max_length=512)
+            dataset = self.QADataset([qa_sample], self.tokenizer, max_length=512)
             if len(dataset) == 0:
                 relevant_spans[raw_text] = []
                 continue
@@ -146,7 +155,7 @@ class ModelSpanExtractor(SpanExtractor):
             input_ids = encoding["input_ids"].unsqueeze(0).to(self.device)
             attention_mask = encoding["attention_mask"].unsqueeze(0).to(self.device)
 
-            with torch.no_grad():
+            with self._torch.no_grad():
                 predictions = self.model(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
@@ -156,7 +165,9 @@ class ModelSpanExtractor(SpanExtractor):
             # Extract spans based on predictions
             spans = []
             if len(predictions) > 0 and len(predictions[0]) > 0:
-                sentence_preds = torch.nn.functional.softmax(predictions[0], dim=1)
+                sentence_preds = self._torch.nn.functional.softmax(
+                    predictions[0], dim=1
+                )
                 for i, pred in enumerate(sentence_preds):
                     if i < len(raw_sentences) and pred[1] > self.threshold:
                         spans.append(raw_sentences[i])
