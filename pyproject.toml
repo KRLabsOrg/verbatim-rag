@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "verbatim-rag"
-version = "0.1.3"
+version = "0.1.4"
 description = "A minimalistic RAG system that prevents hallucination by ensuring all generated content is explicitly derived from source documents"
 readme = "README.md"
 requires-python = ">=3.10"
