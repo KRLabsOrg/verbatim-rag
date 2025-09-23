@@ -315,9 +315,7 @@ class LocalMilvusStore(VectorStore):
                 "content_type": doc.get("doc_type")
                 or doc.get("content_type")
                 or "",  # Handle None values
-                "raw_content": doc.get(
-                    "raw_content", ""
-                ),  # This should be empty for schema-based docs
+                "raw_content": "",
                 "metadata": safe_metadata,  # Store as dict, not JSON string
             }
             doc_data.append(item)
