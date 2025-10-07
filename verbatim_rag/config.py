@@ -1,8 +1,3 @@
-"""
-Simplified configuration system for VerbatimRAG.
-Only includes configurations that are actually used in the codebase.
-"""
-
 import os
 from enum import Enum
 from pathlib import Path
@@ -96,11 +91,13 @@ def create_default_config() -> VerbatimRAGConfig:
     return VerbatimRAGConfig(
         dense_embedding=DenseEmbeddingConfig(
             enabled=False,
+            device="cpu",
         ),
         sparse_embedding=SparseEmbeddingConfig(
             model=SparseEmbeddingModel.SPLADE,
             model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
             enabled=True,
+            device="cpu",
         ),
         vector_db=VectorDBConfig(
             type=VectorDBType.MILVUS_LOCAL, db_path="./milvus_verbatim.db"
