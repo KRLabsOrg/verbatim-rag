@@ -298,7 +298,7 @@ class VerbatimIndex:
                     "title": doc.title,
                     "source": doc.source,
                     "content_type": doc.content_type.value,
-                    "raw_content": "", # TODO: add raw content
+                    "raw_content": "",  # TODO: add raw content
                     "metadata": doc.metadata,
                 }
 
