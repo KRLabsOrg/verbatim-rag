@@ -6,6 +6,7 @@ from collections import Counter
 
 import concurrent.futures
 
+from docling.datamodel.base_models import ConversionStatus
 from docling.document_converter import DocumentConverter
 from tqdm import tqdm
 
@@ -42,9 +43,15 @@ class AnthologyPreprocessor:
         return result.document.export_to_markdown()
 
     def process_paper(self, input_fn, output_fn, paper_metadata):
-        with open(output_fn, "w") as f:
-            f.write(self.pdf_to_md(input_fn))
-        return True
+        try:
+            md = self.pdf_to_md(input_fn)
+        except Exception as exception:
+            logging.error(f"error parsing {input_fn=}, {exception=}")
+            return False
+        else:
+            with open(output_fn, "w") as f:
+                f.write(md)
+            return True
 
     def _process_all_parallel(self, to_process, max_workers):
         logging.info(
@@ -89,6 +96,8 @@ class AnthologyPreprocessor:
             paper_metadata = self.papers[fn]
             input_fn = os.path.join(self.input_dir, raw_fn)
             output_fn = os.path.join(self.output_dir, f"{fn}.md")
+            if os.path.exists(output_fn):
+                continue
             to_process[fn] = {
                 "input_fn": input_fn,
                 "output_fn": output_fn,
@@ -96,15 +105,30 @@ class AnthologyPreprocessor:
             }
 
         # self._process_all_parallel(to_process, max_workers=max_workers)
-        self._process_all_simple(to_process)
+        # self._process_all_simple(to_process)
+        self._process_all_batch(to_process)
+
+    def _process_all_batch(self, to_process):
+        paths = [data["input_fn"] for fn, data in to_process.items()]
+        conv_results = self.converter.convert_all(paths, raises_on_error=False)
+        for conv_res in conv_results:
+            if conv_res.status == ConversionStatus.SUCCESS:
+                doc_filename = conv_res.input.file.stem
+                output_fn = to_process[doc_filename]["output_fn"]
+                with open(output_fn, "w") as f:
+                    f.write(conv_res.document.export_to_markdown())
+            elif conv_res.status == ConversionStatus.PARTIAL_SUCCESS:
+                logging.warning(
+                    f"Document {conv_res.input.file} was partially converted with the following errors:"
+                )
+                for item in conv_res.errors:
+                    logging.error(f"\t{item.error_message}")
+            else:
+                logging.warning(f"Document {conv_res.input.file} failed to convert.")
 
     def _process_all_simple(self, to_process):
         for fn, data in to_process.items():
-            if os.path.exists(data['output_fn']):
-                continue
-            self.process_paper(
-                data["input_fn"], data["output_fn"], data["metadata"]
-            )
+            self.process_paper(data["input_fn"], data["output_fn"], data["metadata"])
 
 
 def get_args():
@@ -119,14 +143,18 @@ def get_args():
         "--output-dir", required=True, help="Directory for storing markdown papers"
     )
     parser.add_argument(
+        "--doc-batch-size", required=True, type=int, help="Number of documents processed in one batch"
+    )
+    parser.add_argument(
+        "--page-batch-size", required=True, type=int, help="Number of pages processed in one batch"
+    )
+    parser.add_argument(
         "--max-papers",
         type=int,
         help="Maximum number of papers to process (for testing)",
     )
     parser.add_argument(
-        "--max-workers",
-        type=int,
-        help="Maximum number of parallel workers",
+        "--max-workers", type=int, help="Maximum number of parallel workers"
     )
 
     return parser.parse_args()
@@ -135,7 +163,10 @@ def get_args():
 def main():
     args = get_args()
     # Check dependencies
+    from docling.datamodel.settings import settings
 
+    settings.perf.page_batch_size = args.page_batch_size
+    settings.perf.doc_batch_size = args.doc_batch_size
     preprocessor = AnthologyPreprocessor(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
