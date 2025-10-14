@@ -116,9 +116,25 @@ def main():
         print(f"Processed {len(documents)} documents")
 
         print("Creating and populating the index...")
-        index = VerbatimIndex(
-            dense_model="sentence-transformers/all-MiniLM-L6-v2", db_path=args.output
+        from verbatim_rag.vector_stores import LocalMilvusStore
+        from verbatim_rag.embedding_providers import SentenceTransformersProvider
+
+        # Create providers
+        dense_provider = SentenceTransformersProvider(
+            model_name="sentence-transformers/all-MiniLM-L6-v2", device="cpu"
         )
+
+        # Create vector store
+        vector_store = LocalMilvusStore(
+            db_path=args.output,
+            collection_name="verbatim_rag",
+            dense_dim=384,
+            enable_dense=True,
+            enable_sparse=False,
+        )
+
+        # Create index
+        index = VerbatimIndex(vector_store=vector_store, dense_provider=dense_provider)
         index.add_documents(documents)
         print("Indexing complete")
 
@@ -140,8 +156,26 @@ def main():
     elif args.command == "query":
         print(f"Loading index from: {args.index}")
         try:
+            from verbatim_rag.vector_stores import LocalMilvusStore
+            from verbatim_rag.embedding_providers import SentenceTransformersProvider
+
+            # Create providers
+            dense_provider = SentenceTransformersProvider(
+                model_name="sentence-transformers/all-MiniLM-L6-v2", device="cpu"
+            )
+
+            # Create vector store
+            vector_store = LocalMilvusStore(
+                db_path=args.index,
+                collection_name="verbatim_rag",
+                dense_dim=384,
+                enable_dense=True,
+                enable_sparse=False,
+            )
+
+            # Create index
             index = VerbatimIndex(
-                dense_model="sentence-transformers/all-MiniLM-L6-v2", db_path=args.index
+                vector_store=vector_store, dense_provider=dense_provider
             )
         except Exception as e:
             print(f"Error loading index: {e}")

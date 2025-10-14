@@ -3,9 +3,17 @@ Clean template usage examples - showing all three modes.
 """
 
 from verbatim_rag import VerbatimRAG, VerbatimIndex, TemplateManager
+from verbatim_rag.vector_stores import LocalMilvusStore
+from verbatim_rag.embedding_providers import SpladeProvider
 
 # Create RAG system
-index = VerbatimIndex()
+sparse_provider = SpladeProvider(model_name="naver/splade-v3", device="cpu")
+vector_store = LocalMilvusStore(
+    db_path="./example_index.db",
+    enable_dense=False,
+    enable_sparse=True,
+)
+index = VerbatimIndex(vector_store=vector_store, sparse_provider=sparse_provider)
 rag = VerbatimRAG(index)
 
 print("=== TEMPLATE MODES ===\n")

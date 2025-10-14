@@ -4,6 +4,8 @@ Quick start example for Verbatim RAG.
 
 from verbatim_rag import VerbatimRAG, VerbatimIndex
 from verbatim_rag.ingestion import DocumentProcessor
+from verbatim_rag.vector_stores import LocalMilvusStore
+from verbatim_rag.embedding_providers import SpladeProvider
 
 
 def main():
@@ -28,9 +30,20 @@ def main():
 
     # Step 2: Create RAG system
     print("\n🔍 Creating RAG system...")
-    index = VerbatimIndex(
-        dense_model=None, sparse_model="naver/splade-v3", db_path="./index.db"
+
+    # Create sparse embedding provider
+    sparse_provider = SpladeProvider(model_name="naver/splade-v3", device="cpu")
+
+    # Create vector store
+    vector_store = LocalMilvusStore(
+        db_path="./index.db",
+        collection_name="verbatim_rag",
+        enable_dense=False,
+        enable_sparse=True,
     )
+
+    # Create index
+    index = VerbatimIndex(vector_store=vector_store, sparse_provider=sparse_provider)
     index.add_documents(documents)
 
     rag = VerbatimRAG(index)

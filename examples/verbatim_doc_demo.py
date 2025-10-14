@@ -13,6 +13,8 @@ import asyncio
 from verbatim_rag import VerbatimRAG, VerbatimIndex, Document
 from verbatim_rag.verbatim_doc import VerbatimDOC, VerbatimRAGAdapter
 from verbatim_rag.document import DocumentType, Chunk, ProcessedChunk, ChunkType
+from verbatim_rag.vector_stores import LocalMilvusStore
+from verbatim_rag.embedding_providers import SentenceTransformersProvider
 
 
 async def demo_verbatim_doc():
@@ -69,10 +71,17 @@ async def demo_verbatim_doc():
     print("\n🔧 Setting up VerbatimDOC system...")
 
     # Create index and RAG
-    index = VerbatimIndex(
-        dense_model="sentence-transformers/all-MiniLM-L6-v2",
-        db_path="./verbatim_doc_demo.db",
+    dense_provider = SentenceTransformersProvider(
+        model_name="sentence-transformers/all-MiniLM-L6-v2", device="cpu"
     )
+    vector_store = LocalMilvusStore(
+        db_path="./verbatim_doc_demo.db",
+        collection_name="verbatim_rag",
+        dense_dim=384,
+        enable_dense=True,
+        enable_sparse=False,
+    )
+    index = VerbatimIndex(vector_store=vector_store, dense_provider=dense_provider)
     index.add_documents([doc])
 
     rag = VerbatimRAG(index)

@@ -19,12 +19,6 @@ from verbatim_rag.vector_stores import (
     CloudMilvusStore,
     SearchResult,
 )
-from verbatim_rag.config import (
-    VerbatimRAGConfig,
-    DenseEmbeddingModel,
-    SparseEmbeddingModel,
-    VectorDBType,
-)
 from verbatim_rag.document import DocumentType
 from verbatim_rag.chunking import ChunkingService
 
@@ -36,56 +30,35 @@ class VerbatimIndex:
 
     def __init__(
         self,
-        db_path: str = "./milvus_verbatim.db",
-        collection_name: str = "verbatim_rag",
-        dense_model: Optional[str] = None,
-        sparse_model: Optional[str] = None,
-        config: Optional[VerbatimRAGConfig] = None,
+        vector_store: VectorStore,
+        dense_provider: Optional[DenseEmbeddingProvider] = None,
+        sparse_provider: Optional[SparseEmbeddingProvider] = None,
     ):
         """
-        Initialize the VerbatimIndex with simple parameters or config.
+        Initialize VerbatimIndex with provider instances.
 
         Args:
-            db_path: Path to Milvus database file
-            collection_name: Name of the collection
-            dense_model: Dense embedding model name (None to disable dense)
-            sparse_model: Sparse embedding model name (None to disable sparse)
-            config: Optional configuration object (overrides other params if provided)
+            vector_store: Vector database instance (LocalMilvusStore, CloudMilvusStore, etc.)
+            dense_provider: Optional dense embedding provider (SentenceTransformers, OpenAI, etc.)
+            sparse_provider: Optional sparse embedding provider (SPLADE, etc.)
+
+        Example:
+            store = LocalMilvusStore(db_path="./index.db")
+            sparse = SpladeProvider("naver/splade-v3")
+            index = VerbatimIndex(vector_store=store, sparse_provider=sparse)
+
+        Raises:
+            ValueError: If both providers are None
         """
-        if config is not None:
-            self.config = config
-        else:
-            # Create simple config from parameters
-            from verbatim_rag.config import create_default_config
+        if dense_provider is None and sparse_provider is None:
+            raise ValueError(
+                "At least one embedding provider (dense or sparse) must be provided"
+            )
 
-            self.config = create_default_config()
-            self.config.vector_db.db_path = db_path
-            self.config.vector_db.collection_name = collection_name
-
-            if dense_model:
-                self.config.dense_embedding.enabled = True
-                self.config.dense_embedding.model_name = dense_model
-            else:
-                self.config.dense_embedding.enabled = False
-
-            if sparse_model:
-                self.config.sparse_embedding.enabled = True
-                self.config.sparse_embedding.model_name = sparse_model
-            else:
-                self.config.sparse_embedding.enabled = False
-
-            # Ensure at least one embedding type is enabled
-            if not dense_model and not sparse_model:
-                raise ValueError(
-                    "At least one of dense_model or sparse_model must be provided"
-                )
-
-        # Initialize chunking service
+        self.vector_store = vector_store
+        self.dense_provider = dense_provider
+        self.sparse_provider = sparse_provider
         self.chunking_service = ChunkingService()
-
-        self.dense_provider = self._create_dense_provider(self.config)
-        self.sparse_provider = self._create_sparse_provider(self.config)
-        self.vector_store = self._create_vector_store(self.config)
 
     # Helper methods for document processing
 
@@ -604,7 +577,7 @@ class VerbatimIndex:
             List of SearchResult objects
         """
         # Build backend-appropriate filter: Local uses JSON-path, Cloud uses promoted dynamic field
-        if self.config.vector_db.type == VectorDBType.MILVUS_CLOUD:
+        if isinstance(self.vector_store, CloudMilvusStore):
             filter_expr = f'document_id == "{document_id}"'
         else:
             filter_expr = f'metadata["document_id"] == "{document_id}"'
@@ -653,81 +626,3 @@ class VerbatimIndex:
                 for chunk in sample_chunks[:5]
             ],
         }
-
-    def _create_dense_provider(
-        self, config: VerbatimRAGConfig
-    ) -> Optional[DenseEmbeddingProvider]:
-        """Create dense embedding provider from config."""
-        # Check if dense is disabled
-        if not config.dense_embedding.enabled:
-            return None
-
-        if config.dense_embedding.model == DenseEmbeddingModel.SENTENCE_TRANSFORMERS:
-            return SentenceTransformersProvider(
-                model_name=config.dense_embedding.model_name or "all-MiniLM-L6-v2",
-                device=config.dense_embedding.device,
-            )
-        elif config.dense_embedding.model == DenseEmbeddingModel.OPENAI:
-            return OpenAIProvider(
-                model_name=config.dense_embedding.model_name or "text-embedding-ada-002"
-            )
-        else:
-            raise ValueError(
-                f"Unsupported dense embedding model: {config.dense_embedding.model}"
-            )
-
-    def _create_sparse_provider(
-        self, config: VerbatimRAGConfig
-    ) -> Optional[SparseEmbeddingProvider]:
-        """Create sparse embedding provider from config."""
-        if not config.sparse_embedding.enabled:
-            return None
-
-        if config.sparse_embedding.model == SparseEmbeddingModel.SPLADE:
-            return SpladeProvider(
-                model_name=config.sparse_embedding.model_name or "naver/splade-v3",
-                device=config.sparse_embedding.device,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported sparse embedding model: {config.sparse_embedding.model}"
-            )
-
-    def _create_vector_store(self, config: VerbatimRAGConfig) -> VectorStore:
-        """Create vector store from config."""
-        if config.vector_db.type == VectorDBType.MILVUS_LOCAL:
-            # Get dense dimension if dense provider exists, otherwise use default
-            dense_dim = (
-                self.dense_provider.get_dimension()
-                if self.dense_provider
-                else config.vector_db.dense_dim
-            )
-            return LocalMilvusStore(
-                db_path=config.vector_db.db_path,
-                collection_name=config.vector_db.collection_name,
-                dense_dim=dense_dim,
-                enable_dense=self.dense_provider is not None,
-                enable_sparse=self.sparse_provider is not None,
-            )
-        elif config.vector_db.type == VectorDBType.MILVUS_CLOUD:
-            # Get dense dimension if dense provider exists, otherwise use default
-            dense_dim = (
-                self.dense_provider.get_dimension()
-                if self.dense_provider
-                else config.vector_db.dense_dim
-            )
-            return CloudMilvusStore(
-                collection_name=config.vector_db.collection_name,
-                dense_dim=dense_dim,
-                uri=config.vector_db.uri,
-                token=(config.vector_db.api_key if config.vector_db.api_key else None),
-                enable_dense=self.dense_provider is not None,
-                enable_sparse=self.sparse_provider is not None,
-            )
-        else:
-            raise ValueError(f"Unsupported vector store type: {config.vector_db.type}")
-
-    @classmethod
-    def from_config(cls, config: VerbatimRAGConfig) -> "VerbatimIndex":
-        """Create VerbatimIndex from configuration."""
-        return cls(config=config)

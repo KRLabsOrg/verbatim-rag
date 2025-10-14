@@ -34,6 +34,8 @@ pip install verbatim-rag
 ```python
 from verbatim_rag import VerbatimIndex, VerbatimRAG
 from verbatim_rag.ingestion import DocumentProcessor
+from verbatim_rag.vector_stores import LocalMilvusStore
+from verbatim_rag.embedding_providers import SpladeProvider
 
 # Process documents with intelligent chunking
 processor = DocumentProcessor()
@@ -45,10 +47,22 @@ document = processor.process_url(
     metadata={"authors": ["Adam Kovacs", "Paul Schmitt", "Gabor Recski"]}
 )
 
-# Define SPLADE index with a sparse model
+# Create embedding provider and vector store
+sparse_provider = SpladeProvider(
+    model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
+    device="cpu"
+)
+vector_store = LocalMilvusStore(
+    db_path="./index.db",
+    collection_name="verbatim_rag",
+    enable_dense=False,
+    enable_sparse=True,
+)
+
+# Create index with providers
 index = VerbatimIndex(
-    sparse_model="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
-    db_path="./index.db"
+    vector_store=vector_store,
+    sparse_provider=sparse_provider
 )
 index.add_documents([document])
 
@@ -127,15 +141,29 @@ You can use it with the defined index as follows:
 from verbatim_rag.core import VerbatimRAG
 from verbatim_rag.index import VerbatimIndex
 from verbatim_rag.extractors import ModelSpanExtractor
+from verbatim_rag.vector_stores import LocalMilvusStore
+from verbatim_rag.embedding_providers import SpladeProvider
 
 # Load your trained extractor
 extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v1")
 
-# Load the index
-# (Assuming you have already created and populated the index)
+# Create embedding provider and vector store
+sparse_provider = SpladeProvider(
+    model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
+    device="cpu"
+)
+vector_store = LocalMilvusStore(
+    db_path="./index.db",
+    collection_name="verbatim_rag",
+    enable_dense=False,
+    enable_sparse=True,
+)
+
+# Create index with providers
+# (Assuming you have already populated the index)
 index = VerbatimIndex(
-    sparse_model="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
-    db_path="./index.db"
+    vector_store=vector_store,
+    sparse_provider=sparse_provider
 )
 
 # Create VerbatimRAG system with custom extractor

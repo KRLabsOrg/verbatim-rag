@@ -28,18 +28,31 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
     if _rag_instance is None:
         try:
             from verbatim_rag.index import VerbatimIndex
+            from verbatim_rag.vector_stores import LocalMilvusStore
+            from verbatim_rag.embedding_providers import SpladeProvider
 
             llm_client = LLMClient(
-                model="gpt-5-mini",
+                model="gpt-4o-mini",
                 temperature=1.0,
             )
 
-            # Create index with modern simplified API
-            # Use config.index_path as the db_path for the Milvus database
-            index = VerbatimIndex(
+            # Create providers
+            sparse_provider = SpladeProvider(
+                model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill",
+                device="cpu",
+            )
+
+            # Create vector store
+            vector_store = LocalMilvusStore(
                 db_path=str(config.index_path),
-                dense_model=None,
-                sparse_model="opensearch-project/opensearch-neural-sparse-encoding-doc-v3-distill",  # Uncomment for hybrid mode
+                collection_name="verbatim_rag",
+                enable_dense=False,
+                enable_sparse=True,
+            )
+
+            # Create index
+            index = VerbatimIndex(
+                vector_store=vector_store, sparse_provider=sparse_provider
             )
 
             # Create RAG instance with the index
