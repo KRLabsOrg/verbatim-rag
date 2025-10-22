@@ -8,7 +8,6 @@ import concurrent.futures
 
 from docling.datamodel.base_models import ConversionStatus
 from docling.document_converter import DocumentConverter
-from tqdm import tqdm
 
 
 logging.basicConfig(
@@ -82,31 +81,60 @@ class AnthologyPreprocessor:
         )
         return success
 
-    def process_all(self, max_workers):
-        files = os.listdir(self.input_dir)
+    def _process_all(self, input_dir, output_dir, max_workers, dry_run):
+        print(f"processing {input_dir=} to {output_dir=}")
+        files_and_paths, subdirs_and_paths = [], []
+        for child in os.listdir(input_dir):
+            path = os.path.join(input_dir, child)
+            if os.path.isdir(path):
+                subdirs_and_paths.append((child, path))
+            else:
+                files_and_paths.append((child, path))
+
         to_process = {}
-        for raw_fn in tqdm(files):
-            if not raw_fn.endswith(".pdf"):
-                logging.warning(f"skipping file with unknown extension: {raw_fn}")
+        for file, file_path in files_and_paths:
+            if not file.endswith(".pdf"):
+                logging.warning(f"skipping file with unknown extension: {file}")
                 continue
-            fn = raw_fn.replace(".pdf", "")
+            fn = file.replace(".pdf", "")
             if fn not in self.papers:
-                logging.warning(f"skipping file not in metadata file: {raw_fn}")
+                logging.warning(f"skipping file not in metadata file: {file}")
                 continue
             paper_metadata = self.papers[fn]
-            input_fn = os.path.join(self.input_dir, raw_fn)
-            output_fn = os.path.join(self.output_dir, f"{fn}.md")
+            output_fn = os.path.join(output_dir, f"{fn}.md")
             if os.path.exists(output_fn):
                 continue
             to_process[fn] = {
-                "input_fn": input_fn,
+                "input_fn": file_path,
                 "output_fn": output_fn,
                 "metadata": paper_metadata,
             }
 
-        # self._process_all_parallel(to_process, max_workers=max_workers)
-        # self._process_all_simple(to_process)
-        self._process_all_batch(to_process)
+        print(
+            f"will process {len(to_process)} files and then recurse in {len(subdirs_and_paths)} subdirectories"
+        )
+        if to_process:
+            if not os.path.exists(output_dir):
+                if dry_run:
+                    print(f"would create {output_dir=}")
+                else:
+                    print(f"creating output directory {output_dir}")
+                    os.makedirs(output_dir)
+            # self._process_all_parallel(to_process, max_workers=max_workers)
+            # self._process_all_simple(to_process)
+            if dry_run:
+                for fn, item in to_process.items():
+                    print(f'would process {item["input_fn"]} to {item["output_fn"]}')
+            else:
+                self._process_all_batch(to_process)
+
+        for dirname, dir_path in subdirs_and_paths:
+            print(f"recursing into subdirectory {dir_path}")
+            out_dir = os.path.join(output_dir, dirname)
+            self._process_all(dir_path, out_dir, max_workers, dry_run)
+
+    def process_all(self, max_workers, dry_run=False):
+        self._process_all(self.input_dir, self.output_dir, max_workers, dry_run)
 
     def _process_all_batch(self, to_process):
         paths = [data["input_fn"] for fn, data in to_process.items()]
@@ -142,11 +170,19 @@ def get_args():
     parser.add_argument(
         "--output-dir", required=True, help="Directory for storing markdown papers"
     )
+    parser.add_argument("--dry-run", action="store_true", help="Dry run")
+
     parser.add_argument(
-        "--doc-batch-size", required=True, type=int, help="Number of documents processed in one batch"
+        "--doc-batch-size",
+        required=True,
+        type=int,
+        help="Number of documents processed in one batch",
     )
     parser.add_argument(
-        "--page-batch-size", required=True, type=int, help="Number of pages processed in one batch"
+        "--page-batch-size",
+        required=True,
+        type=int,
+        help="Number of pages processed in one batch",
     )
     parser.add_argument(
         "--max-papers",
@@ -172,7 +208,7 @@ def main():
         output_dir=args.output_dir,
         metadata_file=args.metadata_file,
     )
-    preprocessor.process_all(args.max_workers)
+    preprocessor.process_all(args.max_workers, args.dry_run)
 
 
 if __name__ == "__main__":
