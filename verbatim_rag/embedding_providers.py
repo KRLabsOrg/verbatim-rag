@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from typing import List, Dict
 import logging
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 
@@ -136,14 +138,22 @@ class SpladeProvider(SparseEmbeddingProvider):
 
     def embed_batch(self, texts: List[str]) -> List[Dict[int, float]]:
         """Get batch of sparse embeddings."""
+        logging.debug('calling model.encode...')
         embeddings = self.model.encode(texts)
+        logging.debug(f'{type(embeddings)=}')
+        logging.debug(f'{embeddings.shape=}')
+        logging.debug('done, running cutoff...')
         result = []
+        
+        if self.device == 'cpu':
+            embeddings = embeddings.to_dense().numpy()
+        else:
+            embeddings = embeddings.to_dense().cpu().numpy()
         for embedding in embeddings:
-            sparse_dict = {}
-            for idx, weight in enumerate(embedding):
-                if abs(weight) > 1e-6:
-                    sparse_dict[idx] = float(weight)
-            result.append(sparse_dict)
+            indices = np.nonzero(embedding)[0]
+            result.append({int(idx): float(embedding[idx]) for idx in indices})
+
+        logging.debug('done, returning result.')
         return result
 
     def get_dimension(self) -> int:

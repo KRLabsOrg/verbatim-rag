@@ -2,18 +2,18 @@ import argparse
 import json
 import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s : %(module)s (%(lineno)s) - %(levelname)s - %(message)s",
+)
+
 from pathlib import Path
 from tqdm import tqdm
 
 from verbatim_rag import VerbatimIndex, VerbatimRAG
-from verbatim_rag.config import create_default_config
+from verbatim_rag.embedding_providers import SpladeProvider
 from verbatim_rag.ingestion import DocumentProcessor
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s : %(module)s (%(lineno)s) - %(levelname)s - %(message)s",
-)
-# log = logging.getLogger(__name__)
+from verbatim_rag.vector_stores import LocalMilvusStore
 
 
 def index_acl(args):
@@ -38,15 +38,20 @@ def index_acl(args):
         documents.append(document)
 
     logging.info("indexing documents...")
-    index_config = create_default_config()
-    index_config.sparse_embedding.model_name = (
-        "opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill"
+
+    sparse_provider = SpladeProvider(
+        model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
+        device=args.device,
+    )
+    vector_store = LocalMilvusStore(
+        db_path=args.index_file,
+        collection_name=args.collection_name,
+        enable_dense=False,
+        enable_sparse=True,
     )
 
-    index_config.vector_db.db_path = args.index_file
-    index_config.vector_db.collection_name = args.collection_name
-    index_config.sparse_embedding.device = args.device
-    index = VerbatimIndex(config=index_config)
+    index = VerbatimIndex(vector_store=vector_store, sparse_provider=sparse_provider)
+
     index.add_documents(documents)
     return index
 
@@ -74,7 +79,7 @@ def main():
     # Check dependencies
     index = index_acl(args)
     rag = VerbatimRAG(index)
-    test_query = "Which paper describes 4lang?"
+    test_query = "What is 4lang?"
     logging.info(f"asking: {test_query}")
     response = rag.query(test_query)
     logging.info(f"answer: {response.answer}")
