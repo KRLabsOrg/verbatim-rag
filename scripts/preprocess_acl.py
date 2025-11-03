@@ -16,6 +16,8 @@ logging.basicConfig(
 )
 # log = logging.getLogger(__name__)
 
+TO_SKIP = {"2025.acl-long.1427", "D18-1021", "2024.emnlp-main.85"}
+
 
 class AnthologyPreprocessor:
     def __init__(self, input_dir, output_dir, metadata_file):
@@ -100,6 +102,10 @@ class AnthologyPreprocessor:
             if fn not in self.papers:
                 logging.warning(f"skipping file not in metadata file: {file}")
                 continue
+            if fn in TO_SKIP:
+                logging.warning(f"skipping file specified in TO_SKIP: {file}")
+                continue
+
             paper_metadata = self.papers[fn]
             output_fn = os.path.join(output_dir, f"{fn}.md")
             if os.path.exists(output_fn):
