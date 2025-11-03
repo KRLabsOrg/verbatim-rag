@@ -13,22 +13,22 @@ except ImportError:
     DOCLING_AVAILABLE = False
 
 from ..document import Document, Chunk, ProcessedChunk, DocumentType, ChunkType
-from ..chunking import ChunkingService, ChunkingConfig, ChunkingStrategy
+from ..chunker_providers import ChunkerProvider, MarkdownChunkerProvider
 
 
 class DocumentProcessor:
     """
-    Simple document processor using docling + ChunkingService.
+    Simple document processor using docling + chunker providers.
 
-    Uses centralized ChunkingService for all text chunking operations.
+    Uses chunker_providers system for all text chunking operations.
     """
 
-    def __init__(self, chunking_config: Optional[ChunkingConfig] = None):
+    def __init__(self, chunker_provider: Optional[ChunkerProvider] = None):
         if not DOCLING_AVAILABLE:
             raise ImportError("docling is required. Install with: pip install docling")
 
         self.converter = DocumentConverter()
-        self.chunking_service = ChunkingService(chunking_config)
+        self.chunker_provider = chunker_provider or MarkdownChunkerProvider()
 
     def process_url(
         self, url: str, title: str, metadata: Optional[Dict[str, Any]] = None
@@ -57,15 +57,18 @@ class DocumentProcessor:
             metadata=metadata or {},
         )
 
-        # Use ChunkingService for all chunking
-        enhanced_chunks = self.chunking_service.chunk_document_enhanced(document)
+        # Use chunker provider for structural chunking
+        chunk_tuples = self.chunker_provider.chunk(content_md)
 
         # Process each chunk
-        for i, (original_text, enhanced_content) in enumerate(enhanced_chunks):
+        for i, (raw_text, struct_enhanced) in enumerate(chunk_tuples):
+            # Add document metadata to enhanced content
+            enhanced_content = self._add_document_metadata(struct_enhanced, document)
+
             # Create basic Chunk
             doc_chunk = Chunk(
                 document_id=document.id,
-                content=original_text,
+                content=raw_text,
                 chunk_number=i,
                 chunk_type=ChunkType.PARAGRAPH,
             )
@@ -114,15 +117,18 @@ class DocumentProcessor:
             metadata=metadata or {},
         )
 
-        # Use ChunkingService for all chunking
-        enhanced_chunks = self.chunking_service.chunk_document_enhanced(document)
+        # Use chunker provider for structural chunking
+        chunk_tuples = self.chunker_provider.chunk(content_md)
 
         # Process each chunk
-        for i, (original_text, enhanced_content) in enumerate(enhanced_chunks):
+        for i, (raw_text, struct_enhanced) in enumerate(chunk_tuples):
+            # Add document metadata to enhanced content
+            enhanced_content = self._add_document_metadata(struct_enhanced, document)
+
             # Create basic Chunk
             doc_chunk = Chunk(
                 document_id=document.id,
-                content=original_text,
+                content=raw_text,
                 chunk_number=i,
                 chunk_type=ChunkType.PARAGRAPH,
             )
@@ -224,50 +230,61 @@ class DocumentProcessor:
         else:
             return DocumentType.UNKNOWN
 
+    def _add_document_metadata(self, text: str, doc: Document) -> str:
+        """Add document metadata footer to enhanced text."""
+        parts = [text, "", "---"]
+        parts.append(f"Document: {doc.title or 'Unknown'}")
+        parts.append(f"Source: {doc.source or 'Unknown'}")
+
+        if doc.metadata:
+            skip_keys = {"user_id", "dataset_id", "userId"}
+            for key, value in doc.metadata.items():
+                if key not in skip_keys:
+                    formatted_key = key.replace("_", " ").title()
+                    parts.append(f"{formatted_key}: {value}")
+
+        return "\n".join(parts)
+
     @classmethod
     def for_embeddings(cls, chunk_size: int = 512, overlap: int = 50):
         """Create processor optimized for embedding generation."""
-        config = ChunkingConfig(
-            strategy=ChunkingStrategy.TOKEN,
-            chunk_size=chunk_size,
-            chunk_overlap=overlap,
+        from ..chunker_providers import ChonkieChunkerProvider
+
+        chunker = ChonkieChunkerProvider(
+            recipe="default", chunk_size=chunk_size, chunk_overlap=overlap
         )
-        return cls(config)
+        return cls(chunker)
 
     @classmethod
     def for_qa(cls, sentence_chunks: int = 3, sentence_overlap: int = 1):
         """Create processor optimized for Q&A tasks."""
-        config = ChunkingConfig(
-            strategy=ChunkingStrategy.SENTENCE,
-            chunk_size=sentence_chunks,
-            chunk_overlap=sentence_overlap,
+        from ..chunker_providers import ChonkieChunkerProvider
+
+        chunker = ChonkieChunkerProvider(
+            recipe="default", chunk_size=sentence_chunks, chunk_overlap=sentence_overlap
         )
-        return cls(config)
+        return cls(chunker)
 
     @classmethod
-    def semantic(cls, chunk_size: int = 512, merge_threshold: float = 0.7):
-        """Create processor with semantic chunking."""
-        config = ChunkingConfig(
-            strategy=ChunkingStrategy.SDPM,
-            chunk_size=chunk_size,
-            merge_threshold=merge_threshold,
-            split_threshold=0.3,
+    def semantic(cls, chunk_size: int = 512):
+        """Create processor with semantic chunking (uses ChonkieChunkerProvider)."""
+        from ..chunker_providers import ChonkieChunkerProvider
+
+        chunker = ChonkieChunkerProvider(
+            recipe="default", chunk_size=chunk_size, chunk_overlap=50
         )
-        return cls(config)
+        return cls(chunker)
 
     @classmethod
     def markdown_recursive(
         cls,
-        lang: str = "en",
-        preserve_headings: bool = False,
-        include_metadata: bool = True,
+        split_levels: tuple = (1, 2, 3, 4),
+        include_preamble: bool = True,
     ):
-        """Create processor with recursive markdown chunking."""
-        config = ChunkingConfig(
-            strategy=ChunkingStrategy.RECURSIVE,
-            recipe="markdown",
-            lang=lang,
-            preserve_headings=preserve_headings,
-            include_metadata=include_metadata,
+        """Create processor with markdown hierarchical chunking."""
+        from ..chunker_providers import MarkdownChunkerProvider
+
+        chunker = MarkdownChunkerProvider(
+            split_levels=split_levels, include_preamble=include_preamble
         )
-        return cls(config)
+        return cls(chunker)

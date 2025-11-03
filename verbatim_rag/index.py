@@ -9,18 +9,14 @@ from verbatim_rag.schema import DocumentSchema
 from verbatim_rag.embedding_providers import (
     DenseEmbeddingProvider,
     SparseEmbeddingProvider,
-    SentenceTransformersProvider,
-    SpladeProvider,
-    OpenAIProvider,
 )
 from verbatim_rag.vector_stores import (
     VectorStore,
-    LocalMilvusStore,
     CloudMilvusStore,
     SearchResult,
 )
 from verbatim_rag.document import DocumentType
-from verbatim_rag.chunking import ChunkingService
+from verbatim_rag.chunker_providers import ChunkerProvider, MarkdownChunkerProvider
 
 
 class VerbatimIndex:
@@ -33,6 +29,7 @@ class VerbatimIndex:
         vector_store: VectorStore,
         dense_provider: Optional[DenseEmbeddingProvider] = None,
         sparse_provider: Optional[SparseEmbeddingProvider] = None,
+        chunker_provider: Optional[ChunkerProvider] = None,
     ):
         """
         Initialize VerbatimIndex with provider instances.
@@ -41,14 +38,20 @@ class VerbatimIndex:
             vector_store: Vector database instance (LocalMilvusStore, CloudMilvusStore, etc.)
             dense_provider: Optional dense embedding provider (SentenceTransformers, OpenAI, etc.)
             sparse_provider: Optional sparse embedding provider (SPLADE, etc.)
+            chunker_provider: Optional chunker provider (MarkdownChunkerProvider, etc.)
 
         Example:
             store = LocalMilvusStore(db_path="./index.db")
             sparse = SpladeProvider("naver/splade-v3")
-            index = VerbatimIndex(vector_store=store, sparse_provider=sparse)
+            chunker = MarkdownChunkerProvider()
+            index = VerbatimIndex(
+                vector_store=store,
+                sparse_provider=sparse,
+                chunker_provider=chunker
+            )
 
         Raises:
-            ValueError: If both providers are None
+            ValueError: If both embedding providers are None
         """
         if dense_provider is None and sparse_provider is None:
             raise ValueError(
@@ -58,7 +61,7 @@ class VerbatimIndex:
         self.vector_store = vector_store
         self.dense_provider = dense_provider
         self.sparse_provider = sparse_provider
-        self.chunking_service = ChunkingService()
+        self.chunker_provider = chunker_provider or MarkdownChunkerProvider()
 
     # Helper methods for document processing
 
@@ -123,7 +126,7 @@ class VerbatimIndex:
         """
         Chunk a Document into Chunk and ProcessedChunk objects.
 
-        Uses ChunkingService to create enhanced chunks with context.
+        Uses chunker provider for structural chunking, then adds document metadata.
         Does not add chunks to document or generate embeddings.
 
         Args:
@@ -134,15 +137,18 @@ class VerbatimIndex:
         """
         from verbatim_rag.document import Chunk, ChunkType, ProcessedChunk
 
-        # Use chunking service to handle text chunking with enhancement
-        enhanced_chunks = self.chunking_service.chunk_document_enhanced(doc)
+        # Use chunker provider to get structural chunks (with heading hierarchy)
+        chunk_tuples = self.chunker_provider.chunk(doc.raw_content)
 
         result = []
-        for i, (chunk_text, enhanced_text) in enumerate(enhanced_chunks):
+        for i, (raw_text, struct_enhanced) in enumerate(chunk_tuples):
+            # Add document metadata to the structurally enhanced text
+            final_enhanced = self._add_document_metadata(struct_enhanced, doc)
+
             # Create basic Chunk with inherited metadata
             doc_chunk = Chunk(
                 document_id=doc.id,
-                content=chunk_text,  # Original text for extraction
+                content=raw_text,  # Original text for extraction
                 chunk_number=i,
                 chunk_type=ChunkType.PARAGRAPH,
                 metadata={},  # Keep chunk-level metadata minimal
@@ -151,12 +157,37 @@ class VerbatimIndex:
             # Create ProcessedChunk
             processed_chunk = ProcessedChunk(
                 chunk_id=doc_chunk.id,
-                enhanced_content=enhanced_text,  # Enhanced text with headings/metadata
+                enhanced_content=final_enhanced,  # Enhanced text with structure + metadata
             )
 
             result.append((doc_chunk, processed_chunk))
 
         return result
+
+    def _add_document_metadata(self, text: str, doc: Document) -> str:
+        """
+        Add document metadata footer to enhanced text.
+
+        Args:
+            text: Text with structural enhancements (headings)
+            doc: Document containing metadata
+
+        Returns:
+            Text with document metadata appended
+        """
+        parts = [text, "", "---"]
+        parts.append(f"Document: {doc.title or 'Unknown'}")
+        parts.append(f"Source: {doc.source or 'Unknown'}")
+
+        # Add custom metadata (skip sensitive fields)
+        if doc.metadata:
+            skip_keys = {"user_id", "dataset_id", "userId"}
+            for key, value in doc.metadata.items():
+                if key not in skip_keys:
+                    formatted_key = key.replace("_", " ").title()
+                    parts.append(f"{formatted_key}: {value}")
+
+        return "\n".join(parts)
 
     def _generate_embeddings(
         self, texts: List[str]

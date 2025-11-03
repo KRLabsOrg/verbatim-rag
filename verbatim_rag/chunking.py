@@ -1,8 +1,14 @@
 """
 Chunking service for text processing in Verbatim RAG.
 
-Separates chunking logic from the index for better organization and reusability.
+DEPRECATED: This module is deprecated in favor of verbatim_rag.chunker_providers.
+Use ChunkerProvider interface and implementations (MarkdownChunkerProvider,
+ChonkieChunkerProvider, SimpleChunkerProvider) instead.
+
+This module is kept for backward compatibility but may be removed in a future version.
 """
+
+import warnings
 
 from __future__ import annotations
 
@@ -151,10 +157,24 @@ class ChonkieChunker(ChunkerInterface):
 
 
 class ChunkingService:
-    """Service for handling all text chunking operations."""
+    """
+    Service for handling all text chunking operations.
+
+    DEPRECATED: Use verbatim_rag.chunker_providers.ChunkerProvider instead.
+    """
 
     def __init__(self, default_config: Optional[ChunkingConfig] = None):
-        """Initialize chunking service with default configuration."""
+        """
+        Initialize chunking service with default configuration.
+
+        DEPRECATED: Use verbatim_rag.chunker_providers instead.
+        """
+        warnings.warn(
+            "ChunkingService is deprecated. Use verbatim_rag.chunker_providers "
+            "(MarkdownChunkerProvider, ChonkieChunkerProvider, etc.) instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.default_config = default_config or ChunkingConfig()
 
     def chunk_text(

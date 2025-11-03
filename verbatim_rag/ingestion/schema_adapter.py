@@ -1,7 +1,7 @@
 """
 Schema adapter: convert DocumentSchema to pre-chunked Document objects.
 
-Uses the centralized ChunkingService for all chunking operations.
+Uses the chunker_providers system for all chunking operations.
 """
 
 from __future__ import annotations
@@ -17,14 +17,14 @@ from verbatim_rag.document import (
     ChunkType,
     ProcessedChunk,
 )
-from verbatim_rag.chunking import ChunkingService
+from verbatim_rag.chunker_providers import MarkdownChunkerProvider
 
 
 def schema_to_document(
     schema: DocumentSchema,
     document_type: DocumentType = DocumentType.MARKDOWN,
 ) -> Document:
-    """Convert a DocumentSchema into a pre-chunked Document using ChunkingService."""
+    """Convert a DocumentSchema into a pre-chunked Document using chunker providers."""
     # Flatten metadata (exclude core fields), convert datetimes to ISO strings
     base_metadata = schema.model_dump(
         exclude={"id", "title", "source", "content", "metadata"}
@@ -44,14 +44,17 @@ def schema_to_document(
         metadata=flattened,
     )
 
-    # Use ChunkingService for all chunking operations
-    chunking_service = ChunkingService()
-    enhanced_chunks = chunking_service.chunk_document_enhanced(document)
+    # Use chunker provider for structural chunking
+    chunker = MarkdownChunkerProvider()
+    chunk_tuples = chunker.chunk(schema.content)
 
-    for i, (original_text, enhanced_content) in enumerate(enhanced_chunks):
+    for i, (raw_text, struct_enhanced) in enumerate(chunk_tuples):
+        # Add document metadata to enhanced content
+        enhanced_content = _add_document_metadata(struct_enhanced, document)
+
         doc_chunk = Chunk(
             document_id=document.id,
-            content=original_text,
+            content=raw_text,
             chunk_number=i,
             chunk_type=ChunkType.PARAGRAPH,
             metadata=document.metadata.copy(),
@@ -64,3 +67,19 @@ def schema_to_document(
         document.add_chunk(doc_chunk)
 
     return document
+
+
+def _add_document_metadata(text: str, doc: Document) -> str:
+    """Add document metadata footer to enhanced text."""
+    parts = [text, "", "---"]
+    parts.append(f"Document: {doc.title or 'Unknown'}")
+    parts.append(f"Source: {doc.source or 'Unknown'}")
+
+    if doc.metadata:
+        skip_keys = {"user_id", "dataset_id", "userId"}
+        for key, value in doc.metadata.items():
+            if key not in skip_keys:
+                formatted_key = key.replace("_", " ").title()
+                parts.append(f"{formatted_key}: {value}")
+
+    return "\n".join(parts)
