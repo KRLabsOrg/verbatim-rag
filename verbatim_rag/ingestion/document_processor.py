@@ -101,9 +101,13 @@ class DocumentProcessor:
         """
         file_path = Path(file_path)
 
-        # Convert document using docling
-        result = self.converter.convert(file_path)
-        content_md = result.document.export_to_markdown()
+        if file_path.suffix.lower() == '.md':
+            with open(file_path) as f:
+                content_md = f.read()
+        else:
+            # Convert document using docling
+            result = self.converter.convert(file_path)
+            content_md = result.document.export_to_markdown()
 
         # Create Document
         document = Document(

@@ -38,7 +38,7 @@ dependencies = [
     "PyYAML>=6.0",
     
     # Vector storage and search
-    "pymilvus>=2.3.0",
+    "pymilvus[milvus-lite]>=2.3.0",
     
     # Embeddings
     "sentence-transformers>=5.0.0",
