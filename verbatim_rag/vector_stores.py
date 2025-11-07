@@ -67,6 +67,8 @@ class LocalMilvusStore(VectorStore):
         dense_dim: int = 384,
         enable_dense: bool = True,
         enable_sparse: bool = True,
+        index_type: str = "IVF_FLAT",
+        nlist: int = 8192,
     ):
         self.db_path = db_path
         self.collection_name = collection_name
@@ -74,6 +76,8 @@ class LocalMilvusStore(VectorStore):
         self.dense_dim = dense_dim
         self.enable_dense = enable_dense
         self.enable_sparse = enable_sparse
+        self.index_type = index_type
+        self.nlist = nlist
 
         # Validate at least one embedding type is enabled
         if not enable_dense and not enable_sparse:
@@ -144,9 +148,9 @@ class LocalMilvusStore(VectorStore):
                     # Dense vector index
                     index_params.add_index(
                         field_name="dense_vector",
-                        index_type="IVF_FLAT",
+                        index_type=self.index_type,
                         metric_type="COSINE",
-                        params={"nlist": 1024},
+                        params={"nlist": self.nlist},
                     )
 
                 if self.enable_sparse:
@@ -368,8 +372,13 @@ class LocalMilvusStore(VectorStore):
         top_k: int = 5,
         search_type: str = "dense",
         filter: Optional[str] = None,
+        search_params: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
-        """Query using vector search or filter-only browsing."""
+        """Query using vector search or filter-only browsing.
+
+        Args:
+            search_params: Optional dict of search parameters (e.g., {"nprobe": 128} for IVF indexes)
+        """
 
         # If no vectors provided, do filter-only query
         if not dense_query and not sparse_query:
@@ -390,6 +399,7 @@ class LocalMilvusStore(VectorStore):
                 limit=top_k,
                 output_fields=output_fields,
                 filter=filter,
+                search_params=search_params,
             )
 
         elif search_type == "sparse" and sparse_query:
@@ -401,6 +411,7 @@ class LocalMilvusStore(VectorStore):
                 limit=top_k,
                 output_fields=output_fields,
                 filter=filter,
+                search_params=search_params,
             )
 
         elif search_type == "hybrid" and dense_query and sparse_query:
@@ -416,6 +427,7 @@ class LocalMilvusStore(VectorStore):
                     limit=top_k * 2,  # Get more results for merging
                     output_fields=output_fields,
                     filter=filter,
+                    search_params=search_params,
                 )
 
                 # Perform sparse search
@@ -426,6 +438,7 @@ class LocalMilvusStore(VectorStore):
                     limit=top_k * 2,  # Get more results for merging
                     output_fields=output_fields,
                     filter=filter,
+                    search_params=search_params,
                 )
 
                 # Combine results using reciprocal rank fusion (RRF)
@@ -446,6 +459,7 @@ class LocalMilvusStore(VectorStore):
                     limit=top_k,
                     output_fields=output_fields,
                     filter=filter,
+                    search_params=search_params,
                 )
 
         else:
@@ -628,6 +642,8 @@ class CloudMilvusStore(VectorStore):
         token: Optional[str] = None,
         enable_dense: bool = True,
         enable_sparse: bool = True,
+        index_type: str = "IVF_FLAT",
+        nlist: int = 8192,
     ):
         self.collection_name = collection_name
         self.documents_collection_name = f"{collection_name}_documents"
@@ -637,6 +653,8 @@ class CloudMilvusStore(VectorStore):
         self.token = token
         self.enable_dense = enable_dense
         self.enable_sparse = enable_sparse
+        self.index_type = index_type
+        self.nlist = nlist
 
         # Validate at least one embedding type is enabled
         if not enable_dense and not enable_sparse:
@@ -705,9 +723,9 @@ class CloudMilvusStore(VectorStore):
                 if self.enable_dense:
                     index_params.add_index(
                         field_name="dense_vector",
-                        index_type="IVF_FLAT",
+                        index_type=self.index_type,
                         metric_type="COSINE",
-                        params={"nlist": 1024},
+                        params={"nlist": self.nlist},
                     )
                 if self.enable_sparse:
                     index_params.add_index(
@@ -994,8 +1012,13 @@ class CloudMilvusStore(VectorStore):
         top_k: int = 5,
         search_type: str = "hybrid",
         filter: Optional[str] = None,
+        search_params: Optional[Dict[str, Any]] = None,
     ) -> List[SearchResult]:
-        """Query using hybrid dense + sparse vectors or filter-only browsing."""
+        """Query using hybrid dense + sparse vectors or filter-only browsing.
+
+        Args:
+            search_params: Optional dict of search parameters (e.g., {"nprobe": 128} for IVF indexes)
+        """
 
         # Request fields; include promoted dynamic fields
         dynamic_fields = ["user_id", "document_id", "dataset_id"]
@@ -1043,6 +1066,7 @@ class CloudMilvusStore(VectorStore):
                 limit=top_k,
                 output_fields=output_fields,
                 filter=filter,
+                search_params=search_params,
             )
 
         elif search_type == "sparse" and sparse_query:
@@ -1054,6 +1078,7 @@ class CloudMilvusStore(VectorStore):
                 limit=top_k,
                 output_fields=output_fields,
                 filter=filter,
+                search_params=search_params,
             )
 
         elif search_type == "hybrid" and dense_query and sparse_query:
@@ -1067,6 +1092,7 @@ class CloudMilvusStore(VectorStore):
                     limit=top_k * 2,
                     output_fields=output_fields,
                     filter=filter,
+                    search_params=search_params,
                 )
                 sparse_results = self.client.search(
                     collection_name=self.collection_name,
@@ -1075,6 +1101,7 @@ class CloudMilvusStore(VectorStore):
                     limit=top_k * 2,
                     output_fields=output_fields,
                     filter=filter,
+                    search_params=search_params,
                 )
                 merged = self._merge_hybrid_results(
                     dense_results[0], sparse_results[0], top_k, alpha=0.5
@@ -1089,6 +1116,7 @@ class CloudMilvusStore(VectorStore):
                     limit=top_k,
                     output_fields=output_fields,
                     filter=filter,
+                    search_params=search_params,
                 )
 
         else:

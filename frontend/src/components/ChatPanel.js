@@ -156,9 +156,9 @@ const ChatPanel = () => {
   return (
     <Card className="h-full flex flex-col">
       {/* Header */}
-      <CardHeader className="border-b border-slate-200">
+      <CardHeader className="border-b border-border">
         <CardTitle className="flex items-center space-x-2">
-          <FaComments className="w-5 h-5 text-blue-600" />
+          <FaComments className="w-5 h-5 text-primary" />
           <span>Conversation</span>
         </CardTitle>
       </CardHeader>
@@ -186,13 +186,13 @@ const ChatPanel = () => {
               exit={{ opacity: 0 }}
               className="text-center py-12"
             >
-              <FaComments className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-600 text-lg font-medium mb-2">
+              <FaComments className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
+              <p className="text-foreground text-lg font-medium mb-2">
                 {isResourcesLoaded
                   ? "Ready to answer your questions"
                   : "Loading resources..."}
               </p>
-              <p className="text-slate-500 text-sm">
+              <p className="text-muted-foreground text-sm">
                 {isResourcesLoaded
                   ? "Ask a question to get started with the RAG system"
                   : "Please wait while we initialize the system"}
@@ -208,7 +208,7 @@ const ChatPanel = () => {
               className="text-center py-12"
             >
               <Spinner className="mx-auto mb-4" />
-              <p className="text-slate-600">Processing your question...</p>
+              <p className="text-foreground">Processing your question...</p>
             </motion.div>
           )}
 
@@ -230,8 +230,8 @@ const ChatPanel = () => {
                   />
                   
                   {/* Enhanced answer with citations */}
-                  <div className="bg-white border border-slate-200 rounded-lg p-4">
-                    <div ref={answerRef} className="prose prose-sm max-w-none text-slate-900" />
+                  <div className="bg-card border border-border rounded-lg p-4">
+                    <div ref={answerRef} className="prose prose-sm max-w-none text-foreground" />
                     
                     {/* Relevant sentences */}
                     <RelevantSentences

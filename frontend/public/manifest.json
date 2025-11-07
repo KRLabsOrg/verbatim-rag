@@ -1,25 +1,25 @@
 {
-  "short_name": "Verbatim RAG",
-  "name": "Verbatim RAG - Retrieval-Augmented Generation",
+  "short_name": "KR Labs RAG",
+  "name": "KR Labs - Verbatim RAG",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "src": "favicon-16x16.png",
+      "sizes": "16x16",
+      "type": "image/png"
     },
     {
-      "src": "logo192.png",
-      "type": "image/png",
-      "sizes": "192x192"
+      "src": "favicon-32x32.png",
+      "sizes": "32x32",
+      "type": "image/png"
     },
     {
-      "src": "logo512.png",
+      "src": "chiliground-transparent.png",
       "type": "image/png",
       "sizes": "512x512"
     }
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
+  "theme_color": "#ff5757",
   "background_color": "#ffffff"
 } 
