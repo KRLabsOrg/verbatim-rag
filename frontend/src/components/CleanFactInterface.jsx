@@ -13,43 +13,43 @@ import { useApi } from '../contexts/ApiContext';
 
 // Markdown components with custom styling
 const MarkdownComponents = {
-  h1: ({ children }) => <h1 className="text-2xl font-bold mt-4 mb-3">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-xl font-bold mt-4 mb-3">{children}</h2>,
-  h3: ({ children }) => <h3 className="text-lg font-semibold mt-4 mb-2">{children}</h3>,
-  p: ({ children }) => <p className="mb-2">{children}</p>,
+  h1: ({ children }) => <h1 className="text-2xl lg:text-3xl font-bold mt-4 lg:mt-5 mb-3 lg:mb-4">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-xl lg:text-2xl font-bold mt-4 lg:mt-5 mb-3 lg:mb-4">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-lg lg:text-xl font-semibold mt-4 mb-2 lg:mb-3">{children}</h3>,
+  p: ({ children }) => <p className="mb-2 lg:mb-3">{children}</p>,
   ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
   ol: ({ children }) => <ol className="list-decimal ml-4 mb-2">{children}</ol>,
   li: ({ children }) => <li className="mb-1">{children}</li>,
   blockquote: ({ children }) => (
-    <blockquote className="border-l-4 border-blue-300 pl-4 py-2 bg-blue-50 italic mb-2">
+    <blockquote className="border-l-4 border-primary/30 pl-4 py-2 bg-muted italic mb-2">
       {children}
     </blockquote>
   ),
   code: ({ inline, children }) => 
     inline 
-      ? <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{children}</code>
-      : <pre className="bg-gray-100 p-3 rounded text-sm font-mono overflow-x-auto mb-2"><code>{children}</code></pre>,
+      ? <code className="bg-muted px-1 py-0.5 rounded text-sm font-mono">{children}</code>
+      : <pre className="bg-muted p-3 rounded text-sm font-mono overflow-x-auto mb-2"><code>{children}</code></pre>,
   table: ({ children }) => (
     <div className="overflow-x-auto mb-4 max-w-full">
-      <table className="w-full border-collapse border border-gray-300 text-sm">
+      <table className="w-full border-collapse border border-border text-sm">
         {children}
       </table>
     </div>
   ),
   th: ({ children }) => (
-    <th className="border border-gray-300 px-2 py-1 bg-gray-50 font-semibold text-left text-xs">
+    <th className="border border-border px-2 py-1 bg-muted font-semibold text-left text-xs">
       {children}
     </th>
   ),
   td: ({ children }) => (
-    <td className="border border-gray-300 px-2 py-1 text-xs">
+    <td className="border border-border px-2 py-1 text-xs">
       {children}
     </td>
   ),
 };
 
 const CleanFactInterface = () => {
-  const { isLoading, isResourcesLoaded, currentQuery, submitQuery } = useApi();
+  const { isLoading, isResourcesLoaded, currentQuery, submitQuery, resetQuery } = useApi();
   const [question, setQuestion] = useState('');
   const [selectedDocument, setSelectedDocument] = useState(0);
   const [highlightedFactId, setHighlightedFactId] = useState(null);
@@ -58,8 +58,14 @@ const CleanFactInterface = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!question.trim() || !isResourcesLoaded) return;
-    
+
     await submitQuery(question);
+    setQuestion('');
+    setSelectedDocument(0);
+  };
+
+  const goHome = () => {
+    resetQuery();
     setQuestion('');
     setSelectedDocument(0);
   };
@@ -170,7 +176,7 @@ const CleanFactInterface = () => {
         role="button"
         tabIndex={0}
         aria-label={`Show citation ${citationNumber}`}
-        className={`align-super text-[0.65em] ml-0.5 cursor-pointer select-none transition-colors duration-150 focus:outline-none focus:ring-1 focus:ring-blue-400 rounded font-medium ${factType === 'reference' ? 'text-blue-400 hover:text-blue-500' : 'text-blue-600 hover:text-blue-700'}`}
+        className={`align-super text-[0.65em] ml-0.5 cursor-pointer select-none transition-colors duration-150 focus:outline-none focus:ring-1 focus:ring-primary rounded font-medium ${factType === 'reference' ? 'text-primary/70 hover:text-primary/90' : 'text-primary hover:text-primary/80'}`}
       >
         [{citationNumber}]
       </sup>
@@ -219,7 +225,7 @@ const CleanFactInterface = () => {
     };
 
     return (
-      <div className="text-lg leading-relaxed text-gray-700">
+      <div className="text-lg lg:text-xl leading-relaxed text-foreground">
         <ReactMarkdown
           remarkPlugins={[remarkGfm, remarkInlineCitations]}
           components={{
@@ -253,32 +259,32 @@ const CleanFactInterface = () => {
     const renderSourceLink = (source) => {
       if (source.startsWith('http://') || source.startsWith('https://')) {
         return (
-          <a 
-            href={source} 
-            target="_blank" 
+          <a
+            href={source}
+            target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline"
+            className="inline-flex items-center gap-1 text-primary hover:text-primary/80 hover:underline"
           >
             <ExternalLink className="w-4 h-4" />
             View Full Document
           </a>
         );
       } else {
-        return <span className="text-gray-600">{source.split('/').pop()}</span>;
+        return <span className="text-muted-foreground">{source.split('/').pop()}</span>;
       }
     };
 
     return (
       <div className="space-y-4">
         {/* Document header */}
-        <div className="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
-          <h3 className="font-semibold text-lg text-gray-800 mb-2">{documentGroup.title}</h3>
+        <div className="bg-muted border-l-4 border-primary p-4 lg:p-6 rounded-r-lg">
+          <h3 className="font-semibold text-xl lg:text-2xl text-foreground mb-2 lg:mb-3">{documentGroup.title}</h3>
           {documentGroup.source && (
-            <div className="text-sm text-gray-600 mb-2">
+            <div className="text-sm lg:text-base text-muted-foreground mb-2">
               <span className="font-medium">Source:</span> {renderSourceLink(documentGroup.source)}
             </div>
           )}
-          <div className="flex items-center gap-4 text-sm text-gray-500">
+          <div className="flex items-center gap-4 text-sm lg:text-base text-muted-foreground">
             <span>{documentGroup.chunks.length} chunk{documentGroup.chunks.length !== 1 ? 's' : ''}</span>
             <span>{documentGroup.allHighlights.length} highlight{documentGroup.allHighlights.length !== 1 ? 's' : ''}</span>
           </div>
@@ -336,17 +342,17 @@ const CleanFactInterface = () => {
                 {/* Content break indicator */}
                 {chunkIndex > 0 && (
                   <div className="flex items-center justify-center py-3">
-                    <div className="flex-1 border-t border-dashed border-gray-300"></div>
-                    <span className="px-3 text-xs text-gray-500 bg-gray-50 rounded-full">
+                    <div className="flex-1 border-t border-dashed border-border"></div>
+                    <span className="px-3 text-xs text-muted-foreground bg-muted rounded-full">
                       Content break
                     </span>
-                    <div className="flex-1 border-t border-dashed border-gray-300"></div>
+                    <div className="flex-1 border-t border-dashed border-border"></div>
                   </div>
                 )}
                 
                 {/* Chunk content */}
-                <div className="bg-white border border-gray-200 rounded-lg p-4">
-                  <div className="text-base leading-7 text-gray-700 max-w-full overflow-hidden">
+                <div className="bg-card border border-border rounded-lg p-4 lg:p-6">
+                  <div className="text-base lg:text-lg leading-7 lg:leading-8 text-foreground max-w-full overflow-hidden">
                     {parts.map((part, index) => {
                       if (part.type === 'highlight') {
                         // For highlights, use a wrapper div with highlight styling
@@ -355,9 +361,9 @@ const CleanFactInterface = () => {
                             key={index}
                             data-highlight-id={facts.find(f => f.text === part.content)?.id}
                             className={`px-2 py-1 rounded transition-all duration-500 ease-out ${
-                              part.isHighlighted 
-                                ? 'bg-yellow-100 border-l-2 border-yellow-500 shadow-sm font-medium ring-1 ring-yellow-300' 
-                                : 'bg-yellow-100 hover:bg-yellow-200 hover:shadow-sm'
+                              part.isHighlighted
+                                ? 'bg-accent border-l-2 border-primary shadow-sm font-medium ring-1 ring-primary/30'
+                                : 'bg-accent/50 hover:bg-accent hover:shadow-sm'
                             }`}
                           >
                             <ReactMarkdown 
@@ -404,55 +410,53 @@ const CleanFactInterface = () => {
           50% { transform: scale(1.05); }
         }
       `}</style>
-      <div className="h-screen flex flex-col bg-gray-50">
+      <div className="h-screen flex flex-col bg-background">
       {/* Header */}
-      <header className="bg-indigo-700 text-white p-4 shadow-lg flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-600 rounded-lg">
-              <MessageCircle className="w-6 h-6" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold">Verbatim RAG</h1>
-              <p className="text-indigo-200">Click facts to see their sources</p>
-            </div>
-          </div>
-          
-          <Badge variant={isResourcesLoaded ? "default" : "secondary"} className="bg-indigo-600 text-white">
+      <header className="bg-white border-b border-border py-3 lg:py-4 shadow-sm flex-shrink-0">
+        <div className="max-w-[1800px] mx-auto px-4 lg:px-8 flex items-center justify-between">
+          <button
+            onClick={goHome}
+            className="hover:opacity-70 transition-opacity cursor-pointer"
+            title="Go home"
+          >
+            <h1 className="text-xl lg:text-2xl font-bold text-foreground">KR Labs <span className="text-muted-foreground">•</span> Verbatim RAG</h1>
+          </button>
+
+          <Badge variant={isResourcesLoaded ? "default" : "secondary"}>
             {isResourcesLoaded ? '✓ Ready' : '⏳ Loading...'}
           </Badge>
         </div>
       </header>
 
       {/* Main content */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 max-w-[1800px] mx-auto w-full">
         {/* Left panel - Chat */}
-        <div className="w-1/2 bg-white flex flex-col min-h-0">
+        <div className="w-1/2 bg-card flex flex-col min-h-0">
           <ScrollArea className="flex-1">
-            <div className="p-6">
+            <div className="p-6 lg:p-8 xl:p-10">
             {/* Query input */}
             <div className="mb-8">
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <label className="block text-lg font-medium text-gray-700 mb-3">
+              <form onSubmit={handleSubmit} className="space-y-4 lg:space-y-5">
+                <label className="block text-xl lg:text-2xl font-medium text-foreground mb-4">
                   Ask a question about your documents
                 </label>
-                <div className="flex gap-3">
+                <div className="flex gap-3 lg:gap-4">
                   <Input
                     value={question}
                     onChange={(e) => setQuestion(e.target.value)}
                     placeholder="What would you like to know?"
-                    className="flex-1 p-4 text-base"
+                    className="flex-1 p-4 lg:p-5 text-base lg:text-lg"
                     disabled={!isResourcesLoaded || isLoading}
                   />
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     disabled={!question.trim() || !isResourcesLoaded || isLoading}
-                    className="px-8 py-4 text-base"
+                    className="px-8 lg:px-10 py-4 lg:py-5 text-base lg:text-lg"
                   >
                     {isLoading ? 'Thinking...' : 'Ask'}
                   </Button>
                 </div>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm lg:text-base text-muted-foreground">
                   Answers include exact citations from your document collection
                 </p>
               </form>
@@ -467,12 +471,12 @@ const CleanFactInterface = () => {
                   className="space-y-6"
                 >
                   {/* Question */}
-                  <div className="bg-blue-50 border-l-4 border-blue-400 p-6 rounded-r-lg">
-                    <div className="flex items-start gap-3">
-                      <MessageCircle className="w-5 h-5 text-blue-600 mt-1" />
+                  <div className="bg-muted border-l-4 border-primary p-6 lg:p-8 rounded-r-lg">
+                    <div className="flex items-start gap-3 lg:gap-4">
+                      <MessageCircle className="w-6 h-6 lg:w-7 lg:h-7 text-primary mt-1" />
                       <div>
-                        <p className="text-sm text-blue-600 font-medium mb-1">Your Question</p>
-                        <p className="text-lg font-medium text-gray-800">{currentQuery.question}</p>
+                        <p className="text-sm lg:text-base text-primary font-medium mb-1">Your Question</p>
+                        <p className="text-lg lg:text-xl font-medium text-foreground">{currentQuery.question}</p>
                       </div>
                     </div>
                   </div>
@@ -481,11 +485,11 @@ const CleanFactInterface = () => {
                   {currentQuery.answer && (
                     <Card>
                       <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Sparkles className="w-6 h-6 text-indigo-600" />
+                        <CardTitle className="flex items-center gap-2 text-xl lg:text-2xl">
+                          <Sparkles className="w-6 h-6 lg:w-7 lg:h-7 text-primary" />
                           Answer
                           {facts.length > 0 && (
-                            <Badge variant="secondary" className="ml-2">
+                            <Badge variant="secondary" className="ml-2 text-sm lg:text-base">
                               {facts.length} citation{facts.length !== 1 ? 's' : ''}
                             </Badge>
                           )}
@@ -501,18 +505,40 @@ const CleanFactInterface = () => {
 
               {/* Empty state */}
               {!currentQuery && !isLoading && (
-                <div className="text-center py-16">
-                  <div className="w-20 h-20 mx-auto mb-6 bg-gradient-to-r from-blue-100 to-indigo-100 rounded-full flex items-center justify-center">
-                    <MessageCircle className="w-10 h-10 text-blue-600" />
+                <div className="text-center py-16 lg:py-20">
+                  <div className="w-24 h-24 lg:w-32 lg:h-32 mx-auto mb-6 lg:mb-8 bg-accent rounded-full flex items-center justify-center p-4 lg:p-6">
+                    <img src="/chiliground-transparent.png" alt="Chili Mascot" className="w-full h-full object-contain" />
                   </div>
-                  <h3 className="text-2xl font-semibold mb-4 text-gray-800">
+                  <h3 className="text-2xl lg:text-3xl font-semibold mb-4 lg:mb-6 text-foreground">
                     {isResourcesLoaded ? 'Ready to answer your questions' : 'Loading system...'}
                   </h3>
-                  <p className="text-gray-600 text-lg max-w-lg mx-auto">
-                    {isResourcesLoaded 
+                  <p className="text-muted-foreground text-lg lg:text-xl max-w-2xl mx-auto mb-8 lg:mb-12">
+                    {isResourcesLoaded
                       ? 'Ask a question and click on facts in the answer to see their exact source context.'
                       : 'Please wait while we initialize the system.'}
                   </p>
+
+                  {/* Sample Questions */}
+                  {isResourcesLoaded && (
+                    <div className="max-w-3xl mx-auto space-y-3 lg:space-y-4">
+                      <p className="text-sm lg:text-base text-muted-foreground font-medium mb-4">Try these example questions:</p>
+                      {[
+                        "What is the main contribution of the Verbatim RAG paper?",
+                        "Cite the exact lines that define the extraction method.",
+                        "Which datasets and metrics are used for evaluation?"
+                      ].map((sampleQuestion, index) => (
+                        <button
+                          key={index}
+                          onClick={() => setQuestion(sampleQuestion)}
+                          className="w-full text-left p-4 lg:p-5 bg-card border-2 border-border hover:border-primary rounded-lg transition-all hover:shadow-md group"
+                        >
+                          <p className="text-base lg:text-lg text-foreground group-hover:text-primary transition-colors">
+                            {sampleQuestion}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </AnimatePresence>
@@ -521,15 +547,15 @@ const CleanFactInterface = () => {
         </div>
 
         {/* Right panel - Documents */}
-        <div className="w-1/2 bg-gray-100 flex flex-col">
-          <div className="p-4 border-b border-gray-200 bg-white flex-shrink-0">
+        <div className="w-1/2 bg-secondary flex flex-col">
+          <div className="p-4 lg:p-6 border-b border-border bg-card flex-shrink-0">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-700 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-blue-600" />
+              <h2 className="text-xl lg:text-2xl font-semibold text-foreground flex items-center gap-2 lg:gap-3">
+                <FileText className="w-6 h-6 lg:w-7 lg:h-7 text-primary" />
                 Source Documents
               </h2>
               {groupedDocuments.length > 0 && (
-                <span className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded">
+                <span className="px-3 py-1.5 lg:px-4 lg:py-2 bg-secondary text-muted-foreground text-sm lg:text-base rounded">
                   {groupedDocuments.length} document{groupedDocuments.length !== 1 ? 's' : ''}
                 </span>
               )}
@@ -538,7 +564,7 @@ const CleanFactInterface = () => {
 
           {/* Document tabs */}
           {groupedDocuments.length > 1 && (
-            <div className="p-4 bg-white border-b border-gray-200 flex-shrink-0">
+            <div className="p-4 lg:p-6 bg-card border-b border-border flex-shrink-0">
               <div className="flex gap-2 overflow-x-auto">
                 {groupedDocuments.map((docGroup, index) => (
                   <Tooltip key={index}>
@@ -567,9 +593,9 @@ const CleanFactInterface = () => {
           )}
 
           {/* Document content - INDEPENDENT SCROLLING */}
-          <div className="flex-1 bg-white min-h-0">
+          <div className="flex-1 bg-card min-h-0">
             <ScrollArea ref={documentScrollRef} className="h-full">
-              <div className="p-4">
+              <div className="p-4 lg:p-6 xl:p-8">
               {groupedDocuments.length > 0 ? (
                 groupedDocuments[selectedDocument] ? (
                   renderDocument({
@@ -577,16 +603,16 @@ const CleanFactInterface = () => {
                     highlightedFact: highlightedFactId
                   })
                 ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>No document selected</p>
+                  <div className="text-center py-8 lg:py-12 text-muted-foreground">
+                    <FileText className="w-12 h-12 lg:w-16 lg:h-16 mx-auto mb-3 lg:mb-4 opacity-50" />
+                    <p className="text-base lg:text-lg">No document selected</p>
                   </div>
                 )
               ) : (
-                <div className="text-center py-16 text-gray-500">
-                  <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <h3 className="text-lg font-medium mb-2">No Documents Yet</h3>
-                  <p>Ask a question to see relevant source documents</p>
+                <div className="text-center py-16 lg:py-20 text-muted-foreground">
+                  <FileText className="w-16 h-16 lg:w-20 lg:h-20 mx-auto mb-4 lg:mb-6 opacity-50" />
+                  <h3 className="text-xl lg:text-2xl font-medium mb-2 lg:mb-3">No Documents Yet</h3>
+                  <p className="text-base lg:text-lg">Ask a question to see relevant source documents</p>
                 </div>
               )}
               </div>
