@@ -46,6 +46,6 @@ Finished processing all anthology papers, stats:
 |fails to convert | 63 |
 |empty MDs (??) | 154 |
 
-Out of 60 PDFs that fail to convert, 47 will fail fast with an exception, the other 16 are listed
+Out of the 63 PDFs that fail to convert, 47 will fail fast with an exception, the other 16 are listed
 as `TO_SKIP` because they either cause segfaults (7 papers) or take a long time to fail (9 papers)
 
