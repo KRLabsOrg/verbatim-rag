@@ -3,8 +3,9 @@ import logging
 
 
 from verbatim_rag import VerbatimIndex, VerbatimRAG
-from verbatim_rag.embedding_providers import SpladeProvider
+from verbatim_rag.embedding_providers import SentenceTransformersProvider
 from verbatim_rag.vector_stores import LocalMilvusStore
+from verbatim_rag.core import LLMClient
 
 
 def get_args():
@@ -19,21 +20,33 @@ def get_args():
 
 def main():
     args = get_args()
-    store = LocalMilvusStore(
-        db_path=args.index_file,
-        collection_name=args.collection_name,
-        enable_sparse=True,
-    )
-    sparse_provider = SpladeProvider(
-        model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
-        device=args.device,
-    )
-    # chunker = MarkdownChunkerProvider()
-    index = VerbatimIndex(
-        vector_store=store, sparse_provider=sparse_provider
-    )  # , chunker_provider=chunker
 
-    rag = VerbatimRAG(index)
+    from verbatim_rag.index import VerbatimIndex
+    from verbatim_rag.vector_stores import LocalMilvusStore
+    from verbatim_rag.embedding_providers import SentenceTransformersProvider
+
+    llm_client = LLMClient(
+        model="moonshotai/kimi-k2-instruct-0905",
+        api_base="https://api.groq.com/openai/v1/",
+    )
+
+    dense_provider = SentenceTransformersProvider(
+        model_name="ibm-granite/granite-embedding-small-english-r2", device="cuda"
+    )
+
+    # Create vector store
+    vector_store = LocalMilvusStore(
+        db_path=args.index_file,
+        collection_name="acl",
+        enable_dense=True,
+        enable_sparse=False,
+        dense_dim=dense_provider.get_dimension(),
+        nlist=16384,
+    )
+
+    # Create index
+    index = VerbatimIndex(vector_store=vector_store, dense_provider=dense_provider)
+    rag = VerbatimRAG(index, llm_client=llm_client)
     while True:
         test_query = input(">")
         logging.info(f"asking: {test_query}")

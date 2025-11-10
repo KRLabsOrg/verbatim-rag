@@ -104,7 +104,7 @@ class DocumentProcessor:
         """
         file_path = Path(file_path)
 
-        if file_path.suffix.lower() == '.md':
+        if file_path.suffix.lower() == ".md":
             with open(file_path) as f:
                 content_md = f.read()
         else:

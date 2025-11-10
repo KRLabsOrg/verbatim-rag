@@ -79,7 +79,7 @@ class AnthologyPreprocessor:
                     stats["failure"] += 1
 
         logging.info(
-            f'finished parallel processing, {stats["success"]} papers processed, {stats["failed"]} failed'
+            f"finished parallel processing, {stats['success']} papers processed, {stats['failed']} failed"
         )
         return success
 
@@ -130,7 +130,7 @@ class AnthologyPreprocessor:
             # self._process_all_simple(to_process)
             if dry_run:
                 for fn, item in to_process.items():
-                    print(f'would process {item["input_fn"]} to {item["output_fn"]}')
+                    print(f"would process {item['input_fn']} to {item['output_fn']}")
             else:
                 self._process_all_batch(to_process)
 

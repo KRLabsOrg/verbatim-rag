@@ -138,14 +138,14 @@ class SpladeProvider(SparseEmbeddingProvider):
 
     def embed_batch(self, texts: List[str]) -> List[Dict[int, float]]:
         """Get batch of sparse embeddings."""
-        logging.debug('calling model.encode...')
+        logging.debug("calling model.encode...")
         embeddings = self.model.encode(texts)
-        logging.debug(f'{type(embeddings)=}')
-        logging.debug(f'{embeddings.shape=}')
-        logging.debug('done, running cutoff...')
+        logging.debug(f"{type(embeddings)=}")
+        logging.debug(f"{embeddings.shape=}")
+        logging.debug("done, running cutoff...")
         result = []
-        
-        if self.device == 'cpu':
+
+        if self.device == "cpu":
             embeddings = embeddings.to_dense().numpy()
         else:
             embeddings = embeddings.to_dense().cpu().numpy()
@@ -153,7 +153,7 @@ class SpladeProvider(SparseEmbeddingProvider):
             indices = np.nonzero(embedding)[0]
             result.append({int(idx): float(embedding[idx]) for idx in indices})
 
-        logging.debug('done, returning result.')
+        logging.debug("done, returning result.")
         return result
 
     def get_dimension(self) -> int:

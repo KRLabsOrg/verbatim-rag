@@ -29,7 +29,7 @@ class DocumentSchema(BaseModel):
     )  # For processing, not stored
 
     # Common metadata
-    title: Optional[str] = Field(None, max_length=500)
+    title: Optional[str] = Field(None, max_length=5000, description="Document title")
     source: Optional[str] = Field(None, description="URL or file path")
     doc_type: Optional[str] = Field(None, description="Document type identifier")
     content_type: DocumentType = Field(

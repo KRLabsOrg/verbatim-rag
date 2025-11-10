@@ -11,9 +11,13 @@ from pathlib import Path
 from tqdm import tqdm
 
 from verbatim_rag import VerbatimIndex, VerbatimRAG
-from verbatim_rag.embedding_providers import SpladeProvider
+from verbatim_rag.embedding_providers import (
+    SpladeProvider,
+    SentenceTransformersProvider,
+)
 from verbatim_rag.ingestion import DocumentProcessor
 from verbatim_rag.vector_stores import LocalMilvusStore
+from verbatim_rag.schema import DocumentSchema
 
 
 def index_acl(args):
@@ -32,25 +36,35 @@ def index_acl(args):
             logging.warning(f"skipping paper not in metadata file: {paper_id}")
             continue
 
-        document = processor.process_file(
-            file_path, title=paper_id, metadata=papers[paper_id]
+        content = file_path.read_text(encoding="utf-8")
+
+        document = DocumentSchema(
+            id=paper_id,
+            content=content,
+            title=papers[paper_id]["title"],
+            url=papers[paper_id]["url"],
+            authors=papers[paper_id].get("authors", []),
+            year=papers[paper_id].get("year", None),
+            publisher=papers[paper_id].get("publisher", None),
         )
+
         documents.append(document)
 
     logging.info("indexing documents...")
 
-    sparse_provider = SpladeProvider(
-        model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
-        device=args.device,
+    dense_provider = SentenceTransformersProvider(
+        model_name="ibm-granite/granite-embedding-english-r2", device=args.device
     )
     vector_store = LocalMilvusStore(
         db_path=args.index_file,
         collection_name=args.collection_name,
-        enable_dense=False,
-        enable_sparse=True,
+        dense_dim=dense_provider.get_dimension(),
+        enable_dense=True,
+        enable_sparse=False,
+        nlist=16384,
     )
 
-    index = VerbatimIndex(vector_store=vector_store, sparse_provider=sparse_provider)
+    index = VerbatimIndex(vector_store=vector_store, dense_provider=dense_provider)
 
     index.add_documents(documents)
     return index

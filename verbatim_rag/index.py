@@ -177,9 +177,14 @@ class VerbatimIndex:
         Returns:
             Text with document metadata appended
         """
-        parts = [text, "", "---"]
+        parts = []
+        if doc.title:
+            parts.append(f"# {doc.title}\n\n")
+
+        parts += [text, "", "---"]
         parts.append(f"Document: {doc.title or 'Unknown'}")
-        parts.append(f"Source: {doc.source or 'Unknown'}")
+        if doc.source:
+            parts.append(f"Source: {doc.source or 'Unknown'}")
 
         # Add custom metadata (skip sensitive fields)
         if doc.metadata:
