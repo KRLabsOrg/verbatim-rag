@@ -16,7 +16,26 @@ logging.basicConfig(
 )
 # log = logging.getLogger(__name__)
 
-TO_SKIP = {"2025.acl-long.1427", "D18-1021", "2024.emnlp-main.85"}
+TO_SKIP = {
+    # these cause segfaults
+    "2025.acl-long.1427",
+    "D18-1021",
+    "2024.emnlp-main.85",
+    "2024.findings-emnlp.401",
+    "2024.findings-emnlp.630",
+    "P14-5018",
+    "2025.iwslt-1.6",
+    # these fail slowly
+    "P17-1149",
+    "2021.naacl-main.193",
+    "2009.eamt-smart.9",
+    "W02-2017",
+    "W03-0604",
+    "W02-1004",
+    "W10-1405",
+    "2024.findings-acl.961",
+    "2025.findings-naacl.300"
+}
 
 
 class AnthologyPreprocessor:
