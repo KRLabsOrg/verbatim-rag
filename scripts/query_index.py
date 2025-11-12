@@ -21,23 +21,19 @@ def get_args():
 def main():
     args = get_args()
 
-    from verbatim_rag.index import VerbatimIndex
-    from verbatim_rag.vector_stores import LocalMilvusStore
-    from verbatim_rag.embedding_providers import SentenceTransformersProvider
-
     llm_client = LLMClient(
         model="moonshotai/kimi-k2-instruct-0905",
         api_base="https://api.groq.com/openai/v1/",
     )
 
     dense_provider = SentenceTransformersProvider(
-        model_name="ibm-granite/granite-embedding-small-english-r2", device="cuda"
+        model_name="ibm-granite/granite-embedding-english-r2", device=args.device
     )
 
     # Create vector store
     vector_store = LocalMilvusStore(
         db_path=args.index_file,
-        collection_name="acl",
+        collection_name=args.collection_name,
         enable_dense=True,
         enable_sparse=False,
         dense_dim=dense_provider.get_dimension(),
