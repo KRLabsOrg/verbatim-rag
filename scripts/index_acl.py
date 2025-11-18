@@ -12,19 +12,17 @@ from tqdm import tqdm
 
 from verbatim_rag import VerbatimIndex, VerbatimRAG
 from verbatim_rag.embedding_providers import (
-    SpladeProvider,
     SentenceTransformersProvider,
 )
-from verbatim_rag.ingestion import DocumentProcessor
 from verbatim_rag.vector_stores import LocalMilvusStore
 from verbatim_rag.schema import DocumentSchema
+from verbatim_rag.chunker_providers import MarkdownChunkerProvider
 
 
 def index_acl(args):
     with open(args.metadata_file) as f:
         papers = {paper["url"].split("/")[-2]: paper for paper in json.load(f)}
 
-    processor = DocumentProcessor()
     logging.info("loading and chunking documents...")
     documents = []
     for file_path in tqdm(Path(args.input_dir).rglob("*")):
@@ -52,6 +50,10 @@ def index_acl(args):
 
     logging.info("indexing documents...")
 
+    chunker = MarkdownChunkerProvider(
+        min_chunk_size=500,
+        max_chunk_size=5000,
+    )
     dense_provider = SentenceTransformersProvider(
         model_name="ibm-granite/granite-embedding-english-r2", device=args.device
     )
@@ -64,7 +66,11 @@ def index_acl(args):
         nlist=16384,
     )
 
-    index = VerbatimIndex(vector_store=vector_store, dense_provider=dense_provider)
+    index = VerbatimIndex(
+        vector_store=vector_store,
+        dense_provider=dense_provider,
+        chunker_provider=chunker,
+    )
 
     index.add_documents(documents)
     return index
