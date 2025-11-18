@@ -12,6 +12,7 @@ from .base import TemplateStrategy
 from .static import StaticTemplate
 from .contextual import ContextualTemplate
 from .random import RandomTemplate
+from .question_specific import QuestionSpecificTemplate
 from ..llm_client import LLMClient
 
 
@@ -31,7 +32,7 @@ class TemplateManager:
         Initialize template manager.
 
         :param llm_client: Optional LLM client for contextual and random modes
-        :param default_mode: Default template mode ("static", "contextual", "random")
+        :param default_mode: Default template mode ("static", "contextual", "random", "question_specific")
         """
         self.llm_client = llm_client
         self.current_mode = default_mode
@@ -41,6 +42,7 @@ class TemplateManager:
             "static": StaticTemplate(),
             "contextual": ContextualTemplate(llm_client) if llm_client else None,
             "random": RandomTemplate(llm_client=llm_client),
+            "question_specific": QuestionSpecificTemplate(),
         }
 
         # Validate initial mode
@@ -318,3 +320,25 @@ class TemplateManager:
                 print(f"Template generation failed: {e}")
 
         return False
+
+    def use_question_specific_mode(
+        self, templates: Optional[Dict[str, Dict[str, Any]]] = None
+    ) -> bool:
+        """
+        Switch to question-specific mode with optional template definitions.
+
+        :param templates: Optional dictionary mapping category names to template configs
+                          Format: {
+                              "category_name": {
+                                  "template": "Template with [RELEVANT_SENTENCES]",
+                                  "examples": ["Example question 1", "Example question 2"]
+                              }
+                          }
+        :return: True if switched successfully
+        """
+        if templates:
+            question_specific_strategy = QuestionSpecificTemplate()
+            question_specific_strategy.set_question_templates(templates)
+            self.strategies["question_specific"] = question_specific_strategy
+
+        return self.set_mode("question_specific")

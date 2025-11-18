@@ -7,6 +7,7 @@ from verbatim_core.templates import (
     StaticTemplate,
     ContextualTemplate,
     RandomTemplate,
+    QuestionSpecificTemplate,
     TemplateManager,
     TemplateFiller,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "StaticTemplate",
     "ContextualTemplate",
     "RandomTemplate",
+    "QuestionSpecificTemplate",
     "TemplateManager",
     "TemplateFiller",
 ]

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "verbatim-rag"
-version = "0.1.6"
+version = "0.1.7"
 description = "A minimalistic RAG system that prevents hallucination by ensuring all generated content is explicitly derived from source documents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,7 +38,8 @@ dependencies = [
     "PyYAML>=6.0",
     
     # Vector storage and search
-    "pymilvus[milvus-lite]>=2.3.0",
+    "pymilvus>=2.6.3",
+    "pymilvus[milvus_lite]",
     
     # Embeddings
     "sentence-transformers>=5.0.0",

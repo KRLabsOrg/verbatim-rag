@@ -86,7 +86,7 @@ async def demo_verbatim_doc():
 
     rag = VerbatimRAG(index)
     # Configure for clean extraction (no template wrapper)
-    rag.template_manager.use_single_mode("[RELEVANT_SENTENCES]")
+    rag.template_manager.use_static_mode("[RELEVANT_SENTENCES]")
 
     # Create VerbatimDOC processor
     adapter = VerbatimRAGAdapter(rag)
