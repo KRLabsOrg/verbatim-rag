@@ -51,6 +51,7 @@ Based on the available documents:
         templates: Optional[List[Dict[str, Any]]] = None,
         model_name: str = "all-MiniLM-L6-v2",
         device: str = "cpu",
+        citation_mode: str = "inline",
     ):
         """
         Initialize question-specific template strategy.
@@ -62,7 +63,8 @@ Based on the available documents:
         self.templates = templates or []
         self.model_name = model_name
         self.device = device
-        self.filler = TemplateFiller()
+        self.citation_mode = citation_mode
+        self.filler = TemplateFiller(citation_mode=citation_mode)
         self._embedder = None
         self._example_embeddings = (
             None  # Will store stacked embeddings for efficient matching
@@ -70,6 +72,10 @@ Based on the available documents:
 
         if self.templates:
             self._validate_and_embed_templates()
+
+    def set_citation_mode(self, citation_mode: str) -> None:
+        self.citation_mode = citation_mode
+        self.filler.set_citation_mode(citation_mode)
 
     def _get_embedder(self):
         """Lazy load the embedding model."""

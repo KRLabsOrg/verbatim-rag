@@ -21,7 +21,7 @@ from verbatim_rag.models import (
 )
 from verbatim_rag.streaming import StreamingRAG
 from verbatim_rag.templates import TemplateManager
-from verbatim_rag.verbatim_doc import VerbatimDOC, VerbatimRAGAdapter
+from verbatim_rag.verbatim_doc import VerbatimDOC
 from verbatim_rag.schema import DocumentSchema
 from verbatim_rag.transform import VerbatimTransform
 from verbatim_rag.transform import verbatim_query, verbatim_query_async

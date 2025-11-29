@@ -28,14 +28,15 @@ Based on the available documents, here are the key findings:
 ---
 *These excerpts are taken verbatim from the source documents to ensure accuracy.*"""
 
-    def __init__(self, template: str = None):
+    def __init__(self, template: str = None, citation_mode: str = "inline"):
         """
         Initialize static template strategy.
 
         :param template: Custom template string (uses default if None)
         """
         self.template = template or self.DEFAULT_TEMPLATE
-        self.filler = TemplateFiller()
+        self.citation_mode = citation_mode
+        self.filler = TemplateFiller(citation_mode=citation_mode)
         self.validate_template(self.template)
 
     def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
@@ -92,6 +93,13 @@ Based on the available documents, here are the key findings:
         """
         self.validate_template(template)
         self.template = template
+
+    def set_citation_mode(self, citation_mode: str) -> None:
+        """
+        Update citation display mode (inline vs hidden).
+        """
+        self.citation_mode = citation_mode
+        self.filler.set_citation_mode(citation_mode)
 
     def get_template(self) -> str:
         """

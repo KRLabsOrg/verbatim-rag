@@ -60,7 +60,10 @@ The relevant information from the documents includes:
     ]
 
     def __init__(
-        self, templates: List[str] = None, llm_client: Optional[LLMClient] = None
+        self,
+        templates: List[str] = None,
+        llm_client: Optional[LLMClient] = None,
+        citation_mode: str = "inline",
     ):
         """
         Initialize random template strategy.
@@ -70,11 +73,16 @@ The relevant information from the documents includes:
         """
         self.templates = templates or self.DEFAULT_TEMPLATES.copy()
         self.llm_client = llm_client
-        self.filler = TemplateFiller()
+        self.citation_mode = citation_mode
+        self.filler = TemplateFiller(citation_mode=citation_mode)
 
         # Validate all templates
         for template in self.templates:
             self.validate_template(template)
+
+    def set_citation_mode(self, citation_mode: str) -> None:
+        self.citation_mode = citation_mode
+        self.filler.set_citation_mode(citation_mode)
 
     def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
         """

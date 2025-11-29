@@ -128,6 +128,98 @@ class LLMClient:
             print(f"Async span extraction failed: {e}")
             return {doc_id: [] for doc_id in documents.keys()}
 
+    def extract_structured(
+        self,
+        question: str,
+        template: str,
+        placeholders: Dict[str, str],
+        documents: List[str],
+    ) -> Dict[str, List[str]]:
+        """
+        Extract spans organized by template placeholders.
+
+        :param question: The user's question
+        :param template: Template with placeholders like [METHODOLOGY]
+        :param placeholders: Dict mapping placeholder names to hints
+        :param documents: List of document texts
+        :return: Dict mapping placeholder names to lists of verbatim spans
+        """
+        prompt = self._build_structured_extraction_prompt(
+            question, template, placeholders, documents
+        )
+        try:
+            response = self.complete(prompt, json_mode=True)
+            return json.loads(response)
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Structured extraction failed: {e}")
+            return {name: [] for name in placeholders.keys()}
+
+    async def extract_structured_async(
+        self,
+        question: str,
+        template: str,
+        placeholders: Dict[str, str],
+        documents: List[str],
+    ) -> Dict[str, List[str]]:
+        """
+        Async version of structured extraction.
+
+        :param question: The user's question
+        :param template: Template with placeholders like [METHODOLOGY]
+        :param placeholders: Dict mapping placeholder names to hints
+        :param documents: List of document texts
+        :return: Dict mapping placeholder names to lists of verbatim spans
+        """
+        prompt = self._build_structured_extraction_prompt(
+            question, template, placeholders, documents
+        )
+        try:
+            response = await self.complete_async(prompt, json_mode=True)
+            return json.loads(response)
+        except (json.JSONDecodeError, KeyError) as e:
+            print(f"Structured extraction failed: {e}")
+            return {name: [] for name in placeholders.keys()}
+
+    def _build_structured_extraction_prompt(
+        self,
+        question: str,
+        template: str,
+        placeholders: Dict[str, str],
+        documents: List[str],
+    ) -> str:
+        """Build prompt for structured extraction."""
+        placeholder_spec = "\n".join(
+            f"- {name}: {hint}" for name, hint in placeholders.items()
+        )
+        docs_text = "\n\n---\n\n".join(
+            f"[Document {i + 1}]\n{doc}" for i, doc in enumerate(documents)
+        )
+
+        return f"""Extract verbatim spans from the documents for each placeholder in the template.
+
+Question: {question}
+
+Template to fill:
+{template}
+
+Placeholders to extract for:
+{placeholder_spec}
+
+Documents:
+{docs_text}
+
+Instructions:
+1. For each placeholder, find EXACT verbatim quotes from the documents
+2. Copy text exactly - no paraphrasing or modification
+3. Return a JSON object mapping placeholder names to arrays of verbatim spans
+4. If no relevant information for a placeholder, use an empty array
+
+Return ONLY valid JSON like:
+{{
+  "METHODOLOGY": ["exact quote about methods..."],
+  "RESULTS": ["exact quote about results..."]
+}}"""
+
     def generate_template(
         self,
         question: str,

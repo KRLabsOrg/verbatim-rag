@@ -22,7 +22,12 @@ class ContextualTemplate(TemplateStrategy):
     larger span sets.
     """
 
-    def __init__(self, llm_client: LLMClient, use_per_fact: bool = True):
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        use_per_fact: bool = True,
+        citation_mode: str = "inline",
+    ):
         """
         Initialize contextual template strategy.
 
@@ -31,11 +36,16 @@ class ContextualTemplate(TemplateStrategy):
         """
         self.llm_client = llm_client
         self.use_per_fact = use_per_fact
-        self.filler = TemplateFiller()
+        self.citation_mode = citation_mode
+        self.filler = TemplateFiller(citation_mode=citation_mode)
 
         # Cache for generated templates (optional optimization)
         self._template_cache: Dict[str, str] = {}
         self._max_cache_size = 100
+
+    def set_citation_mode(self, citation_mode: str) -> None:
+        self.citation_mode = citation_mode
+        self.filler.set_citation_mode(citation_mode)
 
     def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
         """

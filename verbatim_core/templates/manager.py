@@ -13,6 +13,7 @@ from .static import StaticTemplate
 from .contextual import ContextualTemplate
 from .random import RandomTemplate
 from .question_specific import QuestionSpecificTemplate
+from .structured import StructuredTemplate
 from ..llm_client import LLMClient
 
 
@@ -26,23 +27,40 @@ class TemplateManager:
     """
 
     def __init__(
-        self, llm_client: Optional[LLMClient] = None, default_mode: str = "static"
+        self,
+        llm_client: Optional[LLMClient] = None,
+        default_mode: str = "static",
+        rag_system=None,
     ):
         """
         Initialize template manager.
 
         :param llm_client: Optional LLM client for contextual and random modes
-        :param default_mode: Default template mode ("static", "contextual", "random", "question_specific")
+        :param default_mode: Default template mode ("static", "contextual", "random", "question_specific", "structured")
+        :param rag_system: Optional RAG system for structured mode
         """
         self.llm_client = llm_client
+        self.rag_system = rag_system
         self.current_mode = default_mode
+        self.citation_mode = "inline"
 
         # Initialize strategies
         self.strategies: Dict[str, TemplateStrategy] = {
-            "static": StaticTemplate(),
-            "contextual": ContextualTemplate(llm_client) if llm_client else None,
-            "random": RandomTemplate(llm_client=llm_client),
-            "question_specific": QuestionSpecificTemplate(),
+            "static": StaticTemplate(citation_mode=self.citation_mode),
+            "contextual": ContextualTemplate(
+                llm_client, citation_mode=self.citation_mode
+            )
+            if llm_client
+            else None,
+            "random": RandomTemplate(
+                llm_client=llm_client, citation_mode=self.citation_mode
+            ),
+            "question_specific": QuestionSpecificTemplate(
+                citation_mode=self.citation_mode
+            ),
+            "structured": StructuredTemplate(
+                rag_system=rag_system, citation_mode=self.citation_mode
+            ),
         }
 
         # Validate initial mode
@@ -342,3 +360,98 @@ class TemplateManager:
             self.strategies["question_specific"] = question_specific_strategy
 
         return self.set_mode("question_specific")
+
+    def use_structured_mode(
+        self,
+        template: str = None,
+        placeholder_mappings: Optional[Dict[str, str]] = None,
+    ) -> bool:
+        """
+        Switch to structured mode with semantic placeholders.
+
+        :param template: Template with semantic placeholders like [METHODOLOGY], [RESULTS]
+        :param placeholder_mappings: Custom placeholder → query mappings
+        :return: True if switched successfully
+
+        Example:
+            manager.use_structured_mode(
+                template="# Analysis\\n## Method\\n[METHODOLOGY]\\n## Results\\n[RESULTS]",
+                placeholder_mappings={"THEIR_METHOD": "what method did the baseline use"}
+            )
+        """
+        structured_strategy = self.strategies.get("structured")
+
+        if structured_strategy is None:
+            structured_strategy = StructuredTemplate(
+                rag_system=self.rag_system, citation_mode=self.citation_mode
+            )
+            self.strategies["structured"] = structured_strategy
+        else:
+            structured_strategy.set_citation_mode(self.citation_mode)
+
+        # Update RAG system if not set
+        if self.rag_system and not structured_strategy.rag_system:
+            structured_strategy.set_rag_system(self.rag_system)
+
+        # Set template if provided
+        if template:
+            structured_strategy.set_template(template)
+
+        # Add custom mappings if provided
+        if placeholder_mappings:
+            for placeholder, query in placeholder_mappings.items():
+                structured_strategy.add_placeholder_mapping(placeholder, query)
+
+        return self.set_mode("structured")
+
+    def set_rag_system(self, rag_system) -> None:
+        """
+        Set the RAG system for modes that need it (structured).
+
+        :param rag_system: RAG system instance
+        """
+        self.rag_system = rag_system
+
+        # Update strategies that need RAG system
+        if "structured" in self.strategies and self.strategies["structured"]:
+            self.strategies["structured"].set_rag_system(rag_system)
+
+    async def process_structured_async(
+        self,
+        question: str,
+        template: Optional[str] = None,
+        placeholder_mappings: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """
+        Convenience helper to run structured extraction.
+
+        Note: Prefer calling rag.query_async() directly after setting up
+        structured mode. This method is kept for convenience.
+        """
+        if not self.use_structured_mode(
+            template=template, placeholder_mappings=placeholder_mappings
+        ):
+            raise ValueError("Structured mode unavailable")
+
+        if not self.rag_system:
+            raise ValueError("RAG system not set")
+
+        # Delegate to RAG query which handles structured mode
+        response = await self.rag_system.query_async(question)
+        return response.answer
+
+    def set_citation_mode(self, mode: str) -> None:
+        """
+        Configure how citations are rendered inside filled templates.
+
+        :param mode: Citation rendering mode ("inline" or "hidden")
+        """
+        allowed = {"inline", "hidden"}
+        if mode not in allowed:
+            raise ValueError(f"Unsupported citation mode: {mode}")
+
+        self.citation_mode = mode
+
+        for strategy in self.strategies.values():
+            if strategy and hasattr(strategy, "set_citation_mode"):
+                strategy.set_citation_mode(mode)
