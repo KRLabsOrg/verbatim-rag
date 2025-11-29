@@ -11,10 +11,11 @@ Usage:
 
 import asyncio
 from verbatim_rag import VerbatimRAG, VerbatimIndex, Document
-from verbatim_rag.verbatim_doc import VerbatimDOC, VerbatimRAGAdapter
+from verbatim_rag.verbatim_doc import VerbatimDOC
 from verbatim_rag.document import DocumentType, Chunk, ProcessedChunk, ChunkType
 from verbatim_rag.vector_stores import LocalMilvusStore
 from verbatim_rag.embedding_providers import SentenceTransformersProvider
+from verbatim_rag.core import LLMClient
 
 
 async def demo_verbatim_doc():
@@ -84,13 +85,14 @@ async def demo_verbatim_doc():
     index = VerbatimIndex(vector_store=vector_store, dense_provider=dense_provider)
     index.add_documents([doc])
 
-    rag = VerbatimRAG(index)
-    # Configure for clean extraction (no template wrapper)
-    rag.template_manager.use_static_mode("[RELEVANT_SENTENCES]")
+    llm_client = LLMClient(
+        model="moonshotai/kimi-k2-instruct-0905",
+        api_base="https://api.groq.com/openai/v1/",
+    )
+    rag = VerbatimRAG(index, llm_client=llm_client)
 
-    # Create VerbatimDOC processor
-    adapter = VerbatimRAGAdapter(rag)
-    doc_processor = VerbatimDOC(adapter)
+    # Create VerbatimDOC processor - pass VerbatimRAG directly
+    doc_processor = VerbatimDOC(rag)
 
     print("✅ VerbatimDOC system ready")
 

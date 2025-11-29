@@ -18,7 +18,6 @@ from typing import List, Dict, Any, Tuple, Union, Optional
 from pathlib import Path
 
 
-
 @dataclass
 class Query:
     """A single query extracted from a document"""
