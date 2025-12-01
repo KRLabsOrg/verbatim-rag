@@ -134,22 +134,24 @@ class LLMClient:
         template: str,
         placeholders: Dict[str, str],
         documents: List[str],
-    ) -> Dict[str, List[str]]:
+    ) -> Dict[str, List[Dict[str, any]]]:
         """
-        Extract spans organized by template placeholders.
+        Extract spans organized by template placeholders with document attribution.
 
         :param question: The user's question
         :param template: Template with placeholders like [METHODOLOGY]
         :param placeholders: Dict mapping placeholder names to hints
         :param documents: List of document texts
-        :return: Dict mapping placeholder names to lists of verbatim spans
+        :return: Dict mapping placeholder names to lists of {text, doc} objects
         """
         prompt = self._build_structured_extraction_prompt(
             question, template, placeholders, documents
         )
         try:
             response = self.complete(prompt, json_mode=True)
-            return json.loads(response)
+            return self._normalize_structured_response(
+                json.loads(response), placeholders
+            )
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Structured extraction failed: {e}")
             return {name: [] for name in placeholders.keys()}
@@ -160,25 +162,49 @@ class LLMClient:
         template: str,
         placeholders: Dict[str, str],
         documents: List[str],
-    ) -> Dict[str, List[str]]:
+    ) -> Dict[str, List[Dict[str, any]]]:
         """
-        Async version of structured extraction.
+        Async version of structured extraction with document attribution.
 
         :param question: The user's question
         :param template: Template with placeholders like [METHODOLOGY]
         :param placeholders: Dict mapping placeholder names to hints
         :param documents: List of document texts
-        :return: Dict mapping placeholder names to lists of verbatim spans
+        :return: Dict mapping placeholder names to lists of {text, doc} objects
         """
         prompt = self._build_structured_extraction_prompt(
             question, template, placeholders, documents
         )
         try:
             response = await self.complete_async(prompt, json_mode=True)
-            return json.loads(response)
+            return self._normalize_structured_response(
+                json.loads(response), placeholders
+            )
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Structured extraction failed: {e}")
             return {name: [] for name in placeholders.keys()}
+
+    def _normalize_structured_response(
+        self, response: Dict, placeholders: Dict[str, str]
+    ) -> Dict[str, List[Dict[str, any]]]:
+        """
+        Normalize LLM response to ensure consistent format.
+
+        Handles both old format (list of strings) and new format (list of {text, doc}).
+        """
+        result = {}
+        for name in placeholders.keys():
+            items = response.get(name, [])
+            normalized = []
+            for item in items:
+                if isinstance(item, str):
+                    # Old format - just text, no doc attribution
+                    normalized.append({"text": item, "doc": 0})
+                elif isinstance(item, dict) and "text" in item:
+                    # New format with doc attribution
+                    normalized.append({"text": item["text"], "doc": item.get("doc", 0)})
+            result[name] = normalized
+        return result
 
     def _build_structured_extraction_prompt(
         self,
@@ -187,12 +213,12 @@ class LLMClient:
         placeholders: Dict[str, str],
         documents: List[str],
     ) -> str:
-        """Build prompt for structured extraction."""
+        """Build prompt for structured extraction with document attribution."""
         placeholder_spec = "\n".join(
             f"- {name}: {hint}" for name, hint in placeholders.items()
         )
         docs_text = "\n\n---\n\n".join(
-            f"[Document {i + 1}]\n{doc}" for i, doc in enumerate(documents)
+            f"[Document {i}]\n{doc}" for i, doc in enumerate(documents)
         )
 
         return f"""Extract verbatim spans from the documents for each placeholder in the template.
@@ -211,13 +237,14 @@ Documents:
 Instructions:
 1. For each placeholder, find EXACT verbatim quotes from the documents
 2. Copy text exactly - no paraphrasing or modification
-3. Return a JSON object mapping placeholder names to arrays of verbatim spans
-4. If no relevant information for a placeholder, use an empty array
+3. For each span, include which document it came from (0-indexed)
+4. Return a JSON object mapping placeholder names to arrays of objects with "text" and "doc" fields
+5. If no relevant information for a placeholder, use an empty array
 
 Return ONLY valid JSON like:
 {{
-  "METHODOLOGY": ["exact quote about methods..."],
-  "RESULTS": ["exact quote about results..."]
+  "METHODOLOGY": [{{"text": "exact quote about methods...", "doc": 0}}],
+  "RESULTS": [{{"text": "exact quote about results...", "doc": 1}}]
 }}"""
 
     def generate_template(
