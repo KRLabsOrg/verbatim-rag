@@ -153,13 +153,11 @@ class StructuredTemplate(TemplateStrategy):
             self.citation_mode = state["citation_mode"]
 
     # ---------------------------------------------------------------- structured filling
-    def fill_with_spans(self, span_map: Dict[str, List]) -> str:
+    def fill_with_spans(self, span_map: Dict[str, List[str]]) -> str:
         """
         Fill the template with per-placeholder spans.
 
         :param span_map: Dict mapping placeholder names to lists of spans
-                         Supports both old format (list of strings) and
-                         new format (list of {text, doc} dicts)
         :return: Filled template
         """
         if not self.template:
@@ -167,79 +165,36 @@ class StructuredTemplate(TemplateStrategy):
 
         result = self.template
 
-        # Global citation counter for consistent numbering across all placeholders
-        citation_counter = [1]  # Use list to allow mutation in nested function
-
-        # Find all placeholders in order (not reversed) to maintain citation order
-        matches = list(self.PLACEHOLDER_PATTERN.finditer(self.template))
-
-        # Process in reverse order for string replacement, but track citation numbers in forward order
-        # First pass: calculate citation numbers for each placeholder
-        placeholder_citations = {}
-        for match in matches:
+        # Find all placeholders and replace them
+        for match in reversed(list(self.PLACEHOLDER_PATTERN.finditer(self.template))):
             name = match.group(1)
             if name.startswith("FACT_") or name in self.SYSTEM_PLACEHOLDERS:
                 continue
 
-            items = span_map.get(name, [])
-            texts = self._extract_texts(items)
-
-            # Assign citation numbers
-            if texts:
-                start_num = citation_counter[0]
-                placeholder_citations[name] = (texts, start_num)
-                citation_counter[0] += len(texts)
-            else:
-                placeholder_citations[name] = ([], 0)
-
-        # Second pass: replace placeholders with formatted spans
-        for match in reversed(matches):
-            name = match.group(1)
-            if name.startswith("FACT_") or name in self.SYSTEM_PLACEHOLDERS:
-                continue
-
-            texts, start_num = placeholder_citations.get(name, ([], 0))
-            replacement = self._format_spans_with_offset(texts, start_num)
+            spans = span_map.get(name, [])
+            replacement = self._format_spans(spans)
             result = result[: match.start()] + replacement + result[match.end() :]
 
         return result
 
-    def _extract_texts(self, items: List) -> List[str]:
-        """Extract text strings from items (handles both string and dict formats)."""
-        texts = []
-        for item in items:
-            if isinstance(item, str):
-                text = item.strip()
-            elif isinstance(item, dict):
-                text = item.get("text", "").strip()
-            else:
-                continue
-            if text:
-                texts.append(text)
-        return texts
+    def _format_spans(self, spans: List[str]) -> str:
+        """Format spans for display."""
+        if not spans:
+            return "(no relevant information found)"
 
-    def _format_spans_with_offset(self, texts: List[str], start_num: int) -> str:
-        """
-        Format spans for display with global citation numbering.
-
-        :param texts: List of span texts
-        :param start_num: Starting citation number for this placeholder
-        """
-        if not texts:
+        cleaned = [s.strip() for s in spans if s.strip()]
+        if not cleaned:
             return "(no relevant information found)"
 
         if self.citation_mode == "inline":
-            if len(texts) == 1:
-                return f"[{start_num}] {texts[0]}"
-            # Global sequential numbering
-            return "\n\n".join(
-                f"[{start_num + i}] {text}" for i, text in enumerate(texts)
-            )
+            if len(cleaned) == 1:
+                return cleaned[0]
+            return "\n\n".join(f"[{i}] {span}" for i, span in enumerate(cleaned, 1))
 
-        # hidden citation mode - just text
-        if len(texts) == 1:
-            return texts[0]
-        return "\n\n".join(texts)
+        # hidden citation mode
+        if len(cleaned) == 1:
+            return cleaned[0]
+        return "\n\n".join(cleaned)
 
     # ---------------------------------------------------------------- async fill (deprecated, use RAG.query)
     async def fill_async(

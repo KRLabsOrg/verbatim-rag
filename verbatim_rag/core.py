@@ -200,7 +200,7 @@ class VerbatimRAG:
 
         :param question: The user's question
         :param search_results: Retrieved documents
-        :return: Tuple of (filled_answer, spans_dict in response_builder format)
+        :return: Tuple of (filled_answer, spans_dict)
         """
         strategy = self.template_manager.strategies["structured"]
         template = strategy.template
@@ -209,18 +209,15 @@ class VerbatimRAG:
         # Get document texts
         doc_texts = [getattr(r, "text", str(r)) for r in search_results]
 
-        # Structured extraction via LLM - returns {PLACEHOLDER: [{text, doc}, ...]}
+        # Structured extraction via LLM
         span_map = self.llm_client.extract_structured(
             question, template, placeholders, doc_texts
         )
 
-        # Fill template with spans
+        # Fill template
         answer = strategy.fill_with_spans(span_map)
 
-        # Convert to response_builder format: {doc_text: [spans]}
-        relevant_spans = self._convert_structured_to_doc_spans(span_map, doc_texts)
-
-        return answer, relevant_spans
+        return answer, span_map
 
     async def query_async(
         self, question: str, filter: Optional[str] = None
@@ -276,7 +273,7 @@ class VerbatimRAG:
 
         :param question: The user's question
         :param search_results: Retrieved documents
-        :return: Tuple of (filled_answer, spans_dict in response_builder format)
+        :return: Tuple of (filled_answer, spans_dict)
         """
         strategy = self.template_manager.strategies["structured"]
         template = strategy.template
@@ -285,41 +282,15 @@ class VerbatimRAG:
         # Get document texts
         doc_texts = [getattr(r, "text", str(r)) for r in search_results]
 
-        # Structured extraction via LLM - returns {PLACEHOLDER: [{text, doc}, ...]}
+        # Structured extraction via LLM
         span_map = await self.llm_client.extract_structured_async(
             question, template, placeholders, doc_texts
         )
 
-        # Fill template with spans (pass the new format)
+        # Fill template
         answer = strategy.fill_with_spans(span_map)
 
-        # Convert to response_builder format: {doc_text: [spans]}
-        relevant_spans = self._convert_structured_to_doc_spans(span_map, doc_texts)
-
-        return answer, relevant_spans
-
-    def _convert_structured_to_doc_spans(self, span_map: dict, doc_texts: list) -> dict:
-        """
-        Convert structured span_map to response_builder format.
-
-        :param span_map: {PLACEHOLDER: [{text, doc}, ...]}
-        :param doc_texts: List of document texts
-        :return: {doc_text: [spans]}
-        """
-        # Initialize with empty lists for all docs
-        result = {text: [] for text in doc_texts}
-
-        # Collect all spans by document
-        for placeholder, items in span_map.items():
-            for item in items:
-                doc_idx = item.get("doc", 0)
-                span_text = item.get("text", "")
-                if 0 <= doc_idx < len(doc_texts) and span_text:
-                    doc_text = doc_texts[doc_idx]
-                    if span_text not in result[doc_text]:  # Avoid duplicates
-                        result[doc_text].append(span_text)
-
-        return result
+        return answer, span_map
 
     def add_document(self, document: DocumentSchema) -> str:
         """
