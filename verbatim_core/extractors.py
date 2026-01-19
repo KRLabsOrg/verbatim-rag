@@ -177,6 +177,199 @@ class ModelSpanExtractor(SpanExtractor):
         return relevant_spans
 
 
+class SemanticHighlightExtractor(SpanExtractor):
+    """
+    Extract spans using Zilliz semantic highlighting model.
+
+    This extractor uses a pre-trained model (zilliz/semantic-highlight-bilingual-v1)
+    specifically designed for RAG highlighting tasks. It supports two output modes:
+
+    - "sentences": Returns complete sentences using the model's built-in sentence
+      splitting (cleaner boundaries, language-aware)
+    - "spans": Returns token-level spans for finer granularity (may cross sentence
+      boundaries or return partial sentences)
+
+    Unlike ModelSpanExtractor which requires training, this uses a pre-trained
+    model that works out of the box for English and Chinese text.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "zilliz/semantic-highlight-bilingual-v1",
+        device: str | None = None,
+        threshold: float = 0.5,
+        output_mode: str = "sentences",
+        language: str = "auto",
+        min_span_tokens: int = 3,
+        merge_gap: int = 2,
+    ):
+        """
+        Initialize the semantic highlight extractor.
+
+        :param model_name: HuggingFace model name
+        :param device: Device to run on (auto-detects if None)
+        :param threshold: Probability threshold (0-1)
+        :param output_mode: "sentences" for complete sentences, "spans" for token-level
+        :param language: Language hint ("en", "zh", or "auto")
+        :param min_span_tokens: Minimum tokens for a valid span (spans mode only)
+        :param merge_gap: Merge spans separated by <= N tokens (spans mode only)
+        """
+        import torch
+        from transformers import AutoModel
+
+        if output_mode not in ("sentences", "spans"):
+            raise ValueError(
+                f"output_mode must be 'sentences' or 'spans', got {output_mode!r}"
+            )
+
+        self.threshold = threshold
+        self.output_mode = output_mode
+        self.language = language
+        self.min_span_tokens = min_span_tokens
+        self.merge_gap = merge_gap
+        self._torch = torch
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+        print(f"Loading semantic highlight model: {model_name}...")
+        self.model = AutoModel.from_pretrained(
+            model_name,
+            trust_remote_code=True,
+        )
+        self.tokenizer = self.model.tokenizer
+
+    def extract_spans(
+        self, question: str, search_results: List[Any]
+    ) -> Dict[str, List[str]]:
+        """
+        Extract relevant spans from search results.
+
+        :param question: The query or question
+        :param search_results: List of search results (objects with .text attribute)
+        :return: Dictionary mapping result text to list of relevant spans
+        """
+        relevant_spans: Dict[str, List[str]] = {}
+
+        for result in search_results:
+            context = getattr(result, "text", "")
+            if not context.strip():
+                relevant_spans[context] = []
+                continue
+
+            try:
+                if self.output_mode == "sentences":
+                    spans = self._extract_sentences(question, context)
+                else:
+                    spans = self._extract_token_spans(question, context)
+                relevant_spans[context] = spans
+            except Exception as e:
+                print(f"Semantic highlight extraction failed: {e}")
+                relevant_spans[context] = []
+
+        return relevant_spans
+
+    def _extract_sentences(self, question: str, context: str) -> List[str]:
+        """Extract complete sentences using the model's built-in processing."""
+        result = self.model.process(
+            question=question,
+            context=context,
+            threshold=self.threshold,
+            language=self.language,
+            return_sentence_metrics=False,
+        )
+        sentences = result.get("highlighted_sentences", [])
+        # Clean up whitespace from sentences
+        return [s.strip() for s in sentences if s.strip()]
+
+    def _extract_token_spans(self, question: str, context: str) -> List[str]:
+        """Extract spans based on token-level probabilities."""
+        import re
+
+        # Get token-level scores
+        raw = self.model.get_raw_predictions(question, [context])
+        token_probs = raw.pruning_probs
+
+        if not raw.context_ranges:
+            return []
+
+        start_idx, end_idx = raw.context_ranges[0]
+        context_probs = token_probs[start_idx:end_idx]
+
+        # Tokenize to get offset mapping
+        encoding = self.tokenizer(
+            context,
+            return_offsets_mapping=True,
+            add_special_tokens=False,
+        )
+        offset_mapping = encoding["offset_mapping"]
+
+        # Validate lengths match
+        if len(context_probs) != len(offset_mapping):
+            print(
+                f"Warning: length mismatch probs={len(context_probs)} "
+                f"tokens={len(offset_mapping)}"
+            )
+            min_len = min(len(context_probs), len(offset_mapping))
+            context_probs = context_probs[:min_len]
+            offset_mapping = offset_mapping[:min_len]
+
+        # Find contiguous high-probability regions
+        span_regions = self._find_span_regions(context_probs)
+
+        # Convert token regions to text spans
+        spans = []
+        for token_start, token_end in span_regions:
+            token_end = min(token_end, len(offset_mapping))
+            if token_start >= len(offset_mapping):
+                continue
+
+            char_start = offset_mapping[token_start][0]
+            char_end = offset_mapping[token_end - 1][1]
+            span_text = context[char_start:char_end]
+
+            # Clean up leading/trailing punctuation
+            span_text = re.sub(r"^[\s.,;:!?\-–—]+", "", span_text)
+            span_text = re.sub(r"[\s.,;:!?\-–—]+$", "", span_text)
+            span_text = span_text.strip()
+
+            if span_text:
+                spans.append(span_text)
+
+        return spans
+
+    def _find_span_regions(self, probs) -> List[tuple]:
+        """Find contiguous regions of high-probability tokens."""
+        above_threshold = probs > self.threshold
+
+        regions = []
+        in_span = False
+        span_start = 0
+
+        for i, is_relevant in enumerate(above_threshold):
+            if is_relevant and not in_span:
+                span_start = i
+                in_span = True
+            elif not is_relevant and in_span:
+                if i - span_start >= self.min_span_tokens:
+                    regions.append((span_start, i))
+                in_span = False
+
+        if in_span and len(above_threshold) - span_start >= self.min_span_tokens:
+            regions.append((span_start, len(above_threshold)))
+
+        # Merge nearby spans
+        if regions:
+            merged = [regions[0]]
+            for start, end in regions[1:]:
+                prev_start, prev_end = merged[-1]
+                if start - prev_end <= self.merge_gap:
+                    merged[-1] = (prev_start, end)
+                else:
+                    merged.append((start, end))
+            regions = merged
+
+        return regions
+
+
 class LLMSpanExtractor(SpanExtractor):
     """Extract spans using an LLM with centralized client and batch processing."""
 
