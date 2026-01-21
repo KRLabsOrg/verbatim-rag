@@ -29,7 +29,7 @@ You are a Q&A text extraction system. Your task is to identify and mark EXACT ve
 5. If there is no relevant information, don't add any tags.
 
 # Output Format
-Wrap each relevant text span with <relevant> tags. 
+Wrap each relevant text span with <relevant> tags.
 Return ONLY the marked document text - no explanations or summaries.
 
 # Example
@@ -217,7 +217,8 @@ class VerbatimRAG:
         hybrid_weights: Optional[dict[str, float]] = None,
         rrf_k: int = 60,
         search_params: Optional[dict[str, Any]] = None,
-    ) -> QueryResponse:
+        return_search_results: Optional[bool] = False,
+    ) -> QueryResponse | tuple[QueryResponse, list]:
         """
         Process a query through the Verbatim RAG system.
 
@@ -270,13 +271,18 @@ class VerbatimRAG:
         # Clean up and build response
         answer = self.response_builder.clean_answer(answer)
 
-        return self.response_builder.build_response(
+        response = self.response_builder.build_response(
             question=question,
             answer=answer,
             search_results=search_results,
             relevant_spans=all_relevant_spans,
             display_span_count=len(all_relevant_spans),
         )
+
+        if return_search_results:
+            return response, search_results
+
+        return response
 
     def _process_structured(
         self, question: str, search_results: list
