@@ -202,6 +202,7 @@ class SemanticHighlightExtractor(SpanExtractor):
         language: str = "auto",
         min_span_tokens: int = 3,
         merge_gap: int = 2,
+        max_tokens: int = 4096,
     ):
         """
         Initialize the semantic highlight extractor.
@@ -213,6 +214,7 @@ class SemanticHighlightExtractor(SpanExtractor):
         :param language: Language hint ("en", "zh", or "auto")
         :param min_span_tokens: Minimum tokens for a valid span (spans mode only)
         :param merge_gap: Merge spans separated by <= N tokens (spans mode only)
+        :param max_tokens: Token limit of the extractor model
         """
         import torch
         from transformers import AutoModel
@@ -232,10 +234,10 @@ class SemanticHighlightExtractor(SpanExtractor):
 
         print(f"Loading semantic highlight model: {model_name}...")
         self.model = AutoModel.from_pretrained(
-            model_name,
-            trust_remote_code=True,
+            model_name, trust_remote_code=True, max_length=max_tokens
         )
         self.tokenizer = self.model.tokenizer
+        self.max_tokens = max_tokens
 
     def extract_spans(
         self, question: str, search_results: List[Any]
@@ -248,7 +250,6 @@ class SemanticHighlightExtractor(SpanExtractor):
         :return: Dictionary mapping result text to list of relevant spans
         """
         relevant_spans: Dict[str, List[str]] = {}
-
         for result in search_results:
             context = getattr(result, "text", "")
             if not context.strip():
@@ -299,6 +300,7 @@ class SemanticHighlightExtractor(SpanExtractor):
             context,
             return_offsets_mapping=True,
             add_special_tokens=False,
+            max_length=self.max_tokens,
         )
         offset_mapping = encoding["offset_mapping"]
 
