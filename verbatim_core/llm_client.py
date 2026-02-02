@@ -28,6 +28,7 @@ class LLMClient:
         model: str = "gpt-4o-mini",
         temperature: float = 0.7,
         api_base: str = "https://api.openai.com/v1",
+        response_log_file: str | None = None,
     ):
         """
         Initialize the LLM client.
@@ -35,13 +36,14 @@ class LLMClient:
         :param model: The OpenAI model to use
         :param temperature: Default temperature for completions
         :param api_base: The base URL for the OpenAI API (can be used with custom models and with VLLM)
+        :param response_log_file: Path to file for logging raw LLM responses (JSON format).
         """
         self.model = model
         self.temperature = temperature
         self.api_key = os.getenv("OPENAI_API_KEY") or "EMPTY"
         self.client = openai.OpenAI(base_url=api_base, api_key=self.api_key)
-
         self.async_client = openai.AsyncOpenAI(base_url=api_base, api_key=self.api_key)
+        self.response_log_file = response_log_file
 
     def complete(
         self, prompt: str, json_mode: bool = False, temperature: Optional[float] = None
@@ -104,6 +106,8 @@ class LLMClient:
         prompt = self._build_extraction_prompt(question, documents)
         try:
             response = self.complete(prompt, json_mode=True)
+            if self.response_log_file:
+                self._log_response(question, documents, response)
             return json.loads(response)
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Span extraction failed: {e}")
@@ -123,6 +127,8 @@ class LLMClient:
         prompt = self._build_extraction_prompt(question, documents)
         try:
             response = await self.complete_async(prompt, json_mode=True)
+            if self.response_log_file:
+                self._log_response(question, documents, response)
             return json.loads(response)
         except (json.JSONDecodeError, KeyError) as e:
             print(f"Async span extraction failed: {e}")
@@ -308,6 +314,24 @@ Return ONLY valid JSON like:
         except Exception as e:
             print(f"Async template generation failed: {e}")
             return self._fallback_template(citation_count > 0)
+
+    def _log_response(
+        self, question: str, documents: Dict[str, str], response: str
+    ) -> None:
+        """
+        Log raw LLM response to file in JSON format.
+
+        :param question: The question that was asked
+        :param documents: The documents that were sent to the LLM
+        :param response: The raw response string from the LLM
+        """
+        log_entry = {
+            "question": question,
+            "documents": documents,
+            "response": response,
+        }
+        with open(self.response_log_file, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
 
     def _build_extraction_prompt(self, question: str, documents: Dict[str, str]) -> str:
         """Build the prompt for batch span extraction."""
