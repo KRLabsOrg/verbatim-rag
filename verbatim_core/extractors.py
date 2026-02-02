@@ -382,6 +382,7 @@ class LLMSpanExtractor(SpanExtractor):
         extraction_mode: str = "auto",
         max_display_spans: int = 5,
         batch_size: int = 5,
+        verify_spans: bool = True,
     ):
         """
         Initialize the LLM span extractor.
@@ -391,11 +392,14 @@ class LLMSpanExtractor(SpanExtractor):
         :param extraction_mode: "batch", "individual", or "auto"
         :param max_display_spans: Maximum spans to prioritize for display
         :param batch_size: Maximum documents to process in batch mode
+        :param verify_spans: Whether to validate that extracted spans exist
+            in the source document. If False, all extracted spans are returned.
         """
         self.llm_client = llm_client or LLMClient(model)
         self.extraction_mode = extraction_mode
         self.max_display_spans = max_display_spans
         self.batch_size = batch_size
+        self.verify_spans = verify_spans
 
     def extract_spans(
         self, question: str, search_results: List[Any]
@@ -470,8 +474,10 @@ class LLMSpanExtractor(SpanExtractor):
                 doc_key = f"doc_{i}"
                 result_text = getattr(result, "text", "")
                 if doc_key in extracted_data:
-                    verified = self._verify_spans(extracted_data[doc_key], result_text)
-                    verified_spans[result_text] = verified
+                    spans = extracted_data[doc_key]
+                    if self.verify_spans:
+                        spans = self._verify_spans(spans, result_text)
+                    verified_spans[result_text] = spans
                 else:
                     verified_spans[result_text] = []
 
@@ -510,8 +516,10 @@ class LLMSpanExtractor(SpanExtractor):
                 doc_key = f"doc_{i}"
                 result_text = getattr(result, "text", "")
                 if doc_key in extracted_data:
-                    verified = self._verify_spans(extracted_data[doc_key], result_text)
-                    verified_spans[result_text] = verified
+                    spans = extracted_data[doc_key]
+                    if self.verify_spans:
+                        spans = self._verify_spans(spans, result_text)
+                    verified_spans[result_text] = spans
                 else:
                     verified_spans[result_text] = []
 
@@ -543,8 +551,9 @@ class LLMSpanExtractor(SpanExtractor):
                 extracted_spans = self.llm_client.extract_relevant_spans(
                     question, result_text
                 )
-                verified = self._verify_spans(extracted_spans, result_text)
-                all_spans[result_text] = verified
+                if self.verify_spans:
+                    extracted_spans = self._verify_spans(extracted_spans, result_text)
+                all_spans[result_text] = extracted_spans
             except Exception as e:
                 print(f"Individual extraction failed for document: {e}")
                 all_spans[result_text] = []
@@ -566,8 +575,9 @@ class LLMSpanExtractor(SpanExtractor):
                 extracted_spans = await self.llm_client.extract_relevant_spans_async(
                     question, result_text
                 )
-                verified = self._verify_spans(extracted_spans, result_text)
-                all_spans[result_text] = verified
+                if self.verify_spans:
+                    extracted_spans = self._verify_spans(extracted_spans, result_text)
+                all_spans[result_text] = extracted_spans
             except Exception as e:
                 print(f"Async individual extraction failed for document: {e}")
                 all_spans[result_text] = []
