@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://krlabsorg.github.io/verbatim-rag/</loc>
+         <lastmod>2026-03-22</lastmod>
+    </url>
+    <url>
+         <loc>https://krlabsorg.github.io/verbatim-rag/verbatim_blog/</loc>
+         <lastmod>2026-03-22</lastmod>
+    </url>
+    <url>
+         <loc>https://krlabsorg.github.io/verbatim-rag/api/verbatim-core/</loc>
+         <lastmod>2026-03-22</lastmod>
+    </url>
+    <url>
+         <loc>https://krlabsorg.github.io/verbatim-rag/api/verbatim-rag/</loc>
+         <lastmod>2026-03-22</lastmod>
+    </url>
+    <url>
+         <loc>https://krlabsorg.github.io/verbatim-rag/getting-started/installation/</loc>
+         <lastmod>2026-03-22</lastmod>
+    </url>
+    <url>
+         <loc>https://krlabsorg.github.io/verbatim-rag/getting-started/quickstart/</loc>
+         <lastmod>2026-03-22</lastmod>
+    </url>
+    <url>
+         <loc>https://krlabsorg.github.io/verbatim-rag/guide/verbatim-core/</loc>
+         <lastmod>2026-03-22</lastmod>
+    </url>
+    <url>
+         <loc>https://krlabsorg.github.io/verbatim-rag/guide/verbatim-rag/</loc>
+         <lastmod>2026-03-22</lastmod>
+    </url>
+</urlset>
