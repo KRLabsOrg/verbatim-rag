@@ -78,6 +78,8 @@ class LLMClient:
             kwargs["response_format"] = {"type": "json_object"}
 
         response = self.client.chat.completions.create(**kwargs)
+        if not response.choices or response.choices[0].message is None:
+            raise ValueError("LLM returned empty or filtered response")
         return response.choices[0].message.content
 
     async def complete_async(
@@ -110,6 +112,8 @@ class LLMClient:
             kwargs["response_format"] = {"type": "json_object"}
 
         response = await self.async_client.chat.completions.create(**kwargs)
+        if not response.choices or response.choices[0].message is None:
+            raise ValueError("LLM returned empty or filtered response")
         return response.choices[0].message.content
 
     def extract_spans(self, question: str, documents: Dict[str, str]) -> Dict[str, List[str]]:
