@@ -1,13 +1,17 @@
 """
-Centralized LLM client for all OpenAI interactions in the Verbatim RAG system.
+LLM clients for all language-model interactions in the Verbatim RAG system.
 
-This module provides a unified interface for both synchronous and asynchronous
-LLM calls, with specialized methods for span extraction and template generation.
+This module defines :class:`BaseLLMClient`, the provider-agnostic interface that
+holds all span-extraction and template-generation logic, and :class:`LLMClient`,
+the OpenAI-backed implementation. Provider-specific clients (e.g. AWS Bedrock)
+only need to implement :meth:`BaseLLMClient.complete` and
+:meth:`BaseLLMClient.complete_async`.
 """
 
 import json
 import logging
 import os
+from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -18,36 +22,24 @@ except ImportError:
     raise ImportError("OpenAI package required: pip install openai")
 
 
-class LLMClient:
+class BaseLLMClient(ABC):
     """
-    Centralized LLM interaction handler with async support.
+    Provider-agnostic LLM interaction interface.
 
-    Provides a unified interface for all OpenAI API calls used throughout
-    the Verbatim RAG system, including span extraction and template generation.
+    Concrete subclasses implement the two completion primitives (:meth:`complete`
+    and :meth:`complete_async`); every higher-level method (span extraction,
+    template generation) is built on top of them and shared across providers.
     """
 
-    def __init__(
-        self,
-        model: str = "gpt-4o-mini",
-        temperature: float = 0.7,
-        api_base: str = "https://api.openai.com/v1",
-        api_key: str | None = None,
-    ):
+    def __init__(self, model: str, temperature: float = 0.7):
         """
-        Initialize the LLM client.
-
-        :param model: The OpenAI model to use
-        :param temperature: Default temperature for completions
-        :param api_base: The base URL for the OpenAI API (can be used with custom models and with VLLM)
-        :param api_key: Optional API key. Falls back to OPENAI_API_KEY when unset.
+        :param model: The model identifier to use.
+        :param temperature: Default temperature for completions.
         """
         self.model = model
         self.temperature = temperature
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or "EMPTY"
-        self.client = openai.OpenAI(base_url=api_base, api_key=self.api_key)
 
-        self.async_client = openai.AsyncOpenAI(base_url=api_base, api_key=self.api_key)
-
+    @abstractmethod
     def complete(
         self,
         prompt: str,
@@ -64,24 +56,8 @@ class LLMClient:
         :param system_prompt: Optional system message to prepend
         :return: The completion text
         """
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature if temperature is not None else self.temperature,
-        }
 
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        response = self.client.chat.completions.create(**kwargs)
-        if not response.choices or response.choices[0].message is None:
-            raise ValueError("LLM returned empty or filtered response")
-        return response.choices[0].message.content
-
+    @abstractmethod
     async def complete_async(
         self,
         prompt: str,
@@ -90,31 +66,8 @@ class LLMClient:
         system_prompt: str | None = None,
     ) -> str:
         """
-        Asynchronous text completion.
-
-        :param prompt: The prompt to send
-        :param json_mode: Whether to request JSON output format
-        :param temperature: Override default temperature
-        :param system_prompt: Optional system message to prepend
-        :return: The completion text
+        Asynchronous text completion. See :meth:`complete` for parameter docs.
         """
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature if temperature is not None else self.temperature,
-        }
-
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        response = await self.async_client.chat.completions.create(**kwargs)
-        if not response.choices or response.choices[0].message is None:
-            raise ValueError("LLM returned empty or filtered response")
-        return response.choices[0].message.content
 
     def extract_spans(self, question: str, documents: Dict[str, str]) -> Dict[str, List[str]]:
         """
@@ -441,3 +394,109 @@ class LLMClient:
 
     async def simple_complete_async(self, prompt: str) -> str:
         return await self.complete_async(prompt)
+
+
+class LLMClient(BaseLLMClient):
+    """
+    Centralized OpenAI interaction handler with async support.
+
+    Provides a unified interface for all OpenAI API calls used throughout
+    the Verbatim RAG system, including span extraction and template generation.
+    """
+
+    def __init__(
+        self,
+        model: str = "gpt-4o-mini",
+        temperature: float = 0.7,
+        api_base: str = "https://api.openai.com/v1",
+        api_key: str | None = None,
+        extra_body: dict | None = None,
+        max_tokens: int | None = None,
+    ):
+        """
+        Initialize the LLM client.
+
+        :param model: The OpenAI model to use
+        :param temperature: Default temperature for completions
+        :param api_base: The base URL for the OpenAI API (can be used with custom models and with VLLM)
+        :param api_key: Optional API key. Falls back to OPENAI_API_KEY when unset.
+        :param extra_body: Provider-specific request fields passed through to the
+            chat-completions call (e.g. vLLM ``chat_template_kwargs``).
+        :param max_tokens: Optional max completion tokens. Useful for reasoning
+            models that otherwise exhaust the context window while thinking.
+        """
+        super().__init__(model=model, temperature=temperature)
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or "EMPTY"
+        self.extra_body = extra_body
+        self.max_tokens = max_tokens
+        self.client = openai.OpenAI(base_url=api_base, api_key=self.api_key)
+
+        self.async_client = openai.AsyncOpenAI(base_url=api_base, api_key=self.api_key)
+
+    def _build_kwargs(
+        self,
+        messages: list,
+        json_mode: bool,
+        temperature: Optional[float],
+    ) -> dict:
+        """Assemble chat-completion kwargs shared by sync and async paths."""
+        kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self.temperature,
+        }
+        if self.max_tokens is not None:
+            kwargs["max_tokens"] = self.max_tokens
+
+        extra_body = dict(self.extra_body or {})
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+            # Guided JSON decoding and Qwen3-style thinking conflict: the grammar
+            # forces JSON from the first token while thinking wants a <think>
+            # block, leaving message.content empty. Disable thinking for JSON.
+            chat_template_kwargs = dict(extra_body.get("chat_template_kwargs") or {})
+            chat_template_kwargs.setdefault("enable_thinking", False)
+            extra_body["chat_template_kwargs"] = chat_template_kwargs
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+
+        return kwargs
+
+    @staticmethod
+    def _content_or_raise(response) -> str:
+        content = response.choices[0].message.content if response.choices else None
+        if not content:
+            raise ValueError("LLM returned empty or filtered response")
+        return content
+
+    def complete(
+        self,
+        prompt: str,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        system_prompt: str | None = None,
+    ) -> str:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        kwargs = self._build_kwargs(messages, json_mode, temperature)
+
+        response = self.client.chat.completions.create(**kwargs)
+        return self._content_or_raise(response)
+
+    async def complete_async(
+        self,
+        prompt: str,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        system_prompt: str | None = None,
+    ) -> str:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        kwargs = self._build_kwargs(messages, json_mode, temperature)
+
+        response = await self.async_client.chat.completions.create(**kwargs)
+        return self._content_or_raise(response)

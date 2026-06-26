@@ -30,6 +30,9 @@ model = [
     "transformers==4.53.3",
     "scikit-learn==1.6.1",
 ]
+bedrock = [
+    "boto3>=1.34.0",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/krlabsorg/verbatim-rag"
