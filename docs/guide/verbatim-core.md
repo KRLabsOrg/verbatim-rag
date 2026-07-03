@@ -153,7 +153,7 @@ Controls how extracted spans are formatted into responses.
 
 ### Static Templates
 
-Fast, deterministic -- no LLM calls:
+Fast, deterministic -- no LLM calls. Static mode is the recommended choice for pipeline and tool-chain use cases where output is consumed by downstream tools or agents. The default template frames output transparently as an unordered list of verbatim excerpts with no synthesis or ranking implied, avoiding misleading machine consumers:
 
 ```python
 from verbatim_core.templates import TemplateManager

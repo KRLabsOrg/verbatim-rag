@@ -22,7 +22,7 @@ class StaticTemplate(TemplateStrategy):
 
     DEFAULT_TEMPLATE = """## Response
 
-Based on the available documents, here are the key findings:
+The following is an unordered list of verbatim excerpts from the source documents. No synthesis or ranking is implied:
 
 [DISPLAY_SPANS]
 
@@ -125,7 +125,7 @@ Based on the available documents, here are the key findings:
         :param outro: Optional conclusion text
         :return: New StaticTemplate instance
         """
-        intro = intro or "Based on the available documents:"
+        intro = intro or "Verbatim excerpts from the source documents (unordered):"
         parts = [intro, "", "[DISPLAY_SPANS]"]
 
         if outro:
