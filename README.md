@@ -192,21 +192,24 @@ quality, and any generated contextual framing remain separate concerns.
 
 The repository contains a FastAPI API and Vite/React development UI. They are
 not included in the PyPI wheel and are not yet part of the same compatibility
-gate as `verbatim-core`. Reproducible local-stack work is tracked in
-[#27](https://github.com/KRLabsOrg/verbatim-rag/issues/27), and the document
+gate as `verbatim-core`. The Compose stack below runs both locally
+([#27](https://github.com/KRLabsOrg/verbatim-rag/issues/27)); the document
 lifecycle contract is tracked in
 [#31](https://github.com/KRLabsOrg/verbatim-rag/issues/31).
 
-## Docker Deployment
+## Local development stack (Docker Compose)
 
-The easiest way to run the full application stack (API + frontend) is via Docker Compose.
+Docker Compose runs the API and the web UI together as a **development and demo
+stack**. It is meant for local work and evaluation; it is not a production
+deployment (no TLS, authentication, tenancy, or scaling).
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) with Docker Compose
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.24+
+  (the stack uses the optional `env_file` syntax)
 - An OpenAI-compatible API key (Groq by default, see `api/dependencies.py`)
 
-### Quick Start
+### Build and start
 
 ```bash
 # 1. Create configuration from the example
@@ -215,25 +218,52 @@ cp .env.example .env
 # 2. Edit .env and set your API key
 #    OPENAI_API_KEY=your_api_key_here
 
-# 3. Launch the stack
-docker compose up -d
+# 3. Build the images and start the stack
+docker compose up --build
 
 # 4. Open http://localhost in your browser
 ```
 
-The API key can also be passed inline:
+Add `-d` to run detached. The first start downloads the embedding model from
+HuggingFace, so it needs network access and can take several minutes; the API
+health check covers that with a startup grace period (`start_period` in
+`docker-compose.yml` — raise it on a slow connection), and the frontend waits
+for the API to report healthy.
+
+The API key is not validated at startup: a missing or empty `OPENAI_API_KEY`
+still brings the stack up healthy and surfaces as an error on the first query.
+
+### Logs and status
 
 ```bash
-OPENAI_API_KEY=your_key_here docker compose up -d
+docker compose ps                  # service and health-check state
+docker compose logs -f             # follow all services
+docker compose logs -f api         # follow one service
 ```
 
-### Persistent Index Storage
+The API health check polls `/api/status`, which fails visibly when a required
+dependency or configuration is unavailable — a stuck `starting` state in
+`docker compose ps` means the API could not initialise, and `docker compose
+logs api` shows why.
 
-The Milvus Lite database is stored in a Docker volume named `milvus_data` and persists across restarts:
+### Stop and persistence
+
+The Milvus Lite database lives in a Docker volume named `milvus_data`, so the
+index survives restarts:
 
 ```bash
 docker compose down          # stop containers, keep data
 docker compose down -v       # also remove the database volume
+```
+
+### Secret handling
+
+No key is baked into the image: `OPENAI_API_KEY` is passed at run time only.
+Keep it in `.env`, which is git-ignored and excluded from the build context via
+`.dockerignore`, or pass it inline for a single run:
+
+```bash
+OPENAI_API_KEY=your_key_here docker compose up --build
 ```
 
 ### Configuration
@@ -241,13 +271,13 @@ docker compose down -v       # also remove the database volume
 | Variable | Default | Description |
 |---|---|---|
 | `OPENAI_API_KEY` | (required) | OpenAI-compatible API key |
-| `INDEX_PATH` | `/data/index.db` | Milvus Lite database path (inside container) |
-| `CORS_ORIGINS` | `["http://localhost"]` | Allowed CORS origins — must match the URL you open in the browser |
+| `INDEX_PATH` | `/data/index.db` | Milvus Lite database path in the container |
 | `FRONTEND_PORT` | `80` | Host port the frontend is published on |
 
-All of these can be set in `.env` (copy `.env.example`) or exported in the shell.
-If you change `FRONTEND_PORT`, set `CORS_ORIGINS` to the matching origin, e.g.
-`FRONTEND_PORT=8080` with `CORS_ORIGINS=["http://localhost:8080"]`.
+All of these can be set in `.env` (copy `.env.example`) or exported in the
+shell. CORS configuration is not needed: the browser only talks to nginx, which
+proxies `/api/` to the backend same-origin (the Vite dev server does the same
+via its own proxy).
 
 ### Architecture
 
@@ -261,6 +291,31 @@ graph LR
 - **nginx** serves the React SPA and proxies `/api/` requests to the backend
 - **FastAPI** handles all API requests using the Verbatim RAG pipeline
 - **Milvus Lite** stores the vector index in a persistent Docker volume
+
+The frontend is served as a static Vite build and calls the API through relative
+`/api/` paths, which nginx proxies to the `api` service over the Compose
+network. No host address is baked into the bundle, so changing `FRONTEND_PORT`
+or serving the stack from another host needs no rebuild.
+
+### Container dependency lock
+
+The image installs from `docker/constraints.txt`, a generated lock of one
+known-working environment. `pyproject.toml` keeps the library's broad supported
+ranges; the lock narrows them for the container only, so a resolution that
+breaks the stack cannot silently reach the image.
+
+`docker/overrides.txt` is the hand-maintained input listing resolutions known to
+break the container, and documents the regeneration command:
+
+```bash
+uv pip compile pyproject.toml --universal --python-version 3.11 \
+    --override docker/overrides.txt -o docker/constraints.txt
+```
+
+`--universal` resolves with environment markers rather than for the host, so the
+same lock builds on both arm64 and x86_64 machines. Regenerate after changing
+dependencies in `pyproject.toml` or bumping `packages/core`, then verify with
+`docker compose up --build`.
 
 ## ModernBERT Span Extractor
 

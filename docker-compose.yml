@@ -13,13 +13,18 @@ services:
     volumes:
       - milvus_data:/data
     restart: unless-stopped
+    # /api/status initialises the RAG pipeline, so the first probe also
+    # downloads the embedding model: hence the long start_period, during which
+    # failures do not count, and a timeout wide enough for that first call.
+    # A missing dependency or unusable configuration makes /api/status return
+    # 500, which raises in the probe and surfaces as an unhealthy service.
     healthcheck:
       test:
         ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/status')"]
-      interval: 30s
-      timeout: 10s
+      interval: 15s
+      timeout: 30s
       retries: 5
-      start_period: 60s
+      start_period: 180s
 
   frontend:
     build:
