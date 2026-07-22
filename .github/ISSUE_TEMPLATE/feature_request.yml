@@ -1,15 +1,67 @@
 name: Feature request
-description: Propose an improvement or new capability
+description: Propose an improvement grounded in a concrete workflow
+title: "Feature: "
 type: Feature
+labels: [enhancement]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the workflow and evidence need. Larger or uncertain ideas are
+        often better opened in Discussions before they become implementation issues.
+
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: What can't you do today? Concrete use case beats abstract capability.
-    validations: {required: true}
+      label: Problem or use case
+      description: What are you trying to do, for whom, and what is difficult today?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Proposed surface
+      options:
+        - verbatim-core transform or templates
+        - Span extraction or validation
+        - Full verbatim-rag pipeline
+        - Evaluation or training
+        - Integration
+        - API or frontend
+        - Documentation
+        - Other / unsure
+    validations:
+      required: true
+
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
-      description: Rough API/behavior sketch. Alternatives you considered.
+      label: Proposed behavior
+      description: Sketch the API or observable behavior. A short example is useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: success
+    attributes:
+      label: Success criteria
+      description: How would we know this solves the workflow without weakening provenance or compatibility?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and non-goals
+      description: Workarounds considered and what this request should deliberately not include.
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Example or evidence
+      description: Link a reproducible workload, benchmark, design note, or minimal example if one exists.
+    validations:
+      required: false

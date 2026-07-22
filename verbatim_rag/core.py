@@ -48,9 +48,11 @@ Mark the relevant text:
 
 
 class VerbatimRAG:
-    """
-    A RAG system that prevents hallucination by ensuring all generated content
-    is explicitly derived from source documents.
+    """Retrieve documents and compose cited source excerpts.
+
+    Built-in verified extractors preserve evidence text provenance. Retrieval
+    quality, source truth, extraction relevance, and generated contextual
+    framing remain outside that guarantee.
     """
 
     def __init__(

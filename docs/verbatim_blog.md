@@ -1,20 +1,25 @@
 # Verbatim RAG: Stop Hallucinating, Start Quoting
 
+> **Historical design article.** Some APIs, model ids, benchmark counts, and
+> categorical claims below predate the current package. Use the repository
+> README and public roadmap for the supported guarantee boundary and current
+> model configuration.
+
 <p align="center">
   <img src="https://github.com/KRLabsOrg/verbatim-rag/blob/main/assets/chiliground.png?raw=true" alt="ChiliGround Logo" width="400"/>
   <br><em>Chill, I Ground!</em>
 </p>
 
 **TL;DR:**
-- **Extract, Don't Generate**: LLMs select exact text spans instead of generating -> zero hallucinations
+- **Extract, Don't Freely Rewrite**: select source text spans and keep the evidence inspectable
 - **Wrap Existing RAG**: Integrate with LangChain/LlamaIndex in 15 lines of code
 - **CPU-Only Pipeline**: No GPU, no API costs, works offline (SPLADE + ModernBERT) -> lightweight and efficient
 - **Template Control**: Static, dynamic, or question-specific response formatting
 - **Smart Chunking**: Structure-aware with raw/enhanced dual-chunk system
-- **Production-Ready**:
-  - Full RAG framework to get you started on your own project
-  - Scalable (optional) cloud based compute or local storage
-  - Included API and frontend for easy deployment
+- **Reference implementation**:
+  - Full RAG framework for experimentation
+  - Optional cloud compute or local storage
+  - API and frontend prototypes in the source repository
 
 **Quick Links:**
 - [⭐ GitHub](https://github.com/KRLabsOrg/verbatim-rag)
@@ -28,7 +33,10 @@
 
 The fundamental issue with RAG systems is that LLMs generate text probabilistically. Even when provided with perfect context, the model samples from a probability distribution over tokens, which inevitably introduces approximations, paraphrasing, and factual drift.
 
-This problem compounds in modern agentic RAG systems. When a single query triggers 7-8 sequential LLM calls (planning, retrieval, synthesis, verification, etc.), each with its own hallucination probability, the cumulative error rate becomes significant. If each call has a 10% chance of introducing an error, an 8-step agentic workflow has roughly a ~60% probability of containing at least one hallucination.
+This problem can compound in agentic RAG systems when a query triggers several
+generative steps. The practical risk depends on the models, prompts, task, and
+how failures correlate; it should be measured on the target workflow rather
+than inferred from a fixed per-call probability.
 
 **Verbatim RAG takes a different approach:** Instead of asking the LLM to generate an answer based on retrieved documents, we constrain it to **extract exact text spans** that answer the question. These spans are then composed into a response without any generative rewriting.
 
@@ -36,13 +44,17 @@ This problem compounds in modern agentic RAG systems. When a single query trigge
   <img src="https://github.com/KRLabsOrg/verbatim-rag/blob/main/assets/verbatim_architecture.png?raw=true" alt="Verbatim RAG Architecture" width="800"/>
 </p>
 
-**Why this works:** Extraction is a classification task (does this span answer the question?), not a generation task. The model never produces new tokens that approximate source content, it only identifies which existing tokens to include. This eliminates the issue of the probabilistic generation that causes hallucinations.
+**Why this helps:** Extraction asks which source spans answer the question rather
+than asking a model to freely rewrite the evidence. Built-in verified paths
+return source text, reducing the factual surface available for unsupported
+generation.
 
-The result: every number, every fact, every claim in the response is directly traceable to the source text.
+The result is inspectable evidence text. Source truth, retrieval completeness,
+selection relevance, and contextual framing still require evaluation.
 
 ---
 
-## Quickstart: Zero Hallucinations in 15 Lines
+## Quickstart: Source excerpts in 15 lines
 
 Install the required dependencies:
 ```bash
@@ -75,10 +87,10 @@ The system achieved 42.01% accuracy on ArchEHR-QA.
 )
 index.add_documents([doc])
 
-# 3. Create RAG with hallucination prevention
+# 3. Create the RAG pipeline
 rag = VerbatimRAG(index, model="gpt-4o-mini")
 
-# 4. Get exact quotes, not hallucinations
+# 4. Get source excerpts
 response = rag.query("What approaches were used?")
 print(response.answer)
 # [1] We used two approaches: zero-shot LLM extraction and a fine-tuned ModernBERT classifier on 58k synthetic examples.
@@ -210,7 +222,7 @@ Handles document ingestion, chunking, embedding, and retrieval:
 ### Layer 2: Verbatim Core (Extraction)
 Consumes retrieved chunks and produces verbatim answers:
 - **Input**: Query + retrieved chunks
-- **Output**: Answer composed entirely from extracted spans
+- **Output**: Source excerpts, with framing determined by the selected template mode
 - **Components**: Span extractors (LLM or fine-tuned models), template managers, verification
 
 ### The Interface
@@ -287,9 +299,10 @@ store = CloudMilvusStore(
 
 ---
 
-## CPU-Only Pipeline: No LLM API Calls
+## CPU-capable pipeline without generative LLM API calls
 
-The entire pipeline can run on CPU without GPU or LLM API calls:
+After model weights are available, retrieval and extraction can run on CPU
+without a generative LLM API call when static rendering is selected:
 
 ```python
 from verbatim_rag.extractors import ModelSpanExtractor
@@ -300,12 +313,12 @@ embedder = SpladeProvider("opensearch-project/opensearch-neural-sparse-encoding-
 
 # ModernBERT for extraction (fine-tuned on span classification)
 extractor = ModelSpanExtractor(
-    model_path="KRLabsOrg/verbatim-rag-modern-bert-v1",
+    model_path="KRLabsOrg/verbatim-rag-modern-bert-v2",
     device="cpu"
 )
 
 # Complete CPU-only RAG
-rag = VerbatimRAG(index, extractor=extractor)
+rag = VerbatimRAG(index, extractor=extractor, template_mode="static")
 ```
 
 **Tradeoffs**: The fine-tuned extractor has lower recall than LLM-based extractors on complex queries, but is deterministic, free, and works offline.
@@ -491,7 +504,7 @@ Verbatim RAG trades generation flexibility for factual precision. Use it when:
 - **Exactness matters**: Medical dosages, legal citations, financial figures must be character-perfect
 - **Auditability required**: Every claim needs to trace back to source text
 - **Liability concerns**: Approximate or paraphrased answers create legal/compliance risk
-- **Existing RAG needs hardening**: You have a working system but need to eliminate hallucinations
+- **Existing RAG needs a smaller generative surface**: You want inspectable source excerpts alongside your existing retrieval
 
 **When traditional RAG may be preferable:**
 

@@ -2,7 +2,9 @@
 
 Lightweight verbatim span extraction -- the RAG-agnostic core of [verbatim-rag](https://github.com/KRLabsOrg/verbatim-rag).
 
-Extract exact, verbatim text spans from documents that answer a question. No vector databases, no embeddings, no heavy ML dependencies -- just `openai` and `pydantic`.
+Extract source text spans from documents that answer a question. No vector
+databases, embeddings, or heavy ML dependencies by default—runtime dependencies
+are `openai`, `pydantic`, `rapidfuzz`, and `jinja2`.
 
 ## Installation
 

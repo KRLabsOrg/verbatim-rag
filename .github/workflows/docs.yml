@@ -1,20 +1,47 @@
-name: Deploy Docs
+name: Docs
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "packages/core/**"
+      - "verbatim_rag/**"
+      - "pyproject.toml"
+      - ".github/workflows/docs.yml"
   push:
     branches: [main]
     paths:
       - "docs/**"
       - "mkdocs.yml"
       - "packages/core/**"
+      - "verbatim_rag/**"
+      - "pyproject.toml"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mkdocs-material "mkdocstrings[python]>=0.24"
+      - run: pip install -e packages/core/
+      - run: mkdocs build --strict
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

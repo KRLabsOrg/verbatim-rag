@@ -68,9 +68,9 @@ store = CloudMilvusStore(
 ### Dense Embeddings
 
 ```python
-from verbatim_rag.embedding_providers import SentenceTransformerProvider
+from verbatim_rag.embedding_providers import SentenceTransformersProvider
 
-dense = SentenceTransformerProvider(model_name="all-MiniLM-L6-v2")
+dense = SentenceTransformersProvider(model_name="all-MiniLM-L6-v2")
 ```
 
 ### Sparse Embeddings (CPU-only)
@@ -119,8 +119,8 @@ Uses OpenAI models for extraction. Requires `OPENAI_API_KEY`.
 ```python
 from verbatim_rag.extractors import ModelSpanExtractor
 
-extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v1")
-rag = VerbatimRAG(index, extractor=extractor)
+extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v2")
+rag = VerbatimRAG(index, extractor=extractor, template_mode="static")
 ```
 
 ### Semantic Highlighting
@@ -134,12 +134,10 @@ extractor = SemanticHighlightExtractor(
 )
 ```
 
-## Web Interface
+## API and web prototype
 
-```bash
-# Start API server
-python api/app.py
-
-# Start React frontend
-cd frontend/ && npm install && npm start
-```
+The source tree includes a FastAPI API and Vite/React UI prototype. They are not
+part of the PyPI wheel or the current core compatibility gate. Follow
+[#27](https://github.com/KRLabsOrg/verbatim-rag/issues/27) for the reproducible
+local-stack work rather than treating these components as a supported
+production deployment.

@@ -1,23 +1,82 @@
 name: Bug report
-description: Something doesn't work as documented
+description: Report reproducible behavior that differs from the documentation
+title: "Bug: "
 type: Bug
+labels: [bug]
 body:
-  - type: textarea
-    id: what
+  - type: markdown
     attributes:
-      label: What happened
-      description: What you did, what you expected, what you got.
-    validations: {required: true}
+      value: |
+        Thanks for reporting a problem. Please remove credentials and private
+        document content from reproductions and logs.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which public surface is affected?
+      options:
+        - verbatim-core transform or templates
+        - Span extractor (LLM, ModernBERT, or Zilliz)
+        - Full verbatim-rag retrieval pipeline
+        - Ingestion, embeddings, or vector store
+        - CLI
+        - FastAPI API
+        - Frontend
+        - Installation or packaging
+        - Documentation or example
+        - Other / unsure
+    validations:
+      required: true
+
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Include the package version or commit, Python version, and relevant model id.
+      placeholder: "verbatim-rag 0.2.8, Python 3.11, KRLabsOrg/verbatim-rag-modern-bert-v2"
+    validations:
+      required: true
+
+  - type: input
+    id: install
+    attributes:
+      label: Installation method
+      description: PyPI, editable checkout, Docker, or another method; include the exact command when possible.
+      placeholder: 'pip install "verbatim-core[model]==0.2.8"'
+    validations:
+      required: true
+
   - type: textarea
     id: repro
     attributes:
       label: Minimal reproduction
-      description: Smallest code/command that shows the problem.
+      description: Provide the smallest redacted code sample and command that reproduces the problem.
       render: python
-    validations: {required: true}
-  - type: input
-    id: version
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
     attributes:
-      label: verbatim-rag version + Python version
-      placeholder: "verbatim-rag 0.2.8, Python 3.11, macOS, pymilvus 2.x / torch 2.x if relevant"
-    validations: {required: true}
+      label: Expected behavior
+      description: What should have happened? Link the documentation or API contract when relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and logs
+      description: Include the complete traceback or unexpected output after removing secrets and private source text.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment details
+      description: OS, CPU/GPU, dependency versions, extractor, template mode, and span-match mode when relevant.
+    validations:
+      required: false

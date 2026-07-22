@@ -107,7 +107,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Verbatim RAG API",
-        description="API for the Verbatim RAG system - prevents hallucination by extracting verbatim spans from documents",
+        description="API for provenance-first RAG with source excerpts and citations",
         version="1.0.0",
         lifespan=lifespan,
         debug=config.debug,

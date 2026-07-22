@@ -1,9 +1,6 @@
-"""
-Verbatim RAG - A minimalistic RAG system that prevents hallucination by ensuring all generated content
-is explicitly derived from source documents.
-"""
+"""Provenance-first RAG with verbatim evidence spans and citations."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.8"
 
 from verbatim_rag.core import VerbatimRAG as VerbatimRAG
 from verbatim_rag.document import Document as Document

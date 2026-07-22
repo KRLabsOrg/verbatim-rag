@@ -69,12 +69,13 @@ print(response.answer)
 
 ## Using the ModernBERT Extractor
 
-Replace the LLM-based extractor with a fine-tuned encoder model -- no API key needed:
+Replace the LLM-based extractor with the current v2 encoder model and static
+rendering—no generative LLM API call is made:
 
 ```python
 from verbatim_rag.extractors import ModelSpanExtractor
 
-extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v1")
-rag = VerbatimRAG(index, extractor=extractor)
+extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v2")
+rag = VerbatimRAG(index, extractor=extractor, template_mode="static")
 response = rag.query("Main findings?")
 ```

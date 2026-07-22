@@ -1,5 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
-  - name: Questions & discussion
-    url: https://github.com/KRLabsOrg/verbatim-rag/discussions
-    about: Ask questions and discuss ideas that aren't bugs or feature requests.
+  - name: Questions and support
+    url: https://github.com/KRLabsOrg/verbatim-rag/discussions/categories/q-a
+    about: Ask how to use Verbatim RAG or troubleshoot a setup before filing a bug.
+  - name: Early-stage idea
+    url: https://github.com/KRLabsOrg/verbatim-rag/discussions/categories/ideas
+    about: Explore an uncertain integration, research direction, or product idea before scoping an issue.

@@ -1,5 +1,5 @@
 site_name: Verbatim RAG
-site_description: Hallucination-prevention RAG system with verbatim span extraction
+site_description: Provenance-first extractive RAG with source spans and citations
 site_url: https://krlabsorg.github.io/verbatim-rag/
 repo_url: https://github.com/krlabsorg/verbatim-rag
 repo_name: KRLabsOrg/verbatim-rag

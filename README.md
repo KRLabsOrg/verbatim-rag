@@ -5,7 +5,9 @@
   <br><em>Chill, I Ground! 🌶 ️</em>
 </p>
 
-A minimalistic approach to Retrieval-Augmented Generation (RAG) that prevents hallucination by ensuring all generated content is explicitly derived from source documents.
+Provenance-first extractive RAG: retrieve documents, select answer-relevant
+passages, and return source excerpts with citations instead of freely rewriting
+the evidence.
 
 [![PyPI](https://img.shields.io/pypi/v/verbatim-rag)](https://pypi.org/project/verbatim-rag/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -16,13 +18,39 @@ A minimalistic approach to Retrieval-Augmented Generation (RAG) that prevents ha
 
 ## Concept
 
-Traditional RAG systems retrieve relevant documents and then allow an LLM to freely generate responses based on that context. This can lead to hallucinations where the model invents facts not present in the source material.
+Traditional RAG systems retrieve relevant documents and then allow an LLM to
+freely generate a response. Verbatim RAG reduces that generative surface by
+selecting and displaying passages from retrieved context.
 
-Verbatim RAG solves this by extracting verbatim text spans from documents and composing responses entirely from these exact passages, with direct citations linking back to sources.
+Built-in verified extraction paths return evidence text from the supplied
+source. This is a provenance guarantee, not a truth guarantee: retrieval may be
+incomplete, a source may be wrong, and an extractor may choose an irrelevant or
+incomplete passage. The default contextual template may also generate
+presentation text around cited excerpts; use `template_mode="static"` when the
+framing must be fixed and deterministic.
 
-For extraction, we provide two 150M-parameter ModernBERT token classifiers that beat public extractive baselines (Zilliz Semantic Highlight, Provence) across ACL, RAGBench, Squeez, and QASPER — and outperform LLM-based extractors 100× their size on our ACL-Verbatim benchmark. See the [paper](https://arxiv.org/abs/2605.21102) and [HF collection](https://huggingface.co/collections/KRLabsOrg/verbatim-rag-v1) for details.
+On the paper's 100-row ACL-Verbatim benchmark, the 150M-parameter
+ACL-specialized model achieved **53.6 micro Word-F1**, compared with **48.7** for
+the strongest evaluated LLM extractor. In the generic v2
+[model-card evaluation](https://huggingface.co/KRLabsOrg/verbatim-rag-modern-bert-v2),
+v2 achieved higher micro Word-F1 than the evaluated Zilliz Semantic Highlight
+and Provence baselines on ACL, RAGBench, Squeez, and QASPER slices. See the
+[paper](https://arxiv.org/abs/2605.21102) for the benchmark design and
+limitations.
 
-With this approach, **the whole RAG pipeline can be run without any usage of LLMs**, and with SPLADE embeddings, the pipeline can be run entirely on CPU, making it lightweight and efficient.
+The pipeline can also use local encoder models for retrieval and extraction plus
+static rendering, without generative LLM API calls. With SPLADE and
+`ModelSpanExtractor`, that configuration supports CPU execution after model
+weights are available.
+
+## What "verbatim" means
+
+| Property | Built-in exact/static path | Outside the guarantee |
+|---|---|---|
+| Evidence text | Returned from retrieved source text | Custom/structured extractors must enforce their own contract |
+| Rendering | Exact excerpts plus fixed transparent framing | Contextual mode can generate introductions, labels, and connective text |
+| Citations | Source citations and highlights are returned | Repeated identical text can still make source-offset mapping ambiguous |
+| Correctness | Provenance can be inspected | Source truth, retrieval recall, relevance, completeness, and entailment |
 
 ## Installation
 
@@ -61,6 +89,16 @@ print(response.answer)
 ```
 
 Dependencies: only `openai`, `pydantic`, `rapidfuzz`, and `jinja2`.
+
+## Repository map
+
+| Surface | Location | Responsibility |
+|---|---|---|
+| `verbatim-core` | This repository, `packages/core/` | Reusable question + context → evidence transform, validation, templates, citations |
+| `verbatim-rag` | This repository, `verbatim_rag/` | Reference ingestion, indexing, retrieval, and orchestration pipeline |
+| Research/training | [`KRLabsOrg/acl-verbatim`](https://github.com/KRLabsOrg/acl-verbatim) | Paper reproduction, v2 training, datasets, and canonical evaluation |
+| Hosted client | [`KRLabsOrg/verbatim-client`](https://github.com/KRLabsOrg/verbatim-client) | SDK and CLI for hosted Verbatim services |
+| Agent adapters | [`KRLabsOrg/verbatim-mcp`](https://github.com/KRLabsOrg/verbatim-mcp), [`KRLabsOrg/verbatim-skill`](https://github.com/KRLabsOrg/verbatim-skill) | Thin MCP and agent integrations |
 
 ## Quick Start
 
@@ -126,7 +164,8 @@ export OPENAI_API_KEY=your_api_key_here
    - Responses are structured using templates
    - Citations link back to source documents
 
-This ensures all responses are grounded in the source material, preventing hallucinations.
+The evidence excerpts remain inspectable source text. Retrieval, extraction
+quality, and any generated contextual framing remain separate concerns.
 
 ## Architecture
 
@@ -146,27 +185,25 @@ This ensures all responses are grounded in the source material, preventing hallu
 3. User queries retrieve relevant documents
 4. Span extractors identify verbatim passages that answer the question
 5. Response templates structure the final answer with citations
-6. All responses include exact text spans and document references
+6. Responses expose selected source text with document references; guarantee
+   details depend on the extractor and template mode described above
 
-## Web Interface
+## API and web prototype
 
-The package includes a full web interface with React frontend and FastAPI backend:
-
-```bash
-# Start API server
-python api/app.py
-
-# Start React frontend (in another terminal)
-cd frontend/
-npm install
-npm start
-```
+The repository contains a FastAPI API and Vite/React development UI. They are
+not included in the PyPI wheel and are not yet part of the same compatibility
+gate as `verbatim-core`. Reproducible local-stack work is tracked in
+[#27](https://github.com/KRLabsOrg/verbatim-rag/issues/27), and the document
+lifecycle contract is tracked in
+[#31](https://github.com/KRLabsOrg/verbatim-rag/issues/31).
 
 ## ModernBERT Span Extractor
 
 [KRLabsOrg/verbatim-rag-modern-bert-v2](https://huggingface.co/KRLabsOrg/verbatim-rag-modern-bert-v2) is a 150M-parameter query-conditioned token classifier built on `gte-reranker-modernbert-base`. It supports up to 8,192 tokens and is trained on scientific papers, Wikipedia QA, financial tables, medical literature, legal contracts, product manuals, and code/tool output.
 
-It beats public extractive baselines (Zilliz Semantic Highlight, Provence) across ACL, RAGBench, Squeez, and QASPER. See the [paper](https://arxiv.org/abs/2605.21102) for full results.
+The linked model card reports higher micro Word-F1 than the evaluated Zilliz
+Semantic Highlight and Provence baselines on ACL, RAGBench, Squeez, and QASPER
+slices. These are extractor evaluations, not end-to-end hallucination rates.
 
 `ModelSpanExtractor` defaults to this model:
 
@@ -197,7 +234,12 @@ vector_store = LocalMilvusStore(
 )
 index = VerbatimIndex(vector_store=vector_store, sparse_provider=sparse_provider)
 
-rag_system = VerbatimRAG(index=index, extractor=extractor, k=5)
+rag_system = VerbatimRAG(
+    index=index,
+    extractor=extractor,
+    template_mode="static",  # no generated contextual framing
+    k=5,
+)
 response = rag_system.query("Main findings of the paper?")
 print(response.answer)
 ```
@@ -207,7 +249,7 @@ print(response.answer)
 | Resource | Link |
 |---|---|
 | 114K ACL Anthology papers in structured Markdown | [KRLabsOrg/acl-anthology-md](https://huggingface.co/datasets/KRLabsOrg/acl-anthology-md) |
-| 20K+ labelled query-chunk training pairs | [KRLabsOrg/verbatim-spans](https://huggingface.co/datasets/KRLabsOrg/verbatim-spans) |
+| Approximately 195K silver-labelled canonical query-chunk rows | [KRLabsOrg/verbatim-spans](https://huggingface.co/datasets/KRLabsOrg/verbatim-spans) |
 | Human-annotated ACL extraction benchmark | [KRLabsOrg/acl-verbatim-spans](https://huggingface.co/datasets/KRLabsOrg/acl-verbatim-spans) |
 | Training and evaluation pipeline | [KRLabsOrg/acl-verbatim](https://github.com/KRLabsOrg/acl-verbatim) |
 

@@ -32,6 +32,18 @@ jobs:
       - run: pip install -e packages/core/
       - run: pytest tests/ -v
 
+  package-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build packages/core
+      - run: python -m build .
+      - run: twine check packages/core/dist/* dist/*
+
   pip-audit:
     runs-on: ubuntu-latest
     steps:

@@ -1,10 +1,68 @@
 name: Contributor task
-description: A scoped piece of work (used by maintainers to invite contributions)
+description: A bounded task prepared by a maintainer for implementation
+title: "Task: "
 type: Task
 body:
-  - type: textarea
-    id: body
+  - type: markdown
     attributes:
-      label: Task
-      description: "Problem, current behavior (file:line), steps, acceptance criteria, and a Start-here command."
-    validations: {required: true}
+      value: |
+        This form is primarily for maintainers preparing contributor-ready work.
+        A `good first issue` must be independently testable and small enough for a focused PR.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and user impact
+      description: Explain why the current behavior matters.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current behavior and code pointers
+      description: Include verified file paths, symbols, and line references or commands.
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Describe the smallest implementation that resolves the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Use observable, testable outcomes; include compatibility and failure behavior.
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: State nearby work that should not be folded into this issue.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Name the unit/integration tests, fixtures, docs, or benchmark expected in the PR.
+    validations:
+      required: true
+
+  - type: textarea
+    id: start
+    attributes:
+      label: Start here
+      description: Give one command and the first files or symbols to inspect.
+      render: shell
+    validations:
+      required: true

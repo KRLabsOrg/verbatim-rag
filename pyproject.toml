@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "verbatim-rag"
 version = "0.2.8"
-description = "A minimalistic RAG system that prevents hallucination by ensuring all generated content is explicitly derived from source documents"
+description = "Provenance-first extractive RAG with verbatim source spans and citations"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

@@ -1,14 +1,41 @@
-## What
+## Summary
 
-<!-- What does this PR do, and why? Link the issue: Fixes #NN -->
+<!-- What changes, why, and what user-visible outcome should reviewers verify? -->
+
+## Related issue
+
+<!-- Link the scoped issue, for example: Fixes #123. -->
+
+## Type of change
+
+- [ ] Bug fix
+- [ ] Feature
+- [ ] Documentation
+- [ ] Tests
+- [ ] Refactor or maintenance
+
+## Provenance and compatibility
+
+<!-- If extraction, validation, templates, citations, schemas, or defaults change,
+describe the guarantee and compatibility impact. Otherwise write "Not applicable". -->
+
+## Verification
+
+<!-- List the exact commands and focused cases you ran. Delete commands that are not relevant. -->
+
+- [ ] `pytest tests/ -v`
+- [ ] `ruff format --check packages/core/verbatim_core/ verbatim_rag/ api/ tests/`
+- [ ] `ruff check packages/core/verbatim_core/ verbatim_rag/ api/ tests/`
+- [ ] Frontend changes: `cd frontend && npm ci && npm run build`
+- [ ] Packaging changes: `python -m build packages/core && python -m build .`
+- [ ] Other:
 
 ## Checklist
 
-- [ ] `pytest tests/ -v` passes
-- [ ] `ruff check packages/core/verbatim_core/ verbatim_rag/ api/ tests/` and
-      `ruff format packages/core/verbatim_core/ verbatim_rag/ api/ tests/` pass
-- [ ] Tests added/updated for behavior changes
-- [ ] Docs updated if user-facing (README / docs/ / docstrings)
+- [ ] I kept the PR focused on one issue or decision.
+- [ ] I added or updated tests for behavior changes.
+- [ ] I updated public docs and the changelog for user-facing changes.
+- [ ] I did not include secrets, API keys, model credentials, or private source text.
 
 ## Rights & sign-off (required)
 

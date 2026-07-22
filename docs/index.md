@@ -5,7 +5,8 @@
   <br><em>Chill, I Ground!</em>
 </p>
 
-A minimalistic approach to Retrieval-Augmented Generation (RAG) that prevents hallucination by ensuring all generated content is explicitly derived from source documents.
+Provenance-first extractive RAG: select answer-relevant source passages and
+return them with citations instead of freely rewriting the evidence.
 
 [![PyPI](https://img.shields.io/pypi/v/verbatim-rag)](https://pypi.org/project/verbatim-rag/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -15,22 +16,25 @@ A minimalistic approach to Retrieval-Augmented Generation (RAG) that prevents ha
 
 Traditional RAG systems retrieve relevant documents and then allow an LLM to freely generate responses based on that context. This can lead to hallucinations where the model invents facts not present in the source material.
 
-Verbatim RAG solves this by **extracting verbatim text spans** from documents and composing responses entirely from these exact passages, with direct citations linking back to sources.
+Verbatim RAG reduces unsupported generation by **extracting source passages**.
+Built-in verified paths return source text, but that contract does not guarantee
+source truth, retrieval recall, extraction relevance/completeness, or generated
+contextual framing. Use static templates for fixed deterministic framing.
 
 ## Two Packages
 
 | Package | Install | Dependencies | Use case |
 |---------|---------|-------------|----------|
 | **verbatim-rag** | `pip install verbatim-rag` | Full (torch, milvus, etc.) | Complete RAG pipeline with indexing, search, and extraction |
-| **verbatim-core** | `pip install verbatim-core` | Lean (openai, pydantic) | Reusable grounding core for integration into existing systems |
+| **verbatim-core** | `pip install verbatim-core` | Lean (openai, pydantic, rapidfuzz, jinja2) | Reusable evidence transform for integration into existing systems |
 
 ## Key Features
 
-- **Hallucination Prevention** -- All responses are grounded in exact source text
-- **Verbatim Extraction** -- Text spans are extracted exactly as they appear
-- **Citation Tracking** -- Every response includes precise document references
+- **Reduced generative surface** -- Return evidence instead of freely paraphrasing it
+- **Verbatim Extraction** -- Built-in verified paths return text from supplied sources
+- **Citation Tracking** -- Responses include source citations and highlights
 - **Multiple Extractors** -- LLM-based, fine-tuned ModernBERT, or Zilliz semantic highlighting
-- **CPU-Only Operation** -- Full pipeline can run without GPU using SPLADE embeddings
+- **Local static operation** -- SPLADE + ModernBERT + static templates can run without generative LLM API calls
 - **Template System** -- Flexible response formatting with multiple strategies
 
 ## How It Works
