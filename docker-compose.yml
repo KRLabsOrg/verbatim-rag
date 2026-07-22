@@ -1,0 +1,42 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: verbatim-api
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - INDEX_PATH=${INDEX_PATH:-/data/index.db}
+    volumes:
+      - milvus_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/status')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: verbatim-frontend
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  milvus_data:

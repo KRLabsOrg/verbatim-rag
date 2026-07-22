@@ -197,6 +197,71 @@ gate as `verbatim-core`. Reproducible local-stack work is tracked in
 lifecycle contract is tracked in
 [#31](https://github.com/KRLabsOrg/verbatim-rag/issues/31).
 
+## Docker Deployment
+
+The easiest way to run the full application stack (API + frontend) is via Docker Compose.
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose
+- An OpenAI-compatible API key (Groq by default, see `api/dependencies.py`)
+
+### Quick Start
+
+```bash
+# 1. Create configuration from the example
+cp .env.example .env
+
+# 2. Edit .env and set your API key
+#    OPENAI_API_KEY=your_api_key_here
+
+# 3. Launch the stack
+docker compose up -d
+
+# 4. Open http://localhost in your browser
+```
+
+The API key can also be passed inline:
+
+```bash
+OPENAI_API_KEY=your_key_here docker compose up -d
+```
+
+### Persistent Index Storage
+
+The Milvus Lite database is stored in a Docker volume named `milvus_data` and persists across restarts:
+
+```bash
+docker compose down          # stop containers, keep data
+docker compose down -v       # also remove the database volume
+```
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | (required) | OpenAI-compatible API key |
+| `INDEX_PATH` | `/data/index.db` | Milvus Lite database path (inside container) |
+| `CORS_ORIGINS` | `["http://localhost"]` | Allowed CORS origins — must match the URL you open in the browser |
+| `FRONTEND_PORT` | `80` | Host port the frontend is published on |
+
+All of these can be set in `.env` (copy `.env.example`) or exported in the shell.
+If you change `FRONTEND_PORT`, set `CORS_ORIGINS` to the matching origin, e.g.
+`FRONTEND_PORT=8080` with `CORS_ORIGINS=["http://localhost:8080"]`.
+
+### Architecture
+
+```mermaid
+graph LR
+    A[Browser] -->|http://localhost| B[nginx :80]
+    B -->|/api/*| C[FastAPI :8000]
+    C --> D[(Milvus Lite<br>/data/index.db)]
+```
+
+- **nginx** serves the React SPA and proxies `/api/` requests to the backend
+- **FastAPI** handles all API requests using the Verbatim RAG pipeline
+- **Milvus Lite** stores the vector index in a persistent Docker volume
+
 ## ModernBERT Span Extractor
 
 [KRLabsOrg/verbatim-rag-modern-bert-v2](https://huggingface.co/KRLabsOrg/verbatim-rag-modern-bert-v2) is a 150M-parameter query-conditioned token classifier built on `gte-reranker-modernbert-base`. It supports up to 8,192 tokens and is trained on scientific papers, Wikipedia QA, financial tables, medical literature, legal contracts, product manuals, and code/tool output.
