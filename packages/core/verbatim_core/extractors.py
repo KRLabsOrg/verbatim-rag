@@ -145,7 +145,7 @@ class ModelSpanExtractor(SpanExtractor):
             if target and "Highlighter" in target:
                 return ModelSpanExtractor._FORMAT_HIGHLIGHTER
         except Exception as exc:
-            logger.debug("Highlighter detection failed for %s: %s", model_path, exc)
+            logger.warning("Highlighter detection failed for %s: %s", model_path, exc)
         return ModelSpanExtractor._FORMAT_QA_MODEL
 
     def _init_highlighter(self, model_path: str) -> None:
