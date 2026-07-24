@@ -1,0 +1,34 @@
+# Version control
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Environment secrets
+.env
+
+# Node / Frontend
+frontend/node_modules/
+frontend/build/
+
+# Testing
+tests/
+
+# Docs, scripts, examples (not needed at runtime)
+docs/
+scripts/
+examples/
+*.ipynb
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store

@@ -1,0 +1,37 @@
+# Resolver overrides for the container dependency lock.
+#
+# docker/constraints.txt is the known-working environment for the Docker image.
+# It is generated, not hand-edited. This file is the hand-maintained input: it
+# lists resolutions that are known to break the container and must be excluded.
+#
+# The library's own supported ranges stay in pyproject.toml and are deliberately
+# not narrowed here — this file only constrains what goes into the image.
+#
+# Regenerate after changing dependencies in pyproject.toml, or when refreshing
+# the pinned set:
+#
+#   uv pip compile pyproject.toml --universal --python-version 3.11 \
+#       --override docker/overrides.txt -o docker/constraints.txt
+#
+# python-version must match the base image in Dockerfile (python:3.11-slim).
+# --universal resolves with environment markers instead of for the host, so the
+# same lock builds on both arm64 and x86_64 machines; without it the image only
+# builds on the architecture it was generated on. constraints.txt also pins
+# verbatim-core, so bumping packages/core requires regenerating it.
+#
+# After regenerating, verify rather than trust the resolution:
+#
+#   docker compose up --build
+#   curl -fsS http://localhost/api/status
+
+# milvus-lite 3.x rejects collections that have no vector field:
+#
+#   MilvusException: (code=6, message=schema has no vector field
+#   (FLOAT_VECTOR or SPARSE_FLOAT_VECTOR))
+#
+# verbatim_rag/vector_stores/milvus_local.py creates exactly that for the
+# document-metadata collection ("no vectors, just metadata"), so RAG init
+# fails and /api/status returns 500. Verified: the same create_collection
+# succeeds on milvus-lite 2.5.1 and fails on 3.1.0, on both pymilvus 2.6.17
+# and 3.0.0 — so this is a milvus-lite regression, not a pymilvus API change.
+milvus-lite<3
