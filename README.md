@@ -302,20 +302,9 @@ or serving the stack from another host needs no rebuild.
 The image installs from `docker/constraints.txt`, a generated lock of one
 known-working environment. `pyproject.toml` keeps the library's broad supported
 ranges; the lock narrows them for the container only, so a resolution that
-breaks the stack cannot silently reach the image.
-
-`docker/overrides.txt` is the hand-maintained input listing resolutions known to
-break the container, and documents the regeneration command:
-
-```bash
-uv pip compile pyproject.toml --universal --python-version 3.11 \
-    --override docker/overrides.txt -o docker/constraints.txt
-```
-
-`--universal` resolves with environment markers rather than for the host, so the
-same lock builds on both arm64 and x86_64 machines. Regenerate after changing
-dependencies in `pyproject.toml` or bumping `packages/core`, then verify with
-`docker compose up --build`.
+breaks the stack cannot silently reach the image. The hand-maintained input and
+the regeneration command are documented in `docker/overrides.txt`; regenerate
+after changing dependencies in `pyproject.toml` or bumping `packages/core`.
 
 ## ModernBERT Span Extractor
 
