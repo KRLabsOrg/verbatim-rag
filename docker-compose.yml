@@ -38,7 +38,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:80/"]
+      # 127.0.0.1, not localhost: /etc/hosts maps localhost to ::1 as well, and
+      # nginx only binds IPv4, so busybox wget hits ::1 first and is refused.
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:80/"]
       interval: 15s
       timeout: 5s
       retries: 3
