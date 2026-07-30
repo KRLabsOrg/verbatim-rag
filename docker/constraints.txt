@@ -58,6 +58,12 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   tqdm
 colorlog==6.11.0
     # via rapidocr
+cuda-bindings==13.3.1 ; python_full_version < '3.15' and sys_platform == 'linux'
+    # via torch
+cuda-pathfinder==1.6.0 ; python_full_version < '3.15' and sys_platform == 'linux'
+    # via cuda-bindings
+cuda-toolkit==13.0.3.0 ; sys_platform == 'linux'
+    # via torch
 datasets==3.4.1
     # via verbatim-rag (pyproject.toml)
 defusedxml==0.7.1
@@ -208,41 +214,47 @@ numpy==2.4.6
     #   shapely
     #   torchvision
     #   transformers
-nvidia-cublas-cu12==12.4.5.8 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+nvidia-cublas==13.1.1.3 ; sys_platform == 'linux'
     # via
-    #   nvidia-cudnn-cu12
-    #   nvidia-cusolver-cu12
-    #   torch
-nvidia-cuda-cupti-cu12==12.4.127 ; platform_machine == 'x86_64' and sys_platform == 'linux'
-    # via torch
-nvidia-cuda-nvrtc-cu12==12.4.127 ; platform_machine == 'x86_64' and sys_platform == 'linux'
-    # via torch
-nvidia-cuda-runtime-cu12==12.4.127 ; platform_machine == 'x86_64' and sys_platform == 'linux'
-    # via torch
-nvidia-cudnn-cu12==9.1.0.70 ; platform_machine == 'x86_64' and sys_platform == 'linux'
-    # via torch
-nvidia-cufft-cu12==11.2.1.3 ; platform_machine == 'x86_64' and sys_platform == 'linux'
-    # via torch
-nvidia-curand-cu12==10.3.5.147 ; platform_machine == 'x86_64' and sys_platform == 'linux'
-    # via torch
-nvidia-cusolver-cu12==11.6.1.9 ; platform_machine == 'x86_64' and sys_platform == 'linux'
-    # via torch
-nvidia-cusparse-cu12==12.3.1.170 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    #   cuda-toolkit
+    #   nvidia-cudnn-cu13
+    #   nvidia-cusolver
+nvidia-cuda-cupti==13.0.85 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
+    # via cuda-toolkit
+nvidia-cuda-nvrtc==13.0.88 ; sys_platform == 'linux'
     # via
-    #   nvidia-cusolver-cu12
-    #   torch
-nvidia-cusparselt-cu12==0.6.2 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    #   cuda-toolkit
+    #   nvidia-cublas
+nvidia-cuda-runtime==13.0.96 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
+    # via cuda-toolkit
+nvidia-cudnn-cu13==9.20.0.48 ; sys_platform == 'linux'
     # via torch
-nvidia-nccl-cu12==2.21.5 ; platform_machine == 'x86_64' and sys_platform == 'linux'
-    # via torch
-nvidia-nvjitlink-cu12==12.4.127 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+nvidia-cufft==12.0.0.61 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
+    # via cuda-toolkit
+nvidia-cufile==1.15.1.6 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
+    # via cuda-toolkit
+nvidia-curand==10.4.0.35 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
+    # via cuda-toolkit
+nvidia-cusolver==12.0.4.66 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
+    # via cuda-toolkit
+nvidia-cusparse==12.6.3.3 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
     # via
-    #   nvidia-cufft-cu12
-    #   nvidia-cusolver-cu12
-    #   nvidia-cusparse-cu12
-    #   torch
-nvidia-nvtx-cu12==12.4.127 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+    #   cuda-toolkit
+    #   nvidia-cusolver
+nvidia-cusparselt-cu13==0.8.1 ; sys_platform == 'linux'
     # via torch
+nvidia-nccl-cu13==2.29.7 ; sys_platform == 'linux'
+    # via torch
+nvidia-nvjitlink==13.3.33 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
+    # via
+    #   cuda-toolkit
+    #   nvidia-cufft
+    #   nvidia-cusolver
+    #   nvidia-cusparse
+nvidia-nvshmem-cu13==3.4.5 ; sys_platform == 'linux'
+    # via torch
+nvidia-nvtx==13.0.85 ; (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux')
+    # via cuda-toolkit
 omegaconf==2.3.1
     # via rapidocr
 openai==2.46.0
@@ -396,8 +408,10 @@ semchunk==3.2.5
     # via docling-core
 sentence-transformers==5.6.0
     # via verbatim-rag (pyproject.toml)
-setuptools==83.0.0 ; python_full_version >= '3.12'
-    # via torch
+setuptools==80.10.2
+    # via
+    #   --override docker/overrides.txt
+    #   torch
 shapely==2.1.2
     # via rapidocr
 shellingham==1.5.4
@@ -412,7 +426,7 @@ soupsieve==2.9.1
     # via beautifulsoup4
 starlette==1.3.1
     # via fastapi
-sympy==1.13.1
+sympy==1.14.0
     # via torch
 tabulate==0.10.0
     # via docling-core
@@ -426,7 +440,7 @@ tokenizers==0.21.4
     # via transformers
 tokie==0.0.10
     # via chonkie
-torch==2.6.0
+torch==2.13.0
     # via
     #   verbatim-rag (pyproject.toml)
     #   accelerate
@@ -435,7 +449,7 @@ torch==2.6.0
     #   safetensors
     #   sentence-transformers
     #   torchvision
-torchvision==0.21.0
+torchvision==0.28.0
     # via
     #   docling-ibm-models
     #   docling-slim
@@ -470,7 +484,7 @@ tree-sitter-python==0.25.0
     # via docling-core
 tree-sitter-typescript==0.23.2
     # via docling-core
-triton==3.2.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'
+triton==3.7.1 ; python_full_version < '3.15' and sys_platform == 'linux'
     # via torch
 typer==0.24.2
     # via
