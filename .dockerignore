@@ -22,6 +22,11 @@ frontend/build/
 # Testing
 tests/
 
+# Local runtime artefacts, never part of an image
+demo.db
+data/
+downloads/
+
 # Docs, scripts, examples (not needed at runtime)
 docs/
 scripts/
