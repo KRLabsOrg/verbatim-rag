@@ -221,7 +221,7 @@ cp .env.example .env
 # 3. Build the images and start the stack
 docker compose up --build
 
-# 4. Open http://localhost in your browser
+# 4. Open http://localhost:8080 in your browser
 ```
 
 Add `-d` to run detached. The first start downloads the embedding model from
