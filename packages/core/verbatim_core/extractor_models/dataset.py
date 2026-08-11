@@ -1,9 +1,12 @@
+import logging
 from dataclasses import dataclass
 from typing import Literal
 
 import torch
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -168,6 +171,11 @@ class QADataset(Dataset):
             # +1 for [SEP] token
             if len(input_ids) + len(sent_ids) + 1 > max_length:
                 # If this sentence won't fit, stop processing more sentences
+                logger.warning(
+                    "Legacy QA input exceeded the %d-token budget; dropping %d sentence(s)",
+                    max_length + 2,
+                    len(sentences) - len(sentence_boundaries),
+                )
                 break
 
             # If we get here, we can add the sentence
