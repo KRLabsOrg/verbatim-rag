@@ -178,7 +178,8 @@ tm = TemplateManager(llm_client=client, default_mode="contextual")
 ### Template Placeholders
 
 - `[DISPLAY_SPANS]` -- all display spans aggregated
-- `[FACT_1]`, `[FACT_2]`, ... -- individual span placeholders
+- `[SPAN_1]`, `[SPAN_2]`, ... -- individual span placeholders
+  (`[FACT_N]` is the pre-0.2.7 name and still works in stored templates)
 - `[CITATION_REFS]` -- citation-only reference numbers
 
 ### Linked Citations
