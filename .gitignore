@@ -173,7 +173,7 @@ cython_debug/
 documents/
 index/
 templates.json
-ui/
+/ui/
 .ruff_cache/
 
 data/
