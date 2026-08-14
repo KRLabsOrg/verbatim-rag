@@ -1,0 +1,10 @@
+# Node / Frontend
+node_modules/
+build/
+
+# Version control
+.git/
+.gitignore
+
+# IDE / OS
+.DS_Store

@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Docker Compose development and demo stack: the FastAPI API and the Vite/React UI run
+  locally behind nginx, which proxies `/api/` same-origin. Milvus Lite data persists on a
+  named volume. Not a production deployment — no TLS, authentication, tenancy, or scaling.
+- `docker/constraints.txt`: a checked-in dependency lock used only by the container image;
+  the published ranges in `pyproject.toml` are unchanged. Pins `milvus-lite<3`, whose 3.x
+  line rejects the vector-less metadata collection `LocalMilvusStore` creates.
+
 ## [0.2.8] - 2026-05-31
 
 ### Added
