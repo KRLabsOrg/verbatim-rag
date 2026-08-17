@@ -272,7 +272,7 @@ OPENAI_API_KEY=your_key_here docker compose up --build
 |---|---|---|
 | `OPENAI_API_KEY` | (required) | OpenAI-compatible API key |
 | `INDEX_PATH` | `/data/index.db` | Milvus Lite database path in the container |
-| `FRONTEND_PORT` | `80` | Host port the frontend is published on |
+| `FRONTEND_PORT` | `8080` | Host port the frontend is published on |
 
 All of these can be set in `.env` (copy `.env.example`) or exported in the
 shell. CORS configuration is not needed: the browser only talks to nginx, which
@@ -283,7 +283,7 @@ via its own proxy).
 
 ```mermaid
 graph LR
-    A[Browser] -->|http://localhost| B[nginx :80]
+    A[Browser] -->|http://localhost:8080| B[nginx :80]
     B -->|/api/*| C[FastAPI :8000]
     C --> D[(Milvus Lite<br>/data/index.db)]
 ```
