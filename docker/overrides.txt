@@ -22,7 +22,7 @@
 # After regenerating, verify rather than trust the resolution:
 #
 #   docker compose up --build
-#   curl -fsS http://localhost/api/status
+#   curl -fsS http://localhost:8080/api/status
 
 # milvus-lite 3.x rejects collections that have no vector field:
 #
