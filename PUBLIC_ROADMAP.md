@@ -17,7 +17,7 @@ the best answer. Contextual template mode can also generate presentation text
 around the cited excerpts. Static template mode keeps that framing fixed and
 transparent.
 
-## Now: [v0.3 — Trustworthy extraction](https://github.com/KRLabsOrg/verbatim-rag/milestone/1)
+## Now: [v0.2.9 — Trustworthy extraction](https://github.com/KRLabsOrg/verbatim-rag/milestone/1)
 
 This milestone tightens behavior that matters whichever product surface proves
 useful:
