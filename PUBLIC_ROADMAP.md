@@ -22,7 +22,7 @@ transparent.
 This milestone tightens behavior that matters whichever product surface proves
 useful:
 
-- [surface model-format detection failures](https://github.com/KRLabsOrg/verbatim-rag/issues/33)
+- ~~[surface model-format detection failures](https://github.com/KRLabsOrg/verbatim-rag/issues/33)~~ shipped
   instead of silently selecting an incompatible extractor;
 - [make fuzzy validation asymmetric](https://github.com/KRLabsOrg/verbatim-rag/issues/34)
   so permitted source-side markup can lower a score but changed content cannot
