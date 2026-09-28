@@ -49,6 +49,7 @@ These are open design questions, not promised release features:
 - the right [adapter contract for an existing RAG stack](https://github.com/KRLabsOrg/verbatim-rag/issues/28);
 - a bounded [document-ingestion and lifecycle API](https://github.com/KRLabsOrg/verbatim-rag/issues/31);
 - supported domain adaptation for the current token-level extractors;
+- a [multilingual span extractor](https://github.com/KRLabsOrg/verbatim-rag/issues/67): every extractor published so far is English only;
 - stable document identities and content hashes in citation records;
 - whether the main product pull is a reusable transform, curated hosted
   collections, or a supported self-hosted pipeline.
