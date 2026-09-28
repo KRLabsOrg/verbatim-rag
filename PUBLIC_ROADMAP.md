@@ -45,7 +45,7 @@ is useful and where it fails before widening the API or training story.
 
 These are open design questions, not promised release features:
 
-- a reproducible [local Docker Compose demo](https://github.com/KRLabsOrg/verbatim-rag/issues/27);
+- ~~a reproducible [local Docker Compose demo](https://github.com/KRLabsOrg/verbatim-rag/issues/27)~~ shipped;
 - the right [adapter contract for an existing RAG stack](https://github.com/KRLabsOrg/verbatim-rag/issues/28);
 - a bounded [document-ingestion and lifecycle API](https://github.com/KRLabsOrg/verbatim-rag/issues/31);
 - supported domain adaptation for the current token-level extractors;
