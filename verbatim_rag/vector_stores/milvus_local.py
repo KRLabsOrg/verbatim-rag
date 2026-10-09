@@ -42,6 +42,9 @@ class LocalMilvusStore(BaseMilvusStore):
             raise ValueError("At least one of enable_dense or enable_sparse must be True")
 
         self.db_path = db_path
+        # Milvus Lite 3 rejects a collection without a vector field, so the documents
+        # collection carries a placeholder vector, as in CloudMilvusStore.
+        self._needs_dummy_vector = True
 
         super().__init__(
             collection_name=collection_name,
@@ -130,7 +133,7 @@ class LocalMilvusStore(BaseMilvusStore):
 
                 logger.info(f"Created indexes for collection: {self.collection_name}")
 
-            # Create documents collection (no vectors, just metadata)
+            # Create documents collection (metadata plus a placeholder vector)
             if not self.client.has_collection(collection_name=self.documents_collection_name):
                 doc_schema = self.client.create_schema(
                     auto_id=False,
@@ -154,9 +157,24 @@ class LocalMilvusStore(BaseMilvusStore):
                     max_length=65535,
                 )
                 doc_schema.add_field(field_name="metadata", datatype=DataType.JSON)
+                doc_schema.add_field(
+                    field_name="dummy_vector", datatype=DataType.FLOAT_VECTOR, dim=2
+                )
 
                 self.client.create_collection(
                     collection_name=self.documents_collection_name, schema=doc_schema
+                )
+
+                doc_index_params = self.client.prepare_index_params()
+                doc_index_params.add_index(
+                    field_name="dummy_vector",
+                    index_type="FLAT",
+                    metric_type="L2",
+                    params={},
+                )
+                self.client.create_index(
+                    collection_name=self.documents_collection_name,
+                    index_params=doc_index_params,
                 )
 
                 logger.info(f"Created documents collection: {self.documents_collection_name}")

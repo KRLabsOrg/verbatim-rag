@@ -13,6 +13,11 @@ All notable changes to this project will be documented in this file.
   the published ranges in `pyproject.toml` are unchanged. Pins `milvus-lite<3`, whose 3.x
   line rejects the vector-less metadata collection `LocalMilvusStore` creates.
 
+### Fixed
+- `LocalMilvusStore` no longer fails on Milvus Lite 3 and pymilvus 3. Its metadata collection
+  (`<collection>_documents`) now has a placeholder vector field, as `CloudMilvusStore` already
+  does, because the 3.x line rejects collections without a vector field (#69).
+
 ## [0.2.8] - 2026-05-31
 
 ### Added
