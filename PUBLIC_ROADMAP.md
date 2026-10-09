@@ -50,6 +50,7 @@ These are open design questions, not promised release features:
 - a bounded [document-ingestion and lifecycle API](https://github.com/KRLabsOrg/verbatim-rag/issues/31);
 - supported domain adaptation for the current token-level extractors;
 - a [multilingual span extractor](https://github.com/KRLabsOrg/verbatim-rag/issues/67): every extractor published so far is English only;
+- [decision-model RAG with Vela 2.0](https://github.com/KRLabsOrg/verbatim-rag/issues/75): one model for extraction, retrieval and reranking, and [structured answers defined as JSON](https://github.com/KRLabsOrg/verbatim-rag/issues/74) where every field is a verbatim span;
 - stable document identities and content hashes in citation records;
 - whether the main product pull is a reusable transform, curated hosted
   collections, or a supported self-hosted pipeline.
