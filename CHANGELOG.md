@@ -9,10 +9,7 @@ All notable changes to this project will be documented in this file.
   locally behind nginx, which proxies `/api/` same-origin, published on `:8080` by default
   (`FRONTEND_PORT` overrides). Milvus Lite data persists on a named volume. Not a
   production deployment — no TLS, authentication, tenancy, or scaling.
-- `docker/constraints.txt`: a checked-in dependency lock used only by the container image;
-  the published ranges in `pyproject.toml` are unchanged. Pins `milvus-lite<3`, whose 3.x
-  line rejects the vector-less metadata collection `LocalMilvusStore` creates.
-
+- `docker/constraints.txt`: a checked-in dependency lock used only by the container image; the published ranges in `pyproject.toml` are unchanged.
 ### Fixed
 - `LocalMilvusStore` no longer fails on Milvus Lite 3 and pymilvus 3. Its metadata collection
   (`<collection>_documents`) now has a placeholder vector field, as `CloudMilvusStore` already
