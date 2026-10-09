@@ -178,7 +178,7 @@ markupsafe==3.0.3
     # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
-milvus-lite==2.5.1
+milvus-lite>=3.0.0
     # via
     #   --override docker/overrides.txt
     #   pymilvus
