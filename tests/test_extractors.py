@@ -111,6 +111,65 @@ class TestVerifySpansFuzzy:
             span_match_mode="fuzzy",
         )
 
+    def test_accepts_unicode_canonical_equivalence(self):
+        # Composed é versus e followed by a combining acute accent.
+        document = "The café is open."
+        span = "The cafe\u0301 is open."
+        assert self.extractor._verify_spans([span], document) == [document]
+
+    def test_accepts_html_tags_preserving_visible_text(self):
+        document = "The <em>rate</em> was 5%."
+        span = "The rate was 5%."
+        assert self.extractor._verify_spans([span], document) == [document]
+
+    def test_rejects_changed_decimal(self):
+        document = "The value is 3.14."
+        span = "The value is 3.15."
+        assert self.extractor._verify_spans([span], document) == []
+
+    def test_rejects_changed_signed_number(self):
+        document = "The temperature is -5 degrees."
+        span = "The temperature is +5 degrees."
+        assert self.extractor._verify_spans([span], document) == []
+
+    def test_rejects_changed_apostrophe_content(self):
+        document = "The user's account is active."
+        span = "The users account is active."
+        assert self.extractor._verify_spans([span], document) == []
+
+    def test_returns_original_source_slice(self):
+        document = "Before: The **rate** was 5% [12]. After."
+        span = "The rate was 5%."
+        assert self.extractor._verify_spans([span], document) == ["The **rate** was 5% [12]."]
+
+    def test_rejects_changed_number_at_every_threshold(self):
+        document = "The rate was 5%."
+        span = "The rate was 6%."
+
+        for threshold in (0.0, 0.5, 0.8, 0.95, 1.0):
+            extractor = LLMSpanExtractor(
+                llm_client=MagicMock(),
+                span_match_mode="fuzzy",
+                fuzzy_threshold=threshold,
+            )
+            assert extractor._verify_spans([span], document) == []
+
+    def test_accepts_source_with_markdown_emphasis(self):
+        document = "The **rate** was 5% [12]."
+        span = "The rate was 5%."
+        result = self.extractor._verify_spans([span], document)
+        assert result == ["The **rate** was 5% [12]."]
+
+    def test_rejects_added_content_word(self):
+        document = "The rate was 5%."
+        span = "The interest rate was 5%."
+        assert self.extractor._verify_spans([span], document) == []
+
+    def test_rejects_reordered_content_words(self):
+        document = "The rate was 5%."
+        span = "The 5% rate was."
+        assert self.extractor._verify_spans([span], document) == []
+
     def test_fuzzy_match_preserves_document_token_boundaries(self):
         span = (
             "The art of the movement spanned visual, literary, and sound media, "
@@ -135,7 +194,6 @@ class TestVerifySpansFuzzy:
             ["THE CAT, SAT."],
             "Before the cat , sat . after",
         )
-
         assert result == ["the cat , sat ."]
 
 
