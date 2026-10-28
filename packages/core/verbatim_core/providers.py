@@ -1,3 +1,5 @@
+"""Provider abstractions for RAG-agnostic retrieval and generation."""
+
 from __future__ import annotations
 
 import asyncio

@@ -94,10 +94,12 @@ The following is an unordered list of verbatim excerpts from the source document
         self.template = template
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set the citation mode and propagate it to the filler."""
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
     def set_citation_format(self, citation_format: str) -> None:
+        """Set the citation marker format used by the filler."""
         self.filler.citation_format = citation_format
 
     def get_template(self) -> str:

@@ -1,3 +1,5 @@
+"""Trainer and collate function for the sentence-level extractor model."""
+
 import json
 import logging
 import time
@@ -9,6 +11,7 @@ from torch import nn, optim
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from transformers import PreTrainedTokenizerBase
 from verbatim_core.extractor_models.dataset import QADataset
 
 # Set up logger
@@ -16,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 def qa_collate_fn(batch: list[dict]) -> dict:
-    """Batch is a list of N items (N = batch_size), each item is the dict returned by QADataset.__getitem__.
+    """Collate a batch of QADataset items into padded tensors.
+
+    Batch is a list of N items (N = batch_size), each item is the dict returned by QADataset.__getitem__.
     We need to pad input_ids and attention_mask to the max length in this batch.
 
     We'll keep:
@@ -48,7 +53,7 @@ def qa_collate_fn(batch: list[dict]) -> dict:
             ]
             missing_keys = [k for k in required_keys if k not in item]
             if missing_keys:
-                logger.warning(f"Item missing keys: {missing_keys}")
+                logger.warning("Item missing keys: %s", missing_keys)
                 # Create empty tensors for missing keys
                 if "input_ids" not in item:
                     item["input_ids"] = torch.tensor([0], dtype=torch.long)
@@ -69,8 +74,8 @@ def qa_collate_fn(batch: list[dict]) -> dict:
             sentence_boundaries.append(item["sentence_boundaries"])
             sentence_offset_mappings.append(item["sentence_offset_mappings"])
             labels_list.append(item["labels"])
-        except Exception as e:
-            logger.exception(f"Error processing item in collate_fn: {e}")
+        except Exception:  # noqa: PERF203 - per-item fault tolerance keeps batch size consistent
+            logger.exception("Error processing item in collate_fn")
             # Skip this item or add placeholder
             # Add an empty placeholder to keep batch size consistent
             input_ids_list.append(torch.tensor([0], dtype=torch.long))
@@ -89,17 +94,8 @@ def qa_collate_fn(batch: list[dict]) -> dict:
         # Pad input_ids and attention_mask
         padded_input_ids = pad_sequence(input_ids_list, batch_first=True, padding_value=0)
         padded_attention_mask = pad_sequence(attention_mask_list, batch_first=True, padding_value=0)
-
-        return {
-            "input_ids": padded_input_ids,  # [batch_size, max_seq_len_in_batch]
-            "attention_mask": padded_attention_mask,  # [batch_size, max_seq_len_in_batch]
-            "offset_mapping": offset_mappings,  # list of length batch_size
-            "sentence_boundaries": sentence_boundaries,  # list of length batch_size
-            "sentence_offset_mappings": sentence_offset_mappings,
-            "labels": labels_list,  # list of length batch_size (each is a 1D Tensor)
-        }
-    except Exception as e:
-        logger.exception(f"Error padding sequences in collate_fn: {e}")
+    except Exception:
+        logger.exception("Error padding sequences in collate_fn")
         return {
             "input_ids": torch.zeros((len(input_ids_list), 1), dtype=torch.long),
             "attention_mask": torch.zeros((len(attention_mask_list), 1), dtype=torch.long),
@@ -108,22 +104,33 @@ def qa_collate_fn(batch: list[dict]) -> dict:
             "sentence_offset_mappings": [[] for _ in input_ids_list],
             "labels": [torch.tensor([], dtype=torch.long) for _ in input_ids_list],
         }
+    else:
+        return {
+            "input_ids": padded_input_ids,  # [batch_size, max_seq_len_in_batch]
+            "attention_mask": padded_attention_mask,  # [batch_size, max_seq_len_in_batch]
+            "offset_mapping": offset_mappings,  # list of length batch_size
+            "sentence_boundaries": sentence_boundaries,  # list of length batch_size
+            "sentence_offset_mappings": sentence_offset_mappings,
+            "labels": labels_list,  # list of length batch_size (each is a 1D Tensor)
+        }
 
 
 class Trainer:
+    """Simple trainer for a sentence-level QA model."""
+
     def __init__(
         self,
         model: nn.Module,
         train_dataset: QADataset,
         dev_dataset: QADataset = None,
-        tokenizer=None,
+        tokenizer: PreTrainedTokenizerBase | None = None,
         batch_size: int = 2,
         lr: float = 2e-5,
         epochs: int = 3,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         output_dir: str | None = None,
     ) -> None:
-        """Simple trainer class for training a model on a dataset.
+        """Train a model on a dataset.
 
         :param model: The model to train
         :param train_dataset: The training dataset
@@ -197,11 +204,14 @@ class Trainer:
                     # Compute loss
                     batch_loss = 0.0
                     doc_count = 0
-                    for i, logits in enumerate(logits_list):
+                    for i, doc_logits in enumerate(logits_list):
+                        logits = doc_logits
                         # Make sure we have labels and logits of the same length
                         if i >= len(labels_list):
                             logger.warning(
-                                f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}",
+                                "Mismatch between logits and labels list lengths: %d vs %d",
+                                len(logits_list),
+                                len(labels_list),
                             )
                             continue
 
@@ -214,7 +224,9 @@ class Trainer:
                         # Make sure we have enough labels for all logits
                         if logits.size(0) > labels_i.size(0):
                             logger.warning(
-                                f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}",
+                                "Mismatch between logits and labels sizes: %d vs %d",
+                                logits.size(0),
+                                labels_i.size(0),
                             )
                             logits = logits[: labels_i.size(0), :]
 
@@ -234,25 +246,23 @@ class Trainer:
                         progress_bar.set_postfix(
                             {
                                 "loss": f"{batch_loss.item():.4f}",
-                                "avg_loss": f"{total_loss / step_count:.4f}"
-                                if step_count > 0
-                                else "N/A",
+                                "avg_loss": f"{total_loss / step_count:.4f}" if step_count > 0 else "N/A",
                             },
                         )
 
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
-                        logger.exception(f"CUDA out of memory error: {e}")
+                        logger.exception("CUDA out of memory error")
                         torch.cuda.empty_cache()
                         continue
-                    logger.exception(f"Runtime error in training loop: {e}")
+                    logger.exception("Runtime error in training loop")
                     raise
-                except Exception as e:
-                    logger.exception(f"Error processing batch: {e}")
+                except Exception:
+                    logger.exception("Error processing batch")
                     continue
 
-        except Exception as e:
-            logger.exception(f"Error during training: {e}")
+        except Exception:
+            logger.exception("Error during training")
             if step_count == 0:
                 # If we haven't successfully completed any steps, re-raise the error
                 raise
@@ -297,7 +307,7 @@ class Trainer:
                         "epoch": self.current_epoch,
                         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                     }
-                    with open(metrics_path, "w") as f:
+                    with metrics_path.open("w") as f:
                         json.dump(metrics_data, f, indent=2)
 
                 # Save best model based on F1 score
@@ -309,9 +319,8 @@ class Trainer:
 
                     # Save best metrics separately
                     best_metrics_path = self.output_dir / "best_metrics.json"
-                    with open(best_metrics_path, "w") as f:
+                    with best_metrics_path.open("w") as f:
                         json.dump(metrics_data, f, indent=2)
-
 
             # If no validation data, save the latest model after each epoch
             elif self.output_dir:
@@ -351,11 +360,14 @@ class Trainer:
 
                         batch_loss = 0.0
                         doc_count = 0
-                        for i, logits in enumerate(logits_list):
+                        for i, doc_logits in enumerate(logits_list):
+                            logits = doc_logits
                             # Skip if we have a mismatch in lists
                             if i >= len(labels_list):
                                 logger.warning(
-                                    f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}",
+                                    "Mismatch between logits and labels list lengths: %d vs %d",
+                                    len(logits_list),
+                                    len(labels_list),
                                 )
                                 continue
 
@@ -367,7 +379,9 @@ class Trainer:
                             effective_size = min(logits.size(0), labels_i.size(0))
                             if logits.size(0) != labels_i.size(0):
                                 logger.warning(
-                                    f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}",
+                                    "Mismatch between logits and labels sizes: %d vs %d",
+                                    logits.size(0),
+                                    labels_i.size(0),
                                 )
                                 logits = logits[:effective_size]
                                 labels_i = labels_i[:effective_size]
@@ -392,11 +406,11 @@ class Trainer:
 
                             # Update progress bar with loss
                             progress_bar.set_postfix({"loss": f"{batch_loss.item():.4f}"})
-                    except Exception as e:
-                        logger.exception(f"Error evaluating batch: {e}")
+                    except Exception:
+                        logger.exception("Error evaluating batch")
                         continue
-        except Exception as e:
-            logger.exception(f"Error during evaluation: {e}")
+        except Exception:
+            logger.exception("Error during evaluation")
             # If we have no results, still try to return partial metrics
 
         # Calculate metrics
@@ -415,7 +429,10 @@ class Trainer:
         try:
             if len(all_preds) > 0:
                 precision, recall, f1, _ = precision_recall_fscore_support(
-                    all_labels, all_preds, average="binary", zero_division=0,
+                    all_labels,
+                    all_preds,
+                    average="binary",
+                    zero_division=0,
                 )
                 accuracy = accuracy_score(all_labels, all_preds)
 
@@ -429,8 +446,8 @@ class Trainer:
                 metrics["recall"] = 0.0
                 metrics["f1"] = 0.0
                 metrics["accuracy"] = 0.0
-        except Exception as e:
-            logger.exception(f"Error calculating metrics: {e}")
+        except Exception:
+            logger.exception("Error calculating metrics")
             metrics["precision"] = 0.0
             metrics["recall"] = 0.0
             metrics["f1"] = 0.0
@@ -438,7 +455,7 @@ class Trainer:
 
         return metrics
 
-    def save_model(self, save_path) -> None:
+    def save_model(self, save_path: str | Path) -> None:
         """Save the model to the given path with metadata.
 
         :param save_path: Path to save the model to

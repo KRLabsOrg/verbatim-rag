@@ -5,7 +5,7 @@ template structure and extracts spans organized by placeholder.
 """
 
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 from .base import TemplateStrategy
 
@@ -24,11 +24,11 @@ class StructuredTemplate(TemplateStrategy):
         [RESULTS]
     """
 
-    PLACEHOLDER_PATTERN = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
-    SYSTEM_PLACEHOLDERS = {"DISPLAY_SPANS", "RELEVANT_SENTENCES", "CITATION_REFS"}
+    PLACEHOLDER_PATTERN: ClassVar[re.Pattern[str]] = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
+    SYSTEM_PLACEHOLDERS: ClassVar[set[str]] = {"DISPLAY_SPANS", "RELEVANT_SENTENCES", "CITATION_REFS"}
 
     # Standard mappings from placeholder names to extraction hints
-    STANDARD_MAPPINGS: dict[str, str] = {
+    STANDARD_MAPPINGS: ClassVar[dict[str, str]] = {
         "METHODOLOGY": "methodology or methods used",
         "METHOD": "method used",
         "APPROACH": "approach taken",
@@ -51,34 +51,35 @@ class StructuredTemplate(TemplateStrategy):
 
     def __init__(
         self,
-        rag_system=None,
+        rag_system: Any = None,  # noqa: ANN401  # duck-typed RAG system
         template: str | None = None,
         placeholder_mappings: dict[str, str] | None = None,
         citation_mode: str = "inline",
     ) -> None:
+        """Initialize the structured template strategy."""
         self.rag_system = rag_system
         self.template = template
         self.custom_mappings = placeholder_mappings or {}
         self.citation_mode = citation_mode
 
     # ------------------------------------------------------------------ helpers
-    def set_rag_system(self, rag_system) -> None:
+    def set_rag_system(self, rag_system: Any) -> None:  # noqa: ANN401  # duck-typed RAG system
+        """Set the RAG system used for structured extraction."""
         self.rag_system = rag_system
 
     def set_template(self, template: str) -> None:
+        """Validate and set the template."""
         self.validate_template(template)
         self.template = template
 
     def validate_template(self, template: str) -> None:
+        """Validate that the template has semantic or standard placeholders."""
         if not template or not template.strip():
             msg = "Template cannot be empty"
             raise ValueError(msg)
 
         has_semantic = bool(self.PLACEHOLDER_PATTERN.search(template))
-        has_standard = any(
-            p in template
-            for p in ("[DISPLAY_SPANS]", "[RELEVANT_SENTENCES]", "[SPAN_1]", "[FACT_1]")
-        )
+        has_standard = any(p in template for p in ("[DISPLAY_SPANS]", "[RELEVANT_SENTENCES]", "[SPAN_1]", "[FACT_1]"))
 
         if not (has_semantic or has_standard):
             msg = (
@@ -122,10 +123,12 @@ class StructuredTemplate(TemplateStrategy):
         return hints
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set the citation mode."""
         self.citation_mode = citation_mode
 
     # ---------------------------------------------------------------- TemplateStrategy interface
     def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
+        """Return the configured template."""
         if not self.template:
             msg = "Structured template not set"
             raise ValueError(msg)
@@ -137,10 +140,12 @@ class StructuredTemplate(TemplateStrategy):
         display_spans: list[dict[str, Any]],
         citation_spans: list[dict[str, Any]],
     ) -> str:
+        """Return the template unchanged; standard filling is unused here."""
         # Standard fill not used for structured mode
         return template
 
     def save_state(self) -> dict[str, Any]:
+        """Return the serializable state of this strategy."""
         return {
             "type": "structured",
             "template": self.template,
@@ -149,6 +154,7 @@ class StructuredTemplate(TemplateStrategy):
         }
 
     def load_state(self, state: dict[str, Any]) -> None:
+        """Restore strategy state from a saved dictionary."""
         self.template = state.get("template", self.template)
         self.custom_mappings = state.get("placeholder_mappings", {})
         if "citation_mode" in state:

@@ -1,3 +1,5 @@
+"""Decorator for enhancing existing RAG functions with verbatim transformation."""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
@@ -6,8 +8,10 @@ from typing import Any
 
 from .transform import VerbatimTransform
 
+_ANSWER_SOURCES_PAIR_LEN = 2
 
-def _to_context_dicts(obj: Any) -> list[dict]:
+
+def _to_context_dicts(obj: object) -> list[dict]:
     """Best-effort conversion of sources/context to context dicts."""
     ctx: list[dict] = []
     if obj is None:
@@ -38,7 +42,7 @@ def _to_context_dicts(obj: Any) -> list[dict]:
 def verbatim_enhance(
     max_display_spans: int = 5,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """Decorator to enhance existing RAG functions with verbatim transformation.
+    """Enhance existing RAG functions with verbatim transformation.
 
     The wrapped function can return:
     - dict with keys: 'question'?, 'answer'?, 'context' or 'sources'
@@ -49,7 +53,7 @@ def verbatim_enhance(
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: object, **kwargs: object) -> object:  # decorator passthrough
             result = fn(*args, **kwargs)
             question = kwargs.get("question") or (args[0] if args else "")
             answer = None
@@ -59,7 +63,7 @@ def verbatim_enhance(
                 answer = result.get("answer")
                 context = result.get("context") or result.get("sources") or []
             elif isinstance(result, (list, tuple)):
-                if len(result) == 2:
+                if len(result) == _ANSWER_SOURCES_PAIR_LEN:
                     answer, context = result
                 else:
                     context = result

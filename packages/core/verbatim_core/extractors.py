@@ -87,7 +87,9 @@ class ModelSpanExtractor(SpanExtractor):
         max_length: int = 8192,
         doc_stride: int = 256,
     ) -> None:
-        """:param model_path: Path or HuggingFace id. Defaults to v2 generic.
+        """Initialize the span extractor.
+
+        :param model_path: Path or HuggingFace id. Defaults to v2 generic.
         :param device: ``"cuda"`` / ``"mps"`` / ``"cpu"`` or None to auto-detect.
         :param threshold: Probability cutoff. Default 0.2 matches v2's
             published headline; raise to 0.5 for the legacy v1 sentence model.
@@ -131,7 +133,9 @@ class ModelSpanExtractor(SpanExtractor):
 
     @staticmethod
     def _detect_format(model_path: str) -> str:
-        """Return ``"highlighter"`` if the model exposes a ``.process()`` API
+        """Detect the model format.
+
+        Return ``"highlighter"`` if the model exposes a ``.process()`` API
         via ``trust_remote_code``, else ``"qa_model"`` (legacy).
         """
         try:
@@ -142,7 +146,7 @@ class ModelSpanExtractor(SpanExtractor):
             target = auto_map.get("AutoModel") or auto_map.get("AutoModelForTokenClassification")
             if target and "Highlighter" in target:
                 return ModelSpanExtractor._FORMAT_HIGHLIGHTER
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # any load failure falls back to legacy format
             logger.warning("Highlighter detection failed for %s: %s", model_path, exc)
         return ModelSpanExtractor._FORMAT_QA_MODEL
 
@@ -180,13 +184,13 @@ class ModelSpanExtractor(SpanExtractor):
 
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # fall back to base model tokenizer
             logger.warning("Could not load tokenizer from %s: %s", model_path, e)
             base_model = getattr(self.model.config, "model_name", "answerdotai/ModernBERT-base")
             self.tokenizer = AutoTokenizer.from_pretrained(base_model)
 
     def _split_into_sentences(self, text: str) -> list[str]:
-        """Simple sentence splitting."""
+        """Split text into sentences with a simple regex."""
         import re
 
         sentences = re.split(r"(?<=[.!?])\s+", text)
@@ -220,8 +224,8 @@ class ModelSpanExtractor(SpanExtractor):
                 relevant[context] = [
                     sp["text"] for sp in out.get("spans", []) if sp.get("text", "").strip()
                 ]
-            except Exception as exc:
-                logger.exception("Highlighter extraction failed: %s", exc)
+            except Exception:
+                logger.exception("Highlighter extraction failed")
                 relevant[context] = []
         return relevant
 
@@ -356,8 +360,8 @@ class SemanticHighlightExtractor(SpanExtractor):
                 else:
                     spans = self._extract_token_spans(question, context)
                 relevant_spans[context] = spans
-            except Exception as e:
-                logger.exception("Semantic highlight extraction failed: %s", e)
+            except Exception:
+                logger.exception("Semantic highlight extraction failed")
                 relevant_spans[context] = []
 
         return relevant_spans
@@ -412,8 +416,8 @@ class SemanticHighlightExtractor(SpanExtractor):
 
         # Convert token regions to text spans
         spans = []
-        for token_start, token_end in span_regions:
-            token_end = min(token_end, len(offset_mapping))
+        for token_start, raw_token_end in span_regions:
+            token_end = min(raw_token_end, len(offset_mapping))
             if token_start >= len(offset_mapping):
                 continue
 
@@ -422,8 +426,8 @@ class SemanticHighlightExtractor(SpanExtractor):
             span_text = context[char_start:char_end]
 
             # Clean up leading/trailing punctuation
-            span_text = re.sub(r"^[\s.,;:!?\-–—]+", "", span_text)
-            span_text = re.sub(r"[\s.,;:!?\-–—]+$", "", span_text)
+            span_text = re.sub(r"^[\s.,;:!?\-\u2013\u2014]+", "", span_text)
+            span_text = re.sub(r"[\s.,;:!?\-\u2013\u2014]+$", "", span_text)
             span_text = span_text.strip()
 
             if span_text:
@@ -431,7 +435,7 @@ class SemanticHighlightExtractor(SpanExtractor):
 
         return spans
 
-    def _find_span_regions(self, probs) -> list[tuple]:
+    def _find_span_regions(self, probs: Any) -> list[tuple]:  # noqa: ANN401  # numpy array
         """Find contiguous regions of high-probability tokens."""
         above_threshold = probs > self.threshold
 
@@ -604,7 +608,7 @@ class LLMSpanExtractor(SpanExtractor):
                     else:
                         all_verified[result_text] = []
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # fall back to per-document extraction
                 logger.warning(
                     "Batch extraction failed for chunk starting at %d, "
                     "falling back to individual: %s",
@@ -627,8 +631,8 @@ class LLMSpanExtractor(SpanExtractor):
                                 question, result_text,
                             )
                         all_verified[result_text] = self._verify_spans(extracted, result_text)
-                    except Exception as inner_e:
-                        logger.exception("Individual fallback extraction failed: %s", inner_e)
+                    except Exception:
+                        logger.exception("Individual fallback extraction failed")
                         all_verified[result_text] = []
 
         return all_verified
@@ -672,7 +676,7 @@ class LLMSpanExtractor(SpanExtractor):
                     else:
                         all_verified[result_text] = []
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001  # fall back to per-document extraction
                 logger.warning(
                     "Async batch extraction failed for chunk starting at %d, "
                     "falling back to individual: %s",
@@ -694,8 +698,8 @@ class LLMSpanExtractor(SpanExtractor):
                                 question, result_text,
                             )
                         all_verified[result_text] = self._verify_spans(extracted, result_text)
-                    except Exception as inner_e:
-                        logger.exception("Async individual fallback extraction failed: %s", inner_e)
+                    except Exception:
+                        logger.exception("Async individual fallback extraction failed")
                         all_verified[result_text] = []
 
         return all_verified
@@ -726,8 +730,8 @@ class LLMSpanExtractor(SpanExtractor):
                     extracted_spans = self.llm_client.extract_relevant_spans(question, result_text)
                 verified = self._verify_spans(extracted_spans, result_text)
                 all_spans[result_text] = verified
-            except Exception as e:
-                logger.exception("Individual extraction failed for document: %s", e)
+            except Exception:
+                logger.exception("Individual extraction failed for document")
                 all_spans[result_text] = []
 
         return all_spans
@@ -740,7 +744,7 @@ class LLMSpanExtractor(SpanExtractor):
 
         logger.info("Extracting spans (async individual mode)...")
 
-        async def _extract_one(result: Any) -> tuple[str, list[str]]:
+        async def _extract_one(result: object) -> tuple[str, list[str]]:
             result_text = getattr(result, "text", "")
             try:
                 if self.extraction_prompt:
@@ -755,8 +759,8 @@ class LLMSpanExtractor(SpanExtractor):
                         question, result_text,
                     )
                 return result_text, self._verify_spans(extracted, result_text)
-            except Exception as e:
-                logger.exception("Async individual extraction failed for document: %s", e)
+            except Exception:
+                logger.exception("Async individual extraction failed for document")
                 return result_text, []
 
         results = await asyncio.gather(*[_extract_one(r) for r in search_results])
@@ -797,8 +801,8 @@ class LLMSpanExtractor(SpanExtractor):
         :return: List of verified spans from the document text
         """
         verified = []
-        for span in spans:
-            span = span.strip()
+        for raw_span in spans:
+            span = raw_span.strip()
             if not span:
                 continue
 

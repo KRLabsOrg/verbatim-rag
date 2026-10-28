@@ -5,7 +5,7 @@ Templates can be generated using LLM or manually curated.
 """
 
 import random
-from typing import Any
+from typing import Any, ClassVar
 
 from verbatim_core.llm_client import LLMClient
 
@@ -21,7 +21,7 @@ class RandomTemplate(TemplateStrategy):
     an LLM for diversity.
     """
 
-    DEFAULT_TEMPLATES = [
+    DEFAULT_TEMPLATES: ClassVar[list[str]] = [
         """## Key Findings
 
 Based on the documents, here are the relevant facts:
@@ -80,6 +80,7 @@ The relevant information from the documents includes:
             self.validate_template(template)
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set the citation mode and propagate it to the filler."""
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
@@ -94,7 +95,7 @@ The relevant information from the documents includes:
         if not self.templates:
             return self._get_fallback_template()
 
-        return random.choice(self.templates)
+        return random.choice(self.templates)  # noqa: S311  # non-cryptographic template selection
 
     def fill(
         self,
@@ -129,7 +130,7 @@ The relevant information from the documents includes:
             for template in self.templates:
                 try:
                     self.validate_template(template)
-                except ValueError:
+                except ValueError:  # noqa: PERF203  # per-item validation; keep behavior
                     self.templates.remove(template)
 
     def add_template(self, template: str) -> None:
@@ -203,11 +204,10 @@ Return only the templates, one per line. No numbering or explanations."""
                     if template not in self.templates:
                         self.templates.append(template)
                         added_count += 1
-                except ValueError:
+                except ValueError:  # noqa: PERF203  # per-item validation
                     continue  # Skip invalid templates
 
-
-        except Exception:
+        except Exception:  # noqa: BLE001  # any LLM failure falls back to default templates
             # Add some fallback templates if generation fails
             fallback_templates = [
                 "Here's what the documents reveal:\n\n[DISPLAY_SPANS]",

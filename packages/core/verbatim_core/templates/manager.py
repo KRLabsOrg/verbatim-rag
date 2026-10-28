@@ -6,7 +6,8 @@ including mode selection, persistence, and processing workflows.
 
 import contextlib
 import json
-import os
+import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from verbatim_core.llm_client import LLMClient
@@ -21,6 +22,9 @@ if TYPE_CHECKING:
     from .base import TemplateStrategy
 
 
+logger = logging.getLogger(__name__)
+
+
 class TemplateManager:
     """Template manager with strategy pattern and mode selection.
 
@@ -33,7 +37,7 @@ class TemplateManager:
         self,
         llm_client: LLMClient | None = None,
         default_mode: str = "static",
-        rag_system=None,
+        rag_system: Any = None,  # noqa: ANN401  # duck-typed RAG system; avoids circular import
     ) -> None:
         """Initialize template manager.
 
@@ -49,13 +53,12 @@ class TemplateManager:
         # Initialize strategies
         self.strategies: dict[str, TemplateStrategy] = {
             "static": StaticTemplate(citation_mode=self.citation_mode),
-            "contextual": ContextualTemplate(llm_client, citation_mode=self.citation_mode)
-            if llm_client
-            else None,
+            "contextual": ContextualTemplate(llm_client, citation_mode=self.citation_mode) if llm_client else None,
             "random": RandomTemplate(llm_client=llm_client, citation_mode=self.citation_mode),
             "question_specific": QuestionSpecificTemplate(citation_mode=self.citation_mode),
             "structured": StructuredTemplate(
-                rag_system=rag_system, citation_mode=self.citation_mode,
+                rag_system=rag_system,
+                citation_mode=self.citation_mode,
             ),
         }
 
@@ -154,7 +157,10 @@ class TemplateManager:
         return [span["text"] for span in display_spans + citation_spans], len(citation_spans)
 
     def get_template(
-        self, question: str = "", spans: list[str] | None = None, citation_count: int = 0,
+        self,
+        question: str = "",
+        spans: list[str] | None = None,
+        citation_count: int = 0,
     ) -> str:
         """Generate a template without filling it.
 
@@ -196,9 +202,10 @@ class TemplateManager:
                 data["strategies"][mode] = strategy.save_state()
 
         # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        path = Path(filepath)
+        path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(filepath, "w") as f:
+        with path.open("w") as f:
             json.dump(data, f, indent=2)
 
     def load(self, filepath: str) -> bool:
@@ -207,11 +214,12 @@ class TemplateManager:
         :param filepath: Path to load configuration from
         :return: True if loaded successfully
         """
-        if not os.path.exists(filepath):
+        path = Path(filepath)
+        if not path.exists():
             return False
 
         try:
-            with open(filepath) as f:
+            with path.open() as f:
                 data = json.load(f)
 
             # Load mode
@@ -227,10 +235,10 @@ class TemplateManager:
                     with contextlib.suppress(Exception):
                         self.strategies[mode].load_state(state)
 
-            return True
-
-        except Exception:
+        except Exception:  # noqa: BLE001  # unreadable or malformed config is reported as False
             return False
+        else:
+            return True
 
     def info(self) -> dict[str, Any]:
         """Get current template manager state information.
@@ -287,7 +295,8 @@ class TemplateManager:
 
         if self.strategies["contextual"] is None:
             self.strategies["contextual"] = ContextualTemplate(
-                self.llm_client, citation_mode=self.citation_mode,
+                self.llm_client,
+                citation_mode=self.citation_mode,
             )
 
         contextual_strategy = self.strategies["contextual"]
@@ -324,14 +333,16 @@ class TemplateManager:
         if hasattr(random_strategy, "generate_diverse_templates"):
             try:
                 random_strategy.generate_diverse_templates(count)
-                return True
             except Exception:
-                pass
+                logger.debug("Random template generation failed", exc_info=True)
+            else:
+                return True
 
         return False
 
     def use_question_specific_mode(
-        self, templates: dict[str, dict[str, Any]] | None = None,
+        self,
+        templates: dict[str, dict[str, Any]] | None = None,
     ) -> bool:
         """Switch to question-specific mode with optional template definitions.
 
@@ -373,7 +384,8 @@ class TemplateManager:
 
         if structured_strategy is None:
             structured_strategy = StructuredTemplate(
-                rag_system=self.rag_system, citation_mode=self.citation_mode,
+                rag_system=self.rag_system,
+                citation_mode=self.citation_mode,
             )
             self.strategies["structured"] = structured_strategy
         else:
@@ -394,7 +406,7 @@ class TemplateManager:
 
         return self.set_mode("structured")
 
-    def set_rag_system(self, rag_system) -> None:
+    def set_rag_system(self, rag_system: Any) -> None:  # noqa: ANN401  # duck-typed RAG system
         """Set the RAG system for modes that need it (structured).
 
         :param rag_system: RAG system instance
@@ -411,13 +423,14 @@ class TemplateManager:
         template: str | None = None,
         placeholder_mappings: dict[str, str] | None = None,
     ) -> str:
-        """Convenience helper to run structured extraction.
+        """Run structured extraction as a convenience helper.
 
         Note: Prefer calling rag.query_async() directly after setting up
         structured mode. This method is kept for convenience.
         """
         if not self.use_structured_mode(
-            template=template, placeholder_mappings=placeholder_mappings,
+            template=template,
+            placeholder_mappings=placeholder_mappings,
         ):
             msg = "Structured mode unavailable"
             raise ValueError(msg)

@@ -1,3 +1,5 @@
+"""RAG-agnostic verbatim transform orchestration."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -11,6 +13,7 @@ from .templates import TemplateManager
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from .models import QueryResponse
     from .providers import RAGProvider
 
 
@@ -73,6 +76,7 @@ class VerbatimTransform:
         extraction_prompt: str | None = None,
         system_prompt: str | None = None,
     ) -> None:
+        """Initialize the transform with optional custom components."""
         self.llm_client = llm_client or LLMClient()
         self.extractor = extractor or LLMSpanExtractor(
             llm_client=self.llm_client,
@@ -94,15 +98,15 @@ class VerbatimTransform:
         question: str,
         context: Iterable[dict[str, Any]],
         answer: str | None = None,  # Ignored for now
-    ):
+    ) -> QueryResponse:
+        """Transform retrieved context into a verbatim response."""
         search_results = _coerce_context_to_results(list(context))
 
         relevant_spans = self.extractor.extract_spans(question, search_results)  # type: ignore[arg-type]
 
         all_spans = []
         for doc_text, spans in relevant_spans.items():
-            for span in spans:
-                all_spans.append({"text": span, "doc_text": doc_text})
+            all_spans.extend({"text": span, "doc_text": doc_text} for span in spans)
         display_spans = all_spans[: self.max_display_spans]
         citation_spans = all_spans[self.max_display_spans :]
 
@@ -122,7 +126,8 @@ class VerbatimTransform:
         question: str,
         context: Iterable[dict[str, Any]],
         answer: str | None = None,
-    ):
+    ) -> QueryResponse:
+        """Transform retrieved context into a verbatim response asynchronously."""
         search_results = _coerce_context_to_results(list(context))
 
         relevant_spans = await self.extractor.extract_spans_async(  # type: ignore[attr-defined]
@@ -132,8 +137,7 @@ class VerbatimTransform:
 
         all_spans = []
         for doc_text, spans in relevant_spans.items():
-            for span in spans:
-                all_spans.append({"text": span, "doc_text": doc_text})
+            all_spans.extend({"text": span, "doc_text": doc_text} for span in spans)
         display_spans = all_spans[: self.max_display_spans]
         citation_spans = all_spans[self.max_display_spans :]
 
@@ -157,7 +161,8 @@ def verbatim_query(
     k: int = 5,
     filter: str | None = None,
     answer: str | None = None,
-) -> Any:
+) -> QueryResponse:
+    """Retrieve context from a provider and transform it."""
     context = provider.retrieve(question, k=k, filter=filter)
     vt = VerbatimTransform()
     return vt.transform(question=question, context=context, answer=answer)
@@ -169,7 +174,8 @@ async def verbatim_query_async(
     k: int = 5,
     filter: str | None = None,
     answer: str | None = None,
-) -> Any:
+) -> QueryResponse:
+    """Retrieve context from a provider and transform it asynchronously."""
     context = await provider.retrieve_async(question, k=k, filter=filter)
     vt = VerbatimTransform()
     return await vt.transform_async(question=question, context=context, answer=answer)

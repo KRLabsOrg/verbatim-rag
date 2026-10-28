@@ -76,10 +76,7 @@ class TemplateStrategy(ABC):
 
         has_placeholder = any(placeholder in template for placeholder in acceptable_placeholders)
         if not has_placeholder:
-            msg = (
-                "Template must contain at least one of: "
-                "[RELEVANT_SENTENCES], [DISPLAY_SPANS], or [SPAN_1]"
-            )
+            msg = "Template must contain at least one of: [RELEVANT_SENTENCES], [DISPLAY_SPANS], or [SPAN_1]"
             raise ValueError(
                 msg,
             )
