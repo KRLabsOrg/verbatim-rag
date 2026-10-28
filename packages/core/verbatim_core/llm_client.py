@@ -237,7 +237,7 @@ class LLMClient:
         documents: list[str],
     ) -> str:
         """Build prompt for structured extraction with document attribution."""
-        from .prompts import load_prompt
+        from verbatim_core.prompts import load_prompt
 
         placeholder_spec = "\n".join(f"- {name}: {hint}" for name, hint in placeholders.items())
         docs_text = "\n\n---\n\n".join(f"[Document {i}]\n{doc}" for i, doc in enumerate(documents))
@@ -345,7 +345,7 @@ class LLMClient:
 
     def _build_extraction_prompt(self, question: str, documents: dict[str, str]) -> str:
         """Build the prompt for batch span extraction."""
-        from .prompts import load_prompt
+        from verbatim_core.prompts import load_prompt
 
         return load_prompt(
             "extraction/default",
@@ -362,7 +362,7 @@ class LLMClient:
         preserve_span_newlines: bool = False,
         template_prompt: str | None = None,
     ) -> str:
-        from .prompts import load_prompt, render_prompt
+        from verbatim_core.prompts import load_prompt, render_prompt
 
         span_lines = []
         for i, span in enumerate(spans, start=1):
@@ -393,7 +393,7 @@ class LLMClient:
         preserve_span_newlines: bool = False,
         template_prompt: str | None = None,
     ) -> str:
-        from .prompts import load_prompt, render_prompt
+        from verbatim_core.prompts import load_prompt, render_prompt
 
         preview_chars = 50 if template_preview_chars is None else min(50, template_preview_chars)
         preview_spans = []
@@ -414,7 +414,7 @@ class LLMClient:
 
     def _fallback_template(self, has_citations: bool = False) -> str:
         """Return a simple fallback template when generation fails."""
-        from .prompts import load_prompt
+        from verbatim_core.prompts import load_prompt
 
         return load_prompt("template/fallback", has_citations=has_citations)
 

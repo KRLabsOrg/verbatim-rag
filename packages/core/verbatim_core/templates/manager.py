@@ -11,15 +11,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from verbatim_core.llm_client import LLMClient
-
-from .contextual import ContextualTemplate
-from .question_specific import QuestionSpecificTemplate
-from .random import RandomTemplate
-from .static import StaticTemplate
-from .structured import StructuredTemplate
+from verbatim_core.templates.contextual import ContextualTemplate
+from verbatim_core.templates.question_specific import QuestionSpecificTemplate
+from verbatim_core.templates.random import RandomTemplate
+from verbatim_core.templates.static import StaticTemplate
+from verbatim_core.templates.structured import StructuredTemplate
 
 if TYPE_CHECKING:
-    from .base import TemplateStrategy
+    from verbatim_core.templates.base import TemplateStrategy
 
 
 logger = logging.getLogger(__name__)

@@ -35,6 +35,9 @@ ignore = [
     "ARG002", # unused-method-argument (template interface signatures)
 ]
 
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
 [format]
 # Use double quotes for strings.
 quote-style = "double"

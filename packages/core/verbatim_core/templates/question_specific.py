@@ -8,8 +8,8 @@ selects the best-matching template for each query.
 import logging
 from typing import Any
 
-from .base import TemplateStrategy
-from .filler import TemplateFiller
+from verbatim_core.templates.base import TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 
 logger = logging.getLogger(__name__)
 

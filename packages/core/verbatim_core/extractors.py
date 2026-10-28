@@ -16,7 +16,7 @@ from typing import Any
 
 from rapidfuzz.fuzz import partial_ratio_alignment
 
-from .llm_client import LLMClient
+from verbatim_core.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -160,17 +160,10 @@ class ModelSpanExtractor(SpanExtractor):
     def _init_qa_model(self, model_path: str) -> None:
         from transformers import AutoTokenizer
 
-        from .extractor_models.dataset import (
-            Document as DatasetDocument,
-        )
-        from .extractor_models.dataset import (
-            QADataset,
-            QASample,
-        )
-        from .extractor_models.dataset import (
-            Sentence as DatasetSentence,
-        )
-        from .extractor_models.model import QAModel
+        from verbatim_core.extractor_models.dataset import Document as DatasetDocument
+        from verbatim_core.extractor_models.dataset import QADataset, QASample
+        from verbatim_core.extractor_models.dataset import Sentence as DatasetSentence
+        from verbatim_core.extractor_models.model import QAModel
 
         self.QADataset = QADataset
         self.DatasetSentence = DatasetSentence
@@ -522,7 +515,7 @@ class LLMSpanExtractor(SpanExtractor):
         :param documents: Dictionary mapping doc IDs to document text
         :return: Formatted prompt string
         """
-        from .prompts import render_prompt
+        from verbatim_core.prompts import render_prompt
 
         docs_formatted = "\n\n".join(f"[{doc_id}]\n{text}" for doc_id, text in documents.items())
         return render_prompt(

@@ -6,8 +6,8 @@ without LLM generation. Supports customization and persistence.
 
 from typing import Any
 
-from .base import TemplateStrategy
-from .filler import TemplateFiller
+from verbatim_core.templates.base import TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 
 
 class StaticTemplate(TemplateStrategy):

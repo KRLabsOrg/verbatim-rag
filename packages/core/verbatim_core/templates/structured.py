@@ -7,7 +7,7 @@ template structure and extracts spans organized by placeholder.
 import re
 from typing import Any, ClassVar
 
-from .base import TemplateStrategy
+from verbatim_core.templates.base import TemplateStrategy
 
 
 class StructuredTemplate(TemplateStrategy):
