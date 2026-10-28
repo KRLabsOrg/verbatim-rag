@@ -62,9 +62,7 @@ class ResponseBuilder:
                 # Create citations for each highlight
                 for highlight_index, highlight in enumerate(highlights):
                     # Determine if this should be a display citation or reference-only
-                    is_display = (
-                        display_span_count is None or current_citation_number <= display_span_count
-                    )
+                    is_display = display_span_count is None or current_citation_number <= display_span_count
 
                     all_citations.append(
                         Citation(

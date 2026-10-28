@@ -132,7 +132,9 @@ class LLMClient:
             return {doc_id: [] for doc_id in documents}
 
     async def extract_spans_async(
-        self, question: str, documents: dict[str, str],
+        self,
+        question: str,
+        documents: dict[str, str],
     ) -> dict[str, list[str]]:
         """Async span extraction from documents.
 
@@ -164,7 +166,10 @@ class LLMClient:
         :return: Dict mapping placeholder names to lists of {text, doc} objects
         """
         prompt = self._build_structured_extraction_prompt(
-            question, template, placeholders, documents,
+            question,
+            template,
+            placeholders,
+            documents,
         )
         try:
             response = self.complete(prompt, json_mode=True)
@@ -189,7 +194,10 @@ class LLMClient:
         :return: Dict mapping placeholder names to lists of {text, doc} objects
         """
         prompt = self._build_structured_extraction_prompt(
-            question, template, placeholders, documents,
+            question,
+            template,
+            placeholders,
+            documents,
         )
         try:
             response = await self.complete_async(prompt, json_mode=True)
@@ -199,7 +207,9 @@ class LLMClient:
             return {name: [] for name in placeholders}
 
     def _normalize_structured_response(
-        self, response: dict, placeholders: dict[str, str],
+        self,
+        response: dict,
+        placeholders: dict[str, str],
     ) -> dict[str, list[dict[str, any]]]:
         """Normalize LLM response to ensure consistent format.
 
@@ -325,7 +335,9 @@ class LLMClient:
 
         try:
             return await self.complete_async(
-                prompt, temperature=self.temperature, system_prompt=system_prompt,
+                prompt,
+                temperature=self.temperature,
+                system_prompt=system_prompt,
             )
         except Exception:  # fall back to default template
             logger.exception("Async template generation failed")
@@ -408,13 +420,17 @@ class LLMClient:
 
     # Batch span extraction API (for compatibility)
     def extract_relevant_spans_batch(
-        self, question: str, documents: dict[str, str],
+        self,
+        question: str,
+        documents: dict[str, str],
     ) -> dict[str, list[str]]:
         """Extract spans for a batch of documents."""
         return self.extract_spans(question, documents)
 
     async def extract_relevant_spans_batch_async(
-        self, question: str, documents: dict[str, str],
+        self,
+        question: str,
+        documents: dict[str, str],
     ) -> dict[str, list[str]]:
         """Extract spans for a batch of documents asynchronously."""
         return await self.extract_spans_async(question, documents)
