@@ -21,6 +21,18 @@ select = ["ALL"]
 ignore = [
     "E501", # line-too-long (https://docs.astral.sh/ruff/rules/line-too-long/)
     "C901", # complex-structure (https://docs.astral.sh/ruff/rules/complex-structure/)
+    "CPY001", # missing-copyright-notice
+    "FBT001", # boolean-type-hint-positional-argument (public API)
+    "FBT002", # boolean-default-value-positional-argument (public API)
+    "PLR0913", # too-many-arguments
+    "PLR0917", # too-many-positional-arguments
+    "PLR0915", # too-many-statements
+    "PLR0912", # too-many-branches
+    "A002", # builtin-argument-shadowing (public API, e.g. `filter`)
+    "A005", # stdlib-module-shadowing (verbatim_core.types)
+    "INP001", # implicit-namespace-package
+    "PLC0415", # import-outside-top-level (optional/lazy dependencies)
+    "ARG002", # unused-method-argument (template interface signatures)
 ]
 
 [format]

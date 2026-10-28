@@ -7,14 +7,20 @@ clean text with citations handled separately.
 """
 
 import re
-from typing import Any
+from typing import Any, ClassVar
+
+MIN_TABLE_LINES = 2
 
 
 class TemplateFiller:
-    ALLOWED_MODES = {"inline", "hidden"}
+    """Fill template placeholders with spans and citation markers."""
+
+    ALLOWED_MODES: ClassVar[set[str]] = {"inline", "hidden"}
 
     def __init__(self, citation_mode: str = "inline", citation_format: str = "[{number}]") -> None:
-        """:param citation_mode: "inline" to embed markers in text, "hidden" for plain text.
+        """Initialize the filler.
+
+        :param citation_mode: "inline" to embed markers in text, "hidden" for plain text.
         :param citation_format: str.format template for citation markers.
             Available variables: {number} (sequential integer), {span_id} (span's own id,
             falls back to str(number) when absent from span data).
@@ -26,11 +32,9 @@ class TemplateFiller:
         self.citation_format = citation_format
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set the citation mode ("inline" or "hidden")."""
         if citation_mode not in self.ALLOWED_MODES:
-            msg = (
-                f"Unsupported citation mode: {citation_mode}. "
-                f"Allowed values: {sorted(self.ALLOWED_MODES)}"
-            )
+            msg = f"Unsupported citation mode: {citation_mode}. Allowed values: {sorted(self.ALLOWED_MODES)}"
             raise ValueError(
                 msg,
             )
@@ -50,6 +54,7 @@ class TemplateFiller:
         display_spans: list[dict[str, Any]],
         citation_spans: list[dict[str, Any]],
     ) -> str:
+        """Fill the template with display and citation spans."""
         if not template:
             return ""
 
@@ -59,9 +64,7 @@ class TemplateFiller:
         citation_refs = ""
         if citation_spans and self.citation_mode == "inline" and not has_linked_citations:
             start_num = len(display_spans) + 1
-            citation_refs = " ".join(
-                self._render_marker(start_num + i, span) for i, span in enumerate(citation_spans)
-            )
+            citation_refs = " ".join(self._render_marker(start_num + i, span) for i, span in enumerate(citation_spans))
 
         fact_pattern = re.compile(r"\[(?:SPAN|FACT)_(\d+)\]")
         if fact_pattern.search(template):
@@ -96,13 +99,16 @@ class TemplateFiller:
         fact_pattern = re.compile(r"\[(?:SPAN|FACT)_(\d+)\]")
         total_spans = display_spans + citation_spans
 
-        def replace_fact(match):
+        def replace_fact(match: re.Match[str]) -> str:
             idx = int(match.group(1))
             if 1 <= idx <= len(total_spans):
                 if idx <= len(display_spans):
                     span_data = display_spans[idx - 1]
                     return self._format_span(
-                        span_data, idx, citation_number_by_id, span_id_by_citation_id,
+                        span_data,
+                        idx,
+                        citation_number_by_id,
+                        span_id_by_citation_id,
                     )
                 if self.citation_mode == "inline":
                     return self._render_marker(idx, total_spans[idx - 1])
@@ -123,15 +129,16 @@ class TemplateFiller:
             formatted = []
             for i, span_data in enumerate(display_spans, 1):
                 block = self._format_span(
-                    span_data, i, citation_number_by_id, span_id_by_citation_id,
+                    span_data,
+                    i,
+                    citation_number_by_id,
+                    span_id_by_citation_id,
                 )
                 if block:
                     formatted.append(block)
 
             display_content = (
-                "\n\n".join(formatted)
-                if formatted
-                else "No relevant information found in the provided documents."
+                "\n\n".join(formatted) if formatted else "No relevant information found in the provided documents."
             )
         else:
             display_content = "No relevant information found in the provided documents."
@@ -157,7 +164,9 @@ class TemplateFiller:
             return ""
 
         linked_refs = self._format_linked_citation_refs(
-            span_data, citation_number_by_id, span_id_by_citation_id,
+            span_data,
+            citation_number_by_id,
+            span_id_by_citation_id,
         )
         is_table = self._is_table(cleaned)
         marker = self._render_marker(index, span_data)
@@ -226,11 +235,11 @@ class TemplateFiller:
     @staticmethod
     def _is_table(text: str) -> bool:
         lines = [line for line in text.strip().splitlines() if line.strip()]
-        if len(lines) < 2:
+        if len(lines) < MIN_TABLE_LINES:
             return False
 
         pipe_lines = sum(1 for line in lines if "|" in line)
-        if pipe_lines < 2:
+        if pipe_lines < MIN_TABLE_LINES:
             return False
 
         return pipe_lines >= len(lines) / 2
@@ -238,7 +247,7 @@ class TemplateFiller:
     @staticmethod
     def _is_table_content(text: str) -> bool:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if len(lines) < 2:
+        if len(lines) < MIN_TABLE_LINES:
             return False
 
         pipe_lines = sum(1 for line in lines if "|" in line)
@@ -247,6 +256,7 @@ class TemplateFiller:
 
     @staticmethod
     def ensure_placeholder(template: str, placeholder: str = "[DISPLAY_SPANS]") -> str:
+        """Append the placeholder to the template when it has no standard placeholder."""
         acceptable = ["[RELEVANT_SENTENCES]", "[DISPLAY_SPANS]", "[SPAN_1]", "[FACT_1]"]
 
         if any(p in template for p in acceptable):

@@ -69,25 +69,26 @@ Based on the available documents:
             self._validate_and_embed_templates()
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set the citation mode and propagate it to the filler."""
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
-    def _get_embedder(self):
+    def _get_embedder(self) -> Any:  # noqa: ANN401  # optional dependency type (SentenceTransformer)
         """Lazy load the embedding model."""
         if self._embedder is None:
             try:
                 from sentence_transformers import SentenceTransformer
 
                 self._embedder = SentenceTransformer(self.model_name, device=self.device)
-                logger.info(f"Loaded embedding model: {self.model_name}")
-            except ImportError:
+                logger.info("Loaded embedding model: %s", self.model_name)
+            except ImportError as err:
                 msg = (
                     "sentence-transformers required for question-specific templates. "
                     "Install with: pip install sentence-transformers"
                 )
                 raise ImportError(
                     msg,
-                )
+                ) from err
         return self._embedder
 
     def _validate_and_embed_templates(self) -> None:
@@ -124,7 +125,7 @@ Based on the available documents:
             "template_indices": template_indices,  # which template each embedding belongs to
         }
 
-        logger.info(f"Validated and embedded {len(all_examples)} example questions")
+        logger.info("Validated and embedded %d example questions", len(all_examples))
 
     def set_question_templates(self, templates: list[dict[str, Any]]) -> None:
         """Set templates with example questions.
@@ -154,8 +155,7 @@ Based on the available documents:
 
         # Compute similarities to all examples at once using numpy
         similarities = np.dot(self._example_embeddings["embeddings"], question_embedding) / (
-            np.linalg.norm(self._example_embeddings["embeddings"], axis=1)
-            * np.linalg.norm(question_embedding)
+            np.linalg.norm(self._example_embeddings["embeddings"], axis=1) * np.linalg.norm(question_embedding)
         )
 
         # Find the best similarity
@@ -164,7 +164,9 @@ Based on the available documents:
         best_template_idx = self._example_embeddings["template_indices"][best_example_idx]
 
         logger.debug(
-            f"Question matched template {best_template_idx} (similarity: {best_similarity:.3f})",
+            "Question matched template %s (similarity: %.3f)",
+            best_template_idx,
+            best_similarity,
         )
 
         return best_template_idx, best_similarity
@@ -247,7 +249,7 @@ Based on the available documents:
         # Revalidate and re-embed all templates
         self._example_embeddings = None
         self._validate_and_embed_templates()
-        logger.info(f"Added template (total: {len(self.templates)})")
+        logger.info("Added template (total: %d)", len(self.templates))
 
     def remove_template(self, index: int) -> None:
         """Remove a template by index.
@@ -263,4 +265,4 @@ Based on the available documents:
         self._example_embeddings = None
         if self.templates:
             self._validate_and_embed_templates()
-        logger.info(f"Removed template at index {index} (total: {len(self.templates)})")
+        logger.info("Removed template at index %d (total: %d)", index, len(self.templates))

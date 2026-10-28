@@ -10,11 +10,13 @@ import os
 
 logger = logging.getLogger(__name__)
 
+_MAX_PER_FACT_SPANS = 8
+
 try:
     import openai
 except ImportError:
     msg = "OpenAI package required: pip install openai"
-    raise ImportError(msg)
+    raise ImportError(msg) from None
 
 
 class LLMClient:
@@ -52,7 +54,7 @@ class LLMClient:
         temperature: float | None = None,
         system_prompt: str | None = None,
     ) -> str:
-        """Synchronous text completion.
+        """Complete text synchronously.
 
         :param prompt: The prompt to send
         :param json_mode: Whether to request JSON output format
@@ -265,7 +267,7 @@ class LLMClient:
         :param system_prompt: System message for the template-generation call.
         :return: Generated template string
         """
-        if use_per_fact and len(spans) <= 8:
+        if use_per_fact and len(spans) <= _MAX_PER_FACT_SPANS:
             prompt = self._build_per_fact_template_prompt(
                 question,
                 spans,
@@ -286,8 +288,8 @@ class LLMClient:
 
         try:
             return self.complete(prompt, temperature=self.temperature, system_prompt=system_prompt)
-        except Exception as e:
-            logger.exception("Template generation failed: %s", e)
+        except Exception:  # fall back to default template
+            logger.exception("Template generation failed")
             return self._fallback_template(citation_count > 0)
 
     async def generate_template_async(
@@ -302,7 +304,7 @@ class LLMClient:
         system_prompt: str | None = None,
     ) -> str:
         """Async template generation. See generate_template for parameter docs."""
-        if use_per_fact and len(spans) <= 8:
+        if use_per_fact and len(spans) <= _MAX_PER_FACT_SPANS:
             prompt = self._build_per_fact_template_prompt(
                 question,
                 spans,
@@ -325,8 +327,8 @@ class LLMClient:
             return await self.complete_async(
                 prompt, temperature=self.temperature, system_prompt=system_prompt,
             )
-        except Exception as e:
-            logger.exception("Async template generation failed: %s", e)
+        except Exception:  # fall back to default template
+            logger.exception("Async template generation failed")
             return self._fallback_template(citation_count > 0)
 
     def _build_extraction_prompt(self, question: str, documents: dict[str, str]) -> str:
@@ -408,25 +410,31 @@ class LLMClient:
     def extract_relevant_spans_batch(
         self, question: str, documents: dict[str, str],
     ) -> dict[str, list[str]]:
+        """Extract spans for a batch of documents."""
         return self.extract_spans(question, documents)
 
     async def extract_relevant_spans_batch_async(
         self, question: str, documents: dict[str, str],
     ) -> dict[str, list[str]]:
+        """Extract spans for a batch of documents asynchronously."""
         return await self.extract_spans_async(question, documents)
 
     # Single-doc convenience
     def extract_relevant_spans(self, question: str, document_text: str) -> list[str]:
+        """Extract spans from a single document."""
         result = self.extract_relevant_spans_batch(question, {"doc": document_text})
         return result.get("doc", [])
 
     async def extract_relevant_spans_async(self, question: str, document_text: str) -> list[str]:
+        """Extract spans from a single document asynchronously."""
         result = await self.extract_relevant_spans_batch_async(question, {"doc": document_text})
         return result.get("doc", [])
 
     # Template generation (simple compatibility methods)
     def simple_complete(self, prompt: str) -> str:
+        """Complete a prompt with default settings."""
         return self.complete(prompt)
 
     async def simple_complete_async(self, prompt: str) -> str:
+        """Complete a prompt asynchronously with default settings."""
         return await self.complete_async(prompt)

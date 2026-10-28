@@ -1,8 +1,10 @@
+"""Command-line training entry point for the extractor model."""
+
 import argparse
 import json
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -22,16 +24,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def set_seed(seed) -> None:
+def set_seed(seed: int) -> None:
     """Set random seed for reproducibility."""
     random.seed(seed)
-    np.random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002 - global seed kept for reproducibility of legacy numpy users
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
 
-def train(args) -> None:
+def train(args: argparse.Namespace) -> None:
+    """Train the extractor model with the given command-line arguments."""
     set_seed(args.seed)
 
     if args.cpu_only:
@@ -39,46 +42,48 @@ def train(args) -> None:
         logger.info("Forcing CPU usage as requested")
     else:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info(f"Using device: {device}")
+    logger.info("Using device: %s", device)
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
-    logger.info(f"Loaded tokenizer: {args.model_name}")
+    logger.info("Loaded tokenizer: %s", args.model_name)
 
     try:
-        logger.info(f"Loading data from {args.data_path}")
+        logger.info("Loading data from %s", args.data_path)
         data_path = Path(args.data_path)
 
         if not data_path.exists():
-            logger.error(f"Data file {args.data_path} does not exist")
+            logger.error("Data file %s does not exist", args.data_path)
             return
 
         data_text = data_path.read_text()
-        logger.info(f"Data file size: {len(data_text)} bytes")
+        logger.info("Data file size: %s bytes", len(data_text))
 
         try:
             data_json = json.loads(data_text)
             logger.info("Successfully parsed JSON data")
-        except json.JSONDecodeError as e:
-            logger.exception(f"Error parsing JSON: {e}")
+        except json.JSONDecodeError:
+            logger.exception("Error parsing JSON")
             return
 
         qa_data = QAData.from_json(data_json)
-        logger.info(f"Loaded {len(qa_data.samples)} samples")
+        logger.info("Loaded %s samples", len(qa_data.samples))
 
         # DEBUGGING: Validate a few samples
         if len(qa_data.samples) > 0:
             sample = qa_data.samples[0]
-            logger.info(f"Sample split: {sample.split}")
-            logger.info(f"Sample question: {sample.question}")
-            logger.info(f"Sample dataset: {sample.dataset_name}")
-            logger.info(f"Sample documents count: {len(sample.documents)}")
+            logger.info("Sample split: %s", sample.split)
+            logger.info("Sample question: %s", sample.question)
+            logger.info("Sample dataset: %s", sample.dataset_name)
+            logger.info("Sample documents count: %s", len(sample.documents))
             if sample.documents and len(sample.documents) > 0:
                 first_doc = sample.documents[0]
-                logger.info(f"First document sentences count: {len(first_doc.sentences)}")
+                logger.info("First document sentences count: %s", len(first_doc.sentences))
                 if first_doc.sentences and len(first_doc.sentences) > 0:
                     first_sentence = first_doc.sentences[0]
                     logger.info(
-                        f"First sentence: '{first_sentence.text[:100]}...' (relevant: {first_sentence.relevant})",
+                        "First sentence: '%s...' (relevant: %s)",
+                        first_sentence.text[:100],
+                        first_sentence.relevant,
                     )
 
         train_samples = [sample for sample in qa_data.samples if sample.split == "train"]
@@ -86,7 +91,10 @@ def train(args) -> None:
         test_samples = [sample for sample in qa_data.samples if sample.split == "test"]
 
         logger.info(
-            f"Train: {len(train_samples)}, Dev: {len(dev_samples)}, Test: {len(test_samples)}",
+            "Train: %d, Dev: %d, Test: %d",
+            len(train_samples),
+            len(dev_samples),
+            len(test_samples),
         )
         if not train_samples:
             logger.error("No training samples found. Check data path and split names.")
@@ -97,53 +105,54 @@ def train(args) -> None:
             )
             dev_dataset = None
         else:
-            logger.info(f"Creating dev dataset with max_length={args.max_seq_length}")
+            logger.info("Creating dev dataset with max_length=%s", args.max_seq_length)
             dev_dataset = QADataset(dev_samples, tokenizer, max_length=args.max_seq_length)
 
             if len(dev_dataset) > 0:
-                logger.info(f"Dev dataset length: {len(dev_dataset)}")
+                logger.info("Dev dataset length: %s", len(dev_dataset))
                 try:
                     sample_item = dev_dataset[0]
-                    logger.info(f"Dev dataset item keys: {sample_item.keys()}")
-                    logger.info(f"Dev dataset input_ids shape: {sample_item['input_ids'].shape}")
-                except Exception as e:
-                    logger.exception(f"Error accessing dev dataset: {e}")
+                    logger.info("Dev dataset item keys: %s", sample_item.keys())
+                    logger.info("Dev dataset input_ids shape: %s", sample_item["input_ids"].shape)
+                except Exception:
+                    logger.exception("Error accessing dev dataset")
 
         # Create datasets
-        logger.info(f"Creating train dataset with max_length={args.max_seq_length}")
+        logger.info("Creating train dataset with max_length=%s", args.max_seq_length)
         train_dataset = QADataset(train_samples, tokenizer, max_length=args.max_seq_length)
 
         # Validate train dataset
         if len(train_dataset) > 0:
-            logger.info(f"Train dataset length: {len(train_dataset)}")
+            logger.info("Train dataset length: %s", len(train_dataset))
             try:
                 sample_item = train_dataset[0]
-                logger.info(f"Train dataset item keys: {sample_item.keys()}")
-                logger.info(f"Train dataset input_ids shape: {sample_item['input_ids'].shape}")
+                logger.info("Train dataset item keys: %s", sample_item.keys())
+                logger.info("Train dataset input_ids shape: %s", sample_item["input_ids"].shape)
                 logger.info(
-                    f"Train dataset has {len(sample_item['sentence_boundaries'])} sentence boundaries",
+                    "Train dataset has %d sentence boundaries",
+                    len(sample_item["sentence_boundaries"]),
                 )
-            except Exception as e:
-                logger.exception(f"Error accessing train dataset: {e}")
+            except Exception:
+                logger.exception("Error accessing train dataset")
 
         if test_samples:
-            logger.info(f"Creating test dataset with max_length={args.max_seq_length}")
+            logger.info("Creating test dataset with max_length=%s", args.max_seq_length)
             test_dataset = QADataset(test_samples, tokenizer, max_length=args.max_seq_length)
         else:
             test_dataset = None
 
         # Create model
-        logger.info(f"Creating QAModel with {args.model_name}")
+        logger.info("Creating QAModel with %s", args.model_name)
         model = QAModel(model_name=args.model_name)
 
         # Use output directory directly instead of creating run_timestamp subdirectory
         output_dir = Path(args.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Output directory: {output_dir}")
+        logger.info("Output directory: %s", output_dir)
 
         # Use a very small batch size if debugging is enabled
         batch_size = 1 if args.debug else args.batch_size
-        logger.info(f"Using batch size: {batch_size}")
+        logger.info("Using batch size: %s", batch_size)
 
         # Initialize Trainer
         trainer = Trainer(
@@ -166,7 +175,7 @@ def train(args) -> None:
             logger.info("Saving final model state")
             final_metadata = {
                 "best_f1": float(best_f1),
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 "final_model": True,
                 "model_name": args.model_name,
                 "max_seq_length": args.max_seq_length,
@@ -174,7 +183,7 @@ def train(args) -> None:
             # Save with final model suffix to distinguish from best model
             final_dir = output_dir / "final_state"
             model.save_pretrained(final_dir, tokenizer=tokenizer, metadata=final_metadata)
-            logger.info(f"Final model state saved to {final_dir}")
+            logger.info("Final model state saved to %s", final_dir)
 
         # Final evaluation on test set
         if test_dataset:
@@ -187,35 +196,36 @@ def train(args) -> None:
                 num_workers=0,
                 pin_memory=torch.cuda.is_available(),
             )
-            test_metrics = trainer._evaluate(test_dataloader)
-            logger.info(f"Test Loss: {test_metrics['loss']:.4f}")
-            logger.info(f"Test Precision: {test_metrics['precision']:.4f}")
-            logger.info(f"Test Recall: {test_metrics['recall']:.4f}")
-            logger.info(f"Test F1: {test_metrics['f1']:.4f}")
-            logger.info(f"Test Accuracy: {test_metrics['accuracy']:.4f}")
+            test_metrics = trainer._evaluate(test_dataloader)  # noqa: SLF001 - no public evaluation API
+            logger.info("Test Loss: %.4f", test_metrics["loss"])
+            logger.info("Test Precision: %.4f", test_metrics["precision"])
+            logger.info("Test Recall: %.4f", test_metrics["recall"])
+            logger.info("Test F1: %.4f", test_metrics["f1"])
+            logger.info("Test Accuracy: %.4f", test_metrics["accuracy"])
 
             results_path = output_dir / "test_metrics.json"
-            with open(results_path, "w") as f:
+            with results_path.open("w") as f:
                 test_results = {
                     "loss": float(test_metrics["loss"]),
                     "precision": float(test_metrics["precision"]),
                     "recall": float(test_metrics["recall"]),
                     "f1": float(test_metrics["f1"]),
                     "accuracy": float(test_metrics["accuracy"]),
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 }
                 json.dump(test_results, f, indent=4)
-            logger.info(f"Saved test results to {results_path}")
+            logger.info("Saved test results to %s", results_path)
         else:
             logger.info("No test dataset found, skipping final test evaluation.")
 
         logger.info("Training finished.")
-    except Exception as e:
-        logger.error(f"Error in training function: {e}", exc_info=True)
+    except Exception:
+        logger.exception("Error in training function")
         raise
 
 
 def main() -> None:
+    """Parse command-line arguments and run training."""
     parser = argparse.ArgumentParser()
 
     # Data arguments
@@ -269,16 +279,16 @@ def main() -> None:
         # Print some system info
         import sys
 
-        logger.debug(f"Python version: {sys.version}")
-        logger.debug(f"PyTorch version: {torch.__version__}")
+        logger.debug("Python version: %s", sys.version)
+        logger.debug("PyTorch version: %s", torch.__version__)
         if torch.cuda.is_available():
-            logger.debug(f"CUDA available: {torch.cuda.is_available()}")
-            logger.debug(f"CUDA version: {torch.version.cuda}")
-            logger.debug(f"CUDA device: {torch.cuda.get_device_name(0)}")
+            logger.debug("CUDA available: %s", torch.cuda.is_available())
+            logger.debug("CUDA version: %s", torch.version.cuda)
+            logger.debug("CUDA device: %s", torch.cuda.get_device_name(0))
 
         logger.debug("Arguments:")
         for arg, value in vars(args).items():
-            logger.debug(f"  {arg}: {value}")
+            logger.debug("  %s: %s", arg, value)
 
     train(args)
 
