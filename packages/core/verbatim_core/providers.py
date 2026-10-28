@@ -12,7 +12,10 @@ class RAGProvider(ABC):
 
     @abstractmethod
     def retrieve(
-        self, question: str, k: int = 5, filter: str | None = None,
+        self,
+        question: str,
+        k: int = 5,
+        filter: str | None = None,
     ) -> list[dict[str, Any]]:
         """Return list of context dicts: {'content', 'title'?, 'source'?, 'metadata'?}."""
         raise NotImplementedError
@@ -22,7 +25,10 @@ class RAGProvider(ABC):
         raise NotImplementedError
 
     async def retrieve_async(
-        self, question: str, k: int = 5, filter: str | None = None,
+        self,
+        question: str,
+        k: int = 5,
+        filter: str | None = None,
     ) -> list[dict[str, Any]]:
         """Async variant. Default delegates to sync via thread to avoid blocking."""
         return await asyncio.to_thread(self.retrieve, question, k, filter)

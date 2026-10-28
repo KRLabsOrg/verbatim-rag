@@ -88,7 +88,8 @@ class VerbatimTransform:
             system_prompt=system_prompt,
         )
         self.template_manager = template_manager or TemplateManager(
-            llm_client=self.llm_client, default_mode=template_mode,
+            llm_client=self.llm_client,
+            default_mode=template_mode,
         )
         self.response_builder = ResponseBuilder()
         self.max_display_spans = max_display_spans
@@ -142,7 +143,9 @@ class VerbatimTransform:
         citation_spans = all_spans[self.max_display_spans :]
 
         answer_text = await self.template_manager.process_async(  # type: ignore[attr-defined]
-            question, display_spans, citation_spans,
+            question,
+            display_spans,
+            citation_spans,
         )
         answer_text = self.response_builder.clean_answer(answer_text)
 

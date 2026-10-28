@@ -44,7 +44,9 @@ class SpanExtractor(ABC):
         raise NotImplementedError
 
     async def extract_spans_async(
-        self, question: str, search_results: list[Any],
+        self,
+        question: str,
+        search_results: list[Any],
     ) -> dict[str, list[str]]:
         """Default async implementation that delegates to sync version."""
         import asyncio
@@ -115,10 +117,7 @@ class ModelSpanExtractor(SpanExtractor):
         if device is None:
             if torch.cuda.is_available():
                 device = "cuda"
-            elif (
-                getattr(torch.backends, "mps", None) is not None
-                and torch.backends.mps.is_available()
-            ):
+            elif getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
                 device = "mps"
             else:
                 device = "cpu"
@@ -203,7 +202,9 @@ class ModelSpanExtractor(SpanExtractor):
         return self._extract_qa_model(question, search_results)
 
     def _extract_highlighter(
-        self, question: str, search_results: list[Any],
+        self,
+        question: str,
+        search_results: list[Any],
     ) -> dict[str, list[str]]:
         relevant: dict[str, list[str]] = {}
         for result in search_results:
@@ -221,9 +222,7 @@ class ModelSpanExtractor(SpanExtractor):
                     max_length=self.max_length,
                     doc_stride=self.doc_stride,
                 )
-                relevant[context] = [
-                    sp["text"] for sp in out.get("spans", []) if sp.get("text", "").strip()
-                ]
+                relevant[context] = [sp["text"] for sp in out.get("spans", []) if sp.get("text", "").strip()]
             except Exception:
                 logger.exception("Highlighter extraction failed")
                 relevant[context] = []
@@ -335,7 +334,9 @@ class SemanticHighlightExtractor(SpanExtractor):
 
         logger.info("Loading semantic highlight model: %s...", model_name)
         self.model = AutoModel.from_pretrained(
-            model_name, trust_remote_code=True, max_length=max_tokens,
+            model_name,
+            trust_remote_code=True,
+            max_length=max_tokens,
         )
         self.tokenizer = self.model.tokenizer
         self.max_tokens = max_tokens
@@ -405,7 +406,9 @@ class SemanticHighlightExtractor(SpanExtractor):
         # Validate lengths match
         if len(context_probs) != len(offset_mapping):
             logger.warning(
-                "Length mismatch probs=%d tokens=%d", len(context_probs), len(offset_mapping),
+                "Length mismatch probs=%d tokens=%d",
+                len(context_probs),
+                len(offset_mapping),
             )
             min_len = min(len(context_probs), len(offset_mapping))
             context_probs = context_probs[:min_len]
@@ -548,7 +551,9 @@ class LLMSpanExtractor(SpanExtractor):
         return self._extract_spans_individual(question, search_results)
 
     async def extract_spans_async(
-        self, question: str, search_results: list[Any],
+        self,
+        question: str,
+        search_results: list[Any],
     ) -> dict[str, list[str]]:
         """Async version of span extraction.
 
@@ -568,7 +573,9 @@ class LLMSpanExtractor(SpanExtractor):
         return await self._extract_spans_individual_async(question, search_results)
 
     def _extract_spans_batch(
-        self, question: str, search_results: list[Any],
+        self,
+        question: str,
+        search_results: list[Any],
     ) -> dict[str, list[str]]:
         """Extract spans from multiple documents using batch processing.
 
@@ -591,7 +598,9 @@ class LLMSpanExtractor(SpanExtractor):
                     # Custom prompt path
                     prompt = self._build_custom_prompt(question, documents_text)
                     response = self.llm_client.complete(
-                        prompt, json_mode=True, system_prompt=self.system_prompt,
+                        prompt,
+                        json_mode=True,
+                        system_prompt=self.system_prompt,
                     )
                     extracted_data = json.loads(response)
                 else:
@@ -610,8 +619,7 @@ class LLMSpanExtractor(SpanExtractor):
 
             except Exception as e:  # noqa: BLE001  # fall back to per-document extraction
                 logger.warning(
-                    "Batch extraction failed for chunk starting at %d, "
-                    "falling back to individual: %s",
+                    "Batch extraction failed for chunk starting at %d, falling back to individual: %s",
                     batch_start,
                     e,
                 )
@@ -623,12 +631,15 @@ class LLMSpanExtractor(SpanExtractor):
                             single_docs = {"doc_0": result_text}
                             prompt = self._build_custom_prompt(question, single_docs)
                             response = self.llm_client.complete(
-                                prompt, json_mode=True, system_prompt=self.system_prompt,
+                                prompt,
+                                json_mode=True,
+                                system_prompt=self.system_prompt,
                             )
                             extracted = json.loads(response).get("doc_0", [])
                         else:
                             extracted = self.llm_client.extract_relevant_spans(
-                                question, result_text,
+                                question,
+                                result_text,
                             )
                         all_verified[result_text] = self._verify_spans(extracted, result_text)
                     except Exception:
@@ -638,7 +649,9 @@ class LLMSpanExtractor(SpanExtractor):
         return all_verified
 
     async def _extract_spans_batch_async(
-        self, question: str, search_results: list[Any],
+        self,
+        question: str,
+        search_results: list[Any],
     ) -> dict[str, list[str]]:
         """Async batch extraction.
 
@@ -659,12 +672,15 @@ class LLMSpanExtractor(SpanExtractor):
                 if self.extraction_prompt:
                     prompt = self._build_custom_prompt(question, documents_text)
                     response = await self.llm_client.complete_async(
-                        prompt, json_mode=True, system_prompt=self.system_prompt,
+                        prompt,
+                        json_mode=True,
+                        system_prompt=self.system_prompt,
                     )
                     extracted_data = json.loads(response)
                 else:
                     extracted_data = await self.llm_client.extract_spans_async(
-                        question, documents_text,
+                        question,
+                        documents_text,
                     )
 
                 for i, result in enumerate(batch):
@@ -678,8 +694,7 @@ class LLMSpanExtractor(SpanExtractor):
 
             except Exception as e:  # noqa: BLE001  # fall back to per-document extraction
                 logger.warning(
-                    "Async batch extraction failed for chunk starting at %d, "
-                    "falling back to individual: %s",
+                    "Async batch extraction failed for chunk starting at %d, falling back to individual: %s",
                     batch_start,
                     e,
                 )
@@ -690,12 +705,15 @@ class LLMSpanExtractor(SpanExtractor):
                             single_docs = {"doc_0": result_text}
                             prompt = self._build_custom_prompt(question, single_docs)
                             response = await self.llm_client.complete_async(
-                                prompt, json_mode=True, system_prompt=self.system_prompt,
+                                prompt,
+                                json_mode=True,
+                                system_prompt=self.system_prompt,
                             )
                             extracted = json.loads(response).get("doc_0", [])
                         else:
                             extracted = await self.llm_client.extract_relevant_spans_async(
-                                question, result_text,
+                                question,
+                                result_text,
                             )
                         all_verified[result_text] = self._verify_spans(extracted, result_text)
                     except Exception:
@@ -705,7 +723,9 @@ class LLMSpanExtractor(SpanExtractor):
         return all_verified
 
     def _extract_spans_individual(
-        self, question: str, search_results: list[Any],
+        self,
+        question: str,
+        search_results: list[Any],
     ) -> dict[str, list[str]]:
         """Extract spans from documents individually (one at a time).
 
@@ -723,7 +743,9 @@ class LLMSpanExtractor(SpanExtractor):
                     single_docs = {"doc_0": result_text}
                     prompt = self._build_custom_prompt(question, single_docs)
                     response = self.llm_client.complete(
-                        prompt, json_mode=True, system_prompt=self.system_prompt,
+                        prompt,
+                        json_mode=True,
+                        system_prompt=self.system_prompt,
                     )
                     extracted_spans = json.loads(response).get("doc_0", [])
                 else:
@@ -737,7 +759,9 @@ class LLMSpanExtractor(SpanExtractor):
         return all_spans
 
     async def _extract_spans_individual_async(
-        self, question: str, search_results: list[Any],
+        self,
+        question: str,
+        search_results: list[Any],
     ) -> dict[str, list[str]]:
         """Async individual extraction using concurrent asyncio.gather."""
         import asyncio
@@ -751,12 +775,15 @@ class LLMSpanExtractor(SpanExtractor):
                     single_docs = {"doc_0": result_text}
                     prompt = self._build_custom_prompt(question, single_docs)
                     response = await self.llm_client.complete_async(
-                        prompt, json_mode=True, system_prompt=self.system_prompt,
+                        prompt,
+                        json_mode=True,
+                        system_prompt=self.system_prompt,
                     )
                     extracted = json.loads(response).get("doc_0", [])
                 else:
                     extracted = await self.llm_client.extract_relevant_spans_async(
-                        question, result_text,
+                        question,
+                        result_text,
                     )
                 return result_text, self._verify_spans(extracted, result_text)
             except Exception:
