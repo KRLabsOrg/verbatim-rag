@@ -1,12 +1,11 @@
-"""
-Response builder for constructing QueryResponse objects with highlights and citations.
+"""Response builder for constructing QueryResponse objects with highlights and citations.
 
 This module provides the ResponseBuilder class which takes extracted spans and
 search results and constructs a complete QueryResponse with proper highlighting
 and citation numbering.
 """
 
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any
 
 from verbatim_core.models import (
     Citation,
@@ -18,8 +17,7 @@ from verbatim_core.models import (
 
 
 class ResponseBuilder:
-    """
-    Builds structured query responses with highlights and citations.
+    """Builds structured query responses with highlights and citations.
 
     Takes search results and extracted spans and creates a complete QueryResponse
     object with proper document highlighting and citation tracking.
@@ -27,18 +25,16 @@ class ResponseBuilder:
 
     def __init__(self):
         """Initialize the response builder."""
-        pass
 
     def build_response(
         self,
         question: str,
         answer: str,
-        search_results: List[Any],
-        relevant_spans: Dict[str, List[str]],
+        search_results: list[Any],
+        relevant_spans: dict[str, list[str]],
         display_span_count: int = None,
     ) -> QueryResponse:
-        """
-        Build a complete QueryResponse from components.
+        """Build a complete QueryResponse from components.
 
         :param question: The original question
         :param answer: The generated answer text
@@ -77,7 +73,7 @@ class ResponseBuilder:
                             highlight_index=highlight_index,
                             number=current_citation_number,
                             type="display" if is_display else "reference",
-                        )
+                        ),
                     )
                     current_citation_number += 1
 
@@ -89,7 +85,7 @@ class ResponseBuilder:
                     title=getattr(result, "title", "") or result.metadata.get("title", ""),
                     source=getattr(result, "source", "") or result.metadata.get("source", ""),
                     metadata=getattr(result, "metadata", {}),
-                )
+                ),
             )
 
         # Create structured answer with citations
@@ -102,9 +98,8 @@ class ResponseBuilder:
             documents=documents_with_highlights,
         )
 
-    def _create_highlights(self, doc_content: str, spans: List[str]) -> List[Highlight]:
-        """
-        Create highlight objects for spans in document content.
+    def _create_highlights(self, doc_content: str, spans: list[str]) -> list[Highlight]:
+        """Create highlight objects for spans in document content.
 
         Uses sophisticated overlap detection to avoid conflicting highlights.
 
@@ -112,8 +107,8 @@ class ResponseBuilder:
         :param spans: List of text spans to highlight
         :return: List of Highlight objects
         """
-        highlights: List[Highlight] = []
-        highlighted_regions: Set[Tuple[int, int]] = set()
+        highlights: list[Highlight] = []
+        highlighted_regions: set[tuple[int, int]] = set()
 
         for span in spans:
             # Find all occurrences of this span in the document
@@ -135,9 +130,8 @@ class ResponseBuilder:
 
         return highlights
 
-    def _has_overlap(self, start: int, end: int, regions: Set[Tuple[int, int]]) -> bool:
-        """
-        Check if a text region overlaps with existing highlighted regions.
+    def _has_overlap(self, start: int, end: int, regions: set[tuple[int, int]]) -> bool:
+        """Check if a text region overlaps with existing highlighted regions.
 
         :param start: Start position of new region
         :param end: End position of new region
@@ -151,8 +145,7 @@ class ResponseBuilder:
         return False
 
     def clean_answer(self, answer: str) -> str:
-        """
-        Clean up generated answer text.
+        """Clean up generated answer text.
 
         Removes common formatting issues and artifacts from LLM generation.
 
@@ -163,9 +156,7 @@ class ResponseBuilder:
             return ""
 
         # Remove surrounding quotes if present
-        if answer.startswith('"') and answer.endswith('"'):
-            answer = answer[1:-1]
-        elif answer.startswith("'") and answer.endswith("'"):
+        if (answer.startswith('"') and answer.endswith('"')) or (answer.startswith("'") and answer.endswith("'")):
             answer = answer[1:-1]
 
         # Convert literal newlines

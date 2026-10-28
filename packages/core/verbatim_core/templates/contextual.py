@@ -1,12 +1,11 @@
-"""
-Contextual template strategy for the Verbatim RAG system.
+"""Contextual template strategy for the Verbatim RAG system.
 
 Provides LLM-powered template generation that creates contextually appropriate
 templates based on the question and available spans. Supports both per-span
 and aggregate placeholders.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from verbatim_core.llm_client import LLMClient
 
@@ -15,8 +14,7 @@ from .filler import TemplateFiller
 
 
 class ContextualTemplate(TemplateStrategy):
-    """
-    Contextual template strategy using LLM generation.
+    """Contextual template strategy using LLM generation.
 
     This strategy generates templates dynamically based on the question,
     available spans, and citation count.
@@ -28,13 +26,12 @@ class ContextualTemplate(TemplateStrategy):
         use_per_fact: bool = True,
         citation_mode: str = "inline",
         citation_format: str = "[{number}]",
-        template_preview_chars: Optional[int] = 100,
+        template_preview_chars: int | None = 100,
         preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        template_prompt: str | None = None,
+        system_prompt: str | None = None,
     ):
-        """
-        :param llm_client: LLM client for template generation.
+        """:param llm_client: LLM client for template generation.
         :param use_per_fact: Whether to prefer per-span placeholders (≤8 spans).
         :param citation_mode: "inline" or "hidden".
         :param citation_format: Marker format string; see TemplateFiller.
@@ -62,7 +59,7 @@ class ContextualTemplate(TemplateStrategy):
         self.system_prompt = system_prompt
         self.filler = TemplateFiller(citation_mode=citation_mode, citation_format=citation_format)
 
-        self._template_cache: Dict[str, str] = {}
+        self._template_cache: dict[str, str] = {}
         self._max_cache_size = 100
 
     def set_citation_mode(self, citation_mode: str) -> None:
@@ -73,7 +70,7 @@ class ContextualTemplate(TemplateStrategy):
         self.citation_format = citation_format
         self.filler.citation_format = citation_format
 
-    def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
+    def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
         if not spans:
             return self._get_fallback_template(citation_count > 0)
 
@@ -101,7 +98,7 @@ class ContextualTemplate(TemplateStrategy):
             print(f"Contextual template generation failed: {e}")
             return self._get_fallback_template(citation_count > 0)
 
-    async def generate_async(self, question: str, spans: List[str], citation_count: int = 0) -> str:
+    async def generate_async(self, question: str, spans: list[str], citation_count: int = 0) -> str:
         if not spans:
             return self._get_fallback_template(citation_count > 0)
 
@@ -132,12 +129,12 @@ class ContextualTemplate(TemplateStrategy):
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
         return self.filler.fill(template, display_spans, citation_spans)
 
-    def save_state(self) -> Dict[str, Any]:
+    def save_state(self) -> dict[str, Any]:
         return {
             "type": "contextual",
             "use_per_fact": self.use_per_fact,
@@ -148,7 +145,7 @@ class ContextualTemplate(TemplateStrategy):
             "preserve_span_newlines": self.preserve_span_newlines,
         }
 
-    def load_state(self, state: Dict[str, Any]) -> None:
+    def load_state(self, state: dict[str, Any]) -> None:
         self.use_per_fact = state.get("use_per_fact", True)
         if "citation_format" in state:
             self.set_citation_format(state["citation_format"])
@@ -159,7 +156,7 @@ class ContextualTemplate(TemplateStrategy):
         if "model" in state or "temperature" in state:
             print(
                 f"Note: LLM client config in saved state (model: {state.get('model')}, "
-                f"temp: {state.get('temperature')}) - client must be updated separately"
+                f"temp: {state.get('temperature')}) - client must be updated separately",
             )
 
     def set_per_fact_mode(self, use_per_fact: bool) -> None:
@@ -169,7 +166,7 @@ class ContextualTemplate(TemplateStrategy):
     def clear_cache(self) -> None:
         self._template_cache.clear()
 
-    def _create_cache_key(self, question: str, spans: List[str], citation_count: int) -> str:
+    def _create_cache_key(self, question: str, spans: list[str], citation_count: int) -> str:
         import hashlib
 
         span_sample = " | ".join(span[:30] for span in spans[:3])

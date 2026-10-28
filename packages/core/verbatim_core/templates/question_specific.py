@@ -1,5 +1,4 @@
-"""
-Question-specific template strategy for the Verbatim RAG system.
+"""Question-specific template strategy for the Verbatim RAG system.
 
 Provides template matching based on example questions using semantic similarity.
 Users define templates paired with example questions, and the system automatically
@@ -7,7 +6,7 @@ selects the best-matching template for each query.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .base import TemplateStrategy
 from .filler import TemplateFiller
@@ -16,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class QuestionSpecificTemplate(TemplateStrategy):
-    """
-    Question-specific template strategy using semantic similarity matching.
+    """Question-specific template strategy using semantic similarity matching.
 
     Maintains a list of (template, example_questions) pairs. When a query arrives,
     computes similarity to all examples and selects the template from the
@@ -48,13 +46,12 @@ Based on the available documents:
 
     def __init__(
         self,
-        templates: Optional[List[Dict[str, Any]]] = None,
+        templates: list[dict[str, Any]] | None = None,
         model_name: str = "all-MiniLM-L6-v2",
         device: str = "cpu",
         citation_mode: str = "inline",
     ):
-        """
-        Initialize question-specific template strategy.
+        """Initialize question-specific template strategy.
 
         :param templates: List of template definitions, each with 'template' and 'examples' keys
         :param model_name: SentenceTransformer model name for embedding
@@ -86,7 +83,7 @@ Based on the available documents:
             except ImportError:
                 raise ImportError(
                     "sentence-transformers required for question-specific templates. "
-                    "Install with: pip install sentence-transformers"
+                    "Install with: pip install sentence-transformers",
                 )
         return self._embedder
 
@@ -124,9 +121,8 @@ Based on the available documents:
 
         logger.info(f"Validated and embedded {len(all_examples)} example questions")
 
-    def set_question_templates(self, templates: List[Dict[str, Any]]) -> None:
-        """
-        Set templates with example questions.
+    def set_question_templates(self, templates: list[dict[str, Any]]) -> None:
+        """Set templates with example questions.
 
         :param templates: List of template configs, each with:
                           - "template": Template string with [RELEVANT_SENTENCES]
@@ -137,9 +133,8 @@ Based on the available documents:
         self._example_embeddings = None
         self._validate_and_embed_templates()
 
-    def _find_best_match(self, question: str) -> Tuple[int, float]:
-        """
-        Find the best matching template for a question.
+    def _find_best_match(self, question: str) -> tuple[int, float]:
+        """Find the best matching template for a question.
 
         :param question: User's question
         :return: Tuple of (template_index, best_similarity_score)
@@ -164,14 +159,13 @@ Based on the available documents:
         best_template_idx = self._example_embeddings["template_indices"][best_example_idx]
 
         logger.debug(
-            f"Question matched template {best_template_idx} (similarity: {best_similarity:.3f})"
+            f"Question matched template {best_template_idx} (similarity: {best_similarity:.3f})",
         )
 
         return best_template_idx, best_similarity
 
-    def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
-        """
-        Generate template by finding best match for the question.
+    def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
+        """Generate template by finding best match for the question.
 
         :param question: User's question
         :param spans: List of spans (not used for matching)
@@ -189,11 +183,10 @@ Based on the available documents:
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
-        """
-        Fill the template with actual span content.
+        """Fill the template with actual span content.
 
         :param template: Template string with placeholders
         :param display_spans: Spans to display with full text
@@ -202,9 +195,8 @@ Based on the available documents:
         """
         return self.filler.fill(template, display_spans, citation_spans)
 
-    def save_state(self) -> Dict[str, Any]:
-        """
-        Save the current template configuration.
+    def save_state(self) -> dict[str, Any]:
+        """Save the current template configuration.
 
         :return: Dictionary with template state
         """
@@ -215,9 +207,8 @@ Based on the available documents:
             "device": self.device,
         }
 
-    def load_state(self, state: Dict[str, Any]) -> None:
-        """
-        Load template configuration from saved state.
+    def load_state(self, state: dict[str, Any]) -> None:
+        """Load template configuration from saved state.
 
         :param state: Dictionary with template configuration
         """
@@ -234,9 +225,8 @@ Based on the available documents:
         if self.templates:
             self._validate_and_embed_templates()
 
-    def add_template(self, template: str, examples: List[str]) -> None:
-        """
-        Add a new template to the list.
+    def add_template(self, template: str, examples: list[str]) -> None:
+        """Add a new template to the list.
 
         :param template: Template string with [RELEVANT_SENTENCES]
         :param examples: List of example questions for this template
@@ -254,8 +244,7 @@ Based on the available documents:
         logger.info(f"Added template (total: {len(self.templates)})")
 
     def remove_template(self, index: int) -> None:
-        """
-        Remove a template by index.
+        """Remove a template by index.
 
         :param index: Index of template to remove
         :raises IndexError: If index is out of range

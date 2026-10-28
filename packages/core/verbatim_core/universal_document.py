@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass
@@ -9,7 +9,7 @@ class UniversalDocument:
     content: str
     title: str = ""
     source: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_text(
@@ -17,12 +17,12 @@ class UniversalDocument:
         text: str,
         title: str = "",
         source: str = "",
-        metadata: Dict[str, Any] | None = None,
-    ) -> "UniversalDocument":
+        metadata: dict[str, Any] | None = None,
+    ) -> UniversalDocument:
         return cls(content=text, title=title, source=source, metadata=metadata or {})
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "UniversalDocument":
+    def from_dict(cls, data: dict[str, Any]) -> UniversalDocument:
         if not isinstance(data, dict):
             raise TypeError("UniversalDocument.from_dict expects a dict")
         content = data.get("content") or data.get("text")
@@ -35,7 +35,7 @@ class UniversalDocument:
             metadata=data.get("metadata") or {},
         )
 
-    def to_context(self) -> Dict[str, Any]:
+    def to_context(self) -> dict[str, Any]:
         return {
             "content": self.content,
             "title": self.title,

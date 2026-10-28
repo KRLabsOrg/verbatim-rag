@@ -114,8 +114,7 @@ class QADataset(Dataset):
         tokenizer: AutoTokenizer,
         max_length: int = 4096,
     ) -> dict:
-        """
-        Build a single input sequence:
+        """Build a single input sequence:
         [CLS] question [SEP] S1 [SEP] S2 [SEP] ... [SEP]
         *and* collect offset mappings so you can retrieve partial text from each sentence.
 
@@ -260,7 +259,7 @@ class QADataset(Dataset):
         question, doc = self.samples[index]
 
         encoding = self.encode_question_and_sentences_with_offsets(
-            question, doc.sentences, self.tokenizer, self.max_length
+            question, doc.sentences, self.tokenizer, self.max_length,
         )
 
         return encoding

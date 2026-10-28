@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 # Reuse existing components from verbatim_rag without importing vector/index types
 from .extractors import LLMSpanExtractor, SpanExtractor
@@ -16,7 +17,7 @@ class _ResultView:
     def __init__(
         self,
         text: str,
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
         rid: str = "ctx",
         score: float = 1.0,
     ):
@@ -27,13 +28,13 @@ class _ResultView:
 
 
 def _coerce_context_to_results(
-    context: Iterable[Dict[str, Any] | Any],
-) -> List[_ResultView]:
-    results: List[_ResultView] = []
+    context: Iterable[dict[str, Any] | Any],
+) -> list[_ResultView]:
+    results: list[_ResultView] = []
     for i, item in enumerate(context):
         # Accept objects with a .text attribute
-        if hasattr(item, "text") and isinstance(getattr(item, "text"), str):
-            text = getattr(item, "text")
+        if hasattr(item, "text") and isinstance(item.text, str):
+            text = item.text
             meta = getattr(item, "metadata", {}) or {}
             results.append(_ResultView(text=text, metadata=meta, rid=f"ctx_{i}"))
             continue
@@ -78,7 +79,7 @@ class VerbatimTransform:
             system_prompt=system_prompt,
         )
         self.template_manager = template_manager or TemplateManager(
-            llm_client=self.llm_client, default_mode=template_mode
+            llm_client=self.llm_client, default_mode=template_mode,
         )
         self.response_builder = ResponseBuilder()
         self.max_display_spans = max_display_spans
@@ -86,7 +87,7 @@ class VerbatimTransform:
     def transform(
         self,
         question: str,
-        context: Iterable[Dict[str, Any]],
+        context: Iterable[dict[str, Any]],
         answer: str | None = None,  # Ignored for now
     ):
         search_results = _coerce_context_to_results(list(context))
@@ -114,7 +115,7 @@ class VerbatimTransform:
     async def transform_async(
         self,
         question: str,
-        context: Iterable[Dict[str, Any]],
+        context: Iterable[dict[str, Any]],
         answer: str | None = None,
     ):
         search_results = _coerce_context_to_results(list(context))
@@ -132,7 +133,7 @@ class VerbatimTransform:
         citation_spans = all_spans[self.max_display_spans :]
 
         answer_text = await self.template_manager.process_async(  # type: ignore[attr-defined]
-            question, display_spans, citation_spans
+            question, display_spans, citation_spans,
         )
         answer_text = self.response_builder.clean_answer(answer_text)
 

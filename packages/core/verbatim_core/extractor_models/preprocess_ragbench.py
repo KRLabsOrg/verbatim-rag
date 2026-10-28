@@ -31,7 +31,7 @@ def load_data(hugging_dir: str) -> dict:
 
 
 def create_sample(
-    sample: dict, dataset_name: str, split: Literal["train", "dev", "test"]
+    sample: dict, dataset_name: str, split: Literal["train", "dev", "test"],
 ) -> QASample:
     """Create a QASample from the RAGBench dataset.
 

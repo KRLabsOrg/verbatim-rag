@@ -2,7 +2,7 @@ import logging
 from typing import Any
 
 import torch
-import torch.nn as nn
+from torch import nn
 from transformers import AutoConfig, AutoModel, PreTrainedModel
 
 # Set up logger
@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class QAModel(PreTrainedModel):
-    """
-    Model for QA span extraction using sentence classification.
+    """Model for QA span extraction using sentence classification.
     """
 
     config_class = AutoConfig
@@ -24,8 +23,7 @@ class QAModel(PreTrainedModel):
         hidden_dim: int = 768,
         num_labels: int = 2,
     ):
-        """
-        Initialize the QA model.
+        """Initialize the QA model.
 
         :param config: HuggingFace config object (takes precedence if provided)
         :param model_name: Base model name to use
@@ -62,8 +60,7 @@ class QAModel(PreTrainedModel):
         attention_mask: torch.Tensor,
         sentence_boundaries: list[list[tuple[int, int]]],
     ) -> list[torch.Tensor]:
-        """
-        Forward pass of the model.
+        """Forward pass of the model.
 
         :param input_ids: Token IDs
         :param attention_mask: Attention mask

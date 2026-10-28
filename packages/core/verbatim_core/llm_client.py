@@ -1,5 +1,4 @@
-"""
-Centralized LLM client for all OpenAI interactions in the Verbatim RAG system.
+"""Centralized LLM client for all OpenAI interactions in the Verbatim RAG system.
 
 This module provides a unified interface for both synchronous and asynchronous
 LLM calls, with specialized methods for span extraction and template generation.
@@ -8,7 +7,6 @@ LLM calls, with specialized methods for span extraction and template generation.
 import json
 import logging
 import os
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +17,7 @@ except ImportError:
 
 
 class LLMClient:
-    """
-    Centralized LLM interaction handler with async support.
+    """Centralized LLM interaction handler with async support.
 
     Provides a unified interface for all OpenAI API calls used throughout
     the Verbatim RAG system, including span extraction and template generation.
@@ -33,8 +30,7 @@ class LLMClient:
         api_base: str = "https://api.openai.com/v1",
         api_key: str | None = None,
     ):
-        """
-        Initialize the LLM client.
+        """Initialize the LLM client.
 
         :param model: The OpenAI model to use
         :param temperature: Default temperature for completions
@@ -52,11 +48,10 @@ class LLMClient:
         self,
         prompt: str,
         json_mode: bool = False,
-        temperature: Optional[float] = None,
+        temperature: float | None = None,
         system_prompt: str | None = None,
     ) -> str:
-        """
-        Synchronous text completion.
+        """Synchronous text completion.
 
         :param prompt: The prompt to send
         :param json_mode: Whether to request JSON output format
@@ -86,11 +81,10 @@ class LLMClient:
         self,
         prompt: str,
         json_mode: bool = False,
-        temperature: Optional[float] = None,
+        temperature: float | None = None,
         system_prompt: str | None = None,
     ) -> str:
-        """
-        Asynchronous text completion.
+        """Asynchronous text completion.
 
         :param prompt: The prompt to send
         :param json_mode: Whether to request JSON output format
@@ -116,9 +110,8 @@ class LLMClient:
             raise ValueError("LLM returned empty or filtered response")
         return response.choices[0].message.content
 
-    def extract_spans(self, question: str, documents: Dict[str, str]) -> Dict[str, List[str]]:
-        """
-        Specialized method for span extraction from documents.
+    def extract_spans(self, question: str, documents: dict[str, str]) -> dict[str, list[str]]:
+        """Specialized method for span extraction from documents.
 
         :param question: The user's question
         :param documents: Dictionary mapping doc IDs to document text
@@ -131,13 +124,12 @@ class LLMClient:
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("Span extraction failed: %s", e)
             # Return empty results for all documents on failure
-            return {doc_id: [] for doc_id in documents.keys()}
+            return {doc_id: [] for doc_id in documents}
 
     async def extract_spans_async(
-        self, question: str, documents: Dict[str, str]
-    ) -> Dict[str, List[str]]:
-        """
-        Async span extraction from documents.
+        self, question: str, documents: dict[str, str],
+    ) -> dict[str, list[str]]:
+        """Async span extraction from documents.
 
         :param question: The user's question
         :param documents: Dictionary mapping doc IDs to document text
@@ -149,17 +141,16 @@ class LLMClient:
             return json.loads(response)
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("Async span extraction failed: %s", e)
-            return {doc_id: [] for doc_id in documents.keys()}
+            return {doc_id: [] for doc_id in documents}
 
     def extract_structured(
         self,
         question: str,
         template: str,
-        placeholders: Dict[str, str],
-        documents: List[str],
-    ) -> Dict[str, List[Dict[str, any]]]:
-        """
-        Extract spans organized by template placeholders with document attribution.
+        placeholders: dict[str, str],
+        documents: list[str],
+    ) -> dict[str, list[dict[str, any]]]:
+        """Extract spans organized by template placeholders with document attribution.
 
         :param question: The user's question
         :param template: Template with placeholders like [METHODOLOGY]
@@ -168,24 +159,23 @@ class LLMClient:
         :return: Dict mapping placeholder names to lists of {text, doc} objects
         """
         prompt = self._build_structured_extraction_prompt(
-            question, template, placeholders, documents
+            question, template, placeholders, documents,
         )
         try:
             response = self.complete(prompt, json_mode=True)
             return self._normalize_structured_response(json.loads(response), placeholders)
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("Structured extraction failed: %s", e)
-            return {name: [] for name in placeholders.keys()}
+            return {name: [] for name in placeholders}
 
     async def extract_structured_async(
         self,
         question: str,
         template: str,
-        placeholders: Dict[str, str],
-        documents: List[str],
-    ) -> Dict[str, List[Dict[str, any]]]:
-        """
-        Async version of structured extraction with document attribution.
+        placeholders: dict[str, str],
+        documents: list[str],
+    ) -> dict[str, list[dict[str, any]]]:
+        """Async version of structured extraction with document attribution.
 
         :param question: The user's question
         :param template: Template with placeholders like [METHODOLOGY]
@@ -194,25 +184,24 @@ class LLMClient:
         :return: Dict mapping placeholder names to lists of {text, doc} objects
         """
         prompt = self._build_structured_extraction_prompt(
-            question, template, placeholders, documents
+            question, template, placeholders, documents,
         )
         try:
             response = await self.complete_async(prompt, json_mode=True)
             return self._normalize_structured_response(json.loads(response), placeholders)
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("Structured extraction failed: %s", e)
-            return {name: [] for name in placeholders.keys()}
+            return {name: [] for name in placeholders}
 
     def _normalize_structured_response(
-        self, response: Dict, placeholders: Dict[str, str]
-    ) -> Dict[str, List[Dict[str, any]]]:
-        """
-        Normalize LLM response to ensure consistent format.
+        self, response: dict, placeholders: dict[str, str],
+    ) -> dict[str, list[dict[str, any]]]:
+        """Normalize LLM response to ensure consistent format.
 
         Handles both old format (list of strings) and new format (list of {text, doc}).
         """
         result = {}
-        for name in placeholders.keys():
+        for name in placeholders:
             items = response.get(name, [])
             normalized = []
             for item in items:
@@ -229,8 +218,8 @@ class LLMClient:
         self,
         question: str,
         template: str,
-        placeholders: Dict[str, str],
-        documents: List[str],
+        placeholders: dict[str, str],
+        documents: list[str],
     ) -> str:
         """Build prompt for structured extraction with document attribution."""
         from .prompts import load_prompt
@@ -249,16 +238,15 @@ class LLMClient:
     def generate_template(
         self,
         question: str,
-        spans: List[str],
+        spans: list[str],
         citation_count: int,
         use_per_fact: bool = True,
-        template_preview_chars: Optional[int] = 100,
+        template_preview_chars: int | None = 100,
         preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        template_prompt: str | None = None,
+        system_prompt: str | None = None,
     ) -> str:
-        """
-        Generate a contextual template for the given question and spans.
+        """Generate a contextual template for the given question and spans.
 
         :param question: The user's question
         :param spans: List of spans that will fill the template
@@ -302,16 +290,15 @@ class LLMClient:
     async def generate_template_async(
         self,
         question: str,
-        spans: List[str],
+        spans: list[str],
         citation_count: int,
         use_per_fact: bool = True,
-        template_preview_chars: Optional[int] = 100,
+        template_preview_chars: int | None = 100,
         preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        template_prompt: str | None = None,
+        system_prompt: str | None = None,
     ) -> str:
-        """
-        Async template generation. See generate_template for parameter docs.
+        """Async template generation. See generate_template for parameter docs.
         """
         if use_per_fact and len(spans) <= 8:
             prompt = self._build_per_fact_template_prompt(
@@ -334,13 +321,13 @@ class LLMClient:
 
         try:
             return await self.complete_async(
-                prompt, temperature=self.temperature, system_prompt=system_prompt
+                prompt, temperature=self.temperature, system_prompt=system_prompt,
             )
         except Exception as e:
             logger.error("Async template generation failed: %s", e)
             return self._fallback_template(citation_count > 0)
 
-    def _build_extraction_prompt(self, question: str, documents: Dict[str, str]) -> str:
+    def _build_extraction_prompt(self, question: str, documents: dict[str, str]) -> str:
         """Build the prompt for batch span extraction."""
         from .prompts import load_prompt
 
@@ -353,11 +340,11 @@ class LLMClient:
     def _build_per_fact_template_prompt(
         self,
         question: str,
-        spans: List[str],
+        spans: list[str],
         citation_count: int,
-        template_preview_chars: Optional[int] = 100,
+        template_preview_chars: int | None = 100,
         preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
+        template_prompt: str | None = None,
     ) -> str:
         from .prompts import load_prompt, render_prompt
 
@@ -384,11 +371,11 @@ class LLMClient:
     def _build_aggregate_template_prompt(
         self,
         question: str,
-        spans: List[str],
+        spans: list[str],
         citation_count: int,
-        template_preview_chars: Optional[int] = 100,
+        template_preview_chars: int | None = 100,
         preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
+        template_prompt: str | None = None,
     ) -> str:
         from .prompts import load_prompt, render_prompt
 
@@ -417,21 +404,21 @@ class LLMClient:
 
     # Batch span extraction API (for compatibility)
     def extract_relevant_spans_batch(
-        self, question: str, documents: Dict[str, str]
-    ) -> Dict[str, List[str]]:
+        self, question: str, documents: dict[str, str],
+    ) -> dict[str, list[str]]:
         return self.extract_spans(question, documents)
 
     async def extract_relevant_spans_batch_async(
-        self, question: str, documents: Dict[str, str]
-    ) -> Dict[str, List[str]]:
+        self, question: str, documents: dict[str, str],
+    ) -> dict[str, list[str]]:
         return await self.extract_spans_async(question, documents)
 
     # Single-doc convenience
-    def extract_relevant_spans(self, question: str, document_text: str) -> List[str]:
+    def extract_relevant_spans(self, question: str, document_text: str) -> list[str]:
         result = self.extract_relevant_spans_batch(question, {"doc": document_text})
         return result.get("doc", [])
 
-    async def extract_relevant_spans_async(self, question: str, document_text: str) -> List[str]:
+    async def extract_relevant_spans_async(self, question: str, document_text: str) -> list[str]:
         result = await self.extract_relevant_spans_batch_async(question, {"doc": document_text})
         return result.get("doc", [])
 

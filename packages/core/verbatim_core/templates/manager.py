@@ -1,5 +1,4 @@
-"""
-Template manager for the Verbatim RAG system.
+"""Template manager for the Verbatim RAG system.
 
 Provides a unified interface for managing different template strategies,
 including mode selection, persistence, and processing workflows.
@@ -7,7 +6,7 @@ including mode selection, persistence, and processing workflows.
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..llm_client import LLMClient
 from .base import TemplateStrategy
@@ -19,8 +18,7 @@ from .structured import StructuredTemplate
 
 
 class TemplateManager:
-    """
-    Template manager with strategy pattern and mode selection.
+    """Template manager with strategy pattern and mode selection.
 
     Manages different template strategies and provides a unified interface
     for template generation and filling. Supports persistence of configuration
@@ -29,12 +27,11 @@ class TemplateManager:
 
     def __init__(
         self,
-        llm_client: Optional[LLMClient] = None,
+        llm_client: LLMClient | None = None,
         default_mode: str = "static",
         rag_system=None,
     ):
-        """
-        Initialize template manager.
+        """Initialize template manager.
 
         :param llm_client: Optional LLM client for contextual and random modes
         :param default_mode: Default template mode ("static", "contextual", "random", "question_specific", "structured")
@@ -46,7 +43,7 @@ class TemplateManager:
         self.citation_mode = "inline"
 
         # Initialize strategies
-        self.strategies: Dict[str, TemplateStrategy] = {
+        self.strategies: dict[str, TemplateStrategy] = {
             "static": StaticTemplate(citation_mode=self.citation_mode),
             "contextual": ContextualTemplate(llm_client, citation_mode=self.citation_mode)
             if llm_client
@@ -54,7 +51,7 @@ class TemplateManager:
             "random": RandomTemplate(llm_client=llm_client, citation_mode=self.citation_mode),
             "question_specific": QuestionSpecificTemplate(citation_mode=self.citation_mode),
             "structured": StructuredTemplate(
-                rag_system=rag_system, citation_mode=self.citation_mode
+                rag_system=rag_system, citation_mode=self.citation_mode,
             ),
         }
 
@@ -67,8 +64,7 @@ class TemplateManager:
             self.current_mode = "static"
 
     def set_mode(self, mode: str) -> bool:
-        """
-        Switch to a different template mode.
+        """Switch to a different template mode.
 
         :param mode: Template mode to switch to
         :return: True if mode was switched successfully
@@ -85,16 +81,14 @@ class TemplateManager:
         return True
 
     def get_current_mode(self) -> str:
-        """
-        Get the current template mode.
+        """Get the current template mode.
 
         :return: Current mode name
         """
         return self.current_mode
 
-    def get_available_modes(self) -> List[str]:
-        """
-        Get list of available template modes.
+    def get_available_modes(self) -> list[str]:
+        """Get list of available template modes.
 
         :return: List of mode names that are available
         """
@@ -103,11 +97,10 @@ class TemplateManager:
     def process(
         self,
         question: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
-        """
-        Generate and fill a template in one operation.
+        """Generate and fill a template in one operation.
 
         :param question: The user's question
         :param display_spans: Spans to display with full text
@@ -126,11 +119,10 @@ class TemplateManager:
     async def process_async(
         self,
         question: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
-        """
-        Async version of process for contextual templates.
+        """Async version of process for contextual templates.
 
         :param question: The user's question
         :param display_spans: Spans to display with full text
@@ -151,9 +143,9 @@ class TemplateManager:
 
     @staticmethod
     def _get_template_inputs(
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
-    ) -> tuple[List[str], int]:
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
+    ) -> tuple[list[str], int]:
         has_linked_citations = any(span.get("citation_ids") for span in display_spans)
         if has_linked_citations:
             return [span["text"] for span in display_spans], 0
@@ -161,10 +153,9 @@ class TemplateManager:
         return [span["text"] for span in display_spans + citation_spans], len(citation_spans)
 
     def get_template(
-        self, question: str = "", spans: List[str] = None, citation_count: int = 0
+        self, question: str = "", spans: list[str] = None, citation_count: int = 0,
     ) -> str:
-        """
-        Generate a template without filling it.
+        """Generate a template without filling it.
 
         :param question: The user's question
         :param spans: List of spans that will fill the template
@@ -178,11 +169,10 @@ class TemplateManager:
     def fill_template(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
-        """
-        Fill a template with content.
+        """Fill a template with content.
 
         :param template: Template string with placeholders
         :param display_spans: Spans to display with full text
@@ -193,8 +183,7 @@ class TemplateManager:
         return strategy.fill(template, display_spans, citation_spans)
 
     def save(self, filepath: str) -> None:
-        """
-        Save all template configurations to file.
+        """Save all template configurations to file.
 
         :param filepath: Path to save configuration
         """
@@ -212,8 +201,7 @@ class TemplateManager:
             json.dump(data, f, indent=2)
 
     def load(self, filepath: str) -> bool:
-        """
-        Load template configurations from file.
+        """Load template configurations from file.
 
         :param filepath: Path to load configuration from
         :return: True if loaded successfully
@@ -223,7 +211,7 @@ class TemplateManager:
             return False
 
         try:
-            with open(filepath, "r") as f:
+            with open(filepath) as f:
                 data = json.load(f)
 
             # Load mode
@@ -247,9 +235,8 @@ class TemplateManager:
             print(f"Failed to load template config: {e}")
             return False
 
-    def info(self) -> Dict[str, Any]:
-        """
-        Get current template manager state information.
+    def info(self) -> dict[str, Any]:
+        """Get current template manager state information.
 
         :return: Dictionary with current state info
         """
@@ -270,8 +257,7 @@ class TemplateManager:
     # Convenience methods for specific modes
 
     def use_static_mode(self, template: str = None) -> None:
-        """
-        Switch to static mode with optional custom template.
+        """Switch to static mode with optional custom template.
 
         :param template: Optional custom template
         """
@@ -284,13 +270,12 @@ class TemplateManager:
     def use_contextual_mode(
         self,
         use_per_fact: bool = True,
-        template_preview_chars: Optional[int] = 100,
+        template_preview_chars: int | None = 100,
         preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        template_prompt: str | None = None,
+        system_prompt: str | None = None,
     ) -> bool:
-        """
-        Switch to contextual mode with configuration.
+        """Switch to contextual mode with configuration.
 
         :param use_per_fact: Whether to use per-span placeholders (≤8 spans).
         :param template_preview_chars: Max chars per span in the template-gen prompt.
@@ -306,7 +291,7 @@ class TemplateManager:
 
         if self.strategies["contextual"] is None:
             self.strategies["contextual"] = ContextualTemplate(
-                self.llm_client, citation_mode=self.citation_mode
+                self.llm_client, citation_mode=self.citation_mode,
             )
 
         contextual_strategy = self.strategies["contextual"]
@@ -318,9 +303,8 @@ class TemplateManager:
 
         return self.set_mode("contextual")
 
-    def use_random_mode(self, templates: List[str] = None) -> bool:
-        """
-        Switch to random mode with optional template pool.
+    def use_random_mode(self, templates: list[str] = None) -> bool:
+        """Switch to random mode with optional template pool.
 
         :param templates: Optional list of templates
         :return: True if switched successfully
@@ -332,8 +316,7 @@ class TemplateManager:
         return self.set_mode("random")
 
     def generate_random_templates(self, count: int = 10) -> bool:
-        """
-        Generate diverse random templates if in random mode.
+        """Generate diverse random templates if in random mode.
 
         :param count: Number of templates to generate
         :return: True if generation was attempted
@@ -353,10 +336,9 @@ class TemplateManager:
         return False
 
     def use_question_specific_mode(
-        self, templates: Optional[Dict[str, Dict[str, Any]]] = None
+        self, templates: dict[str, dict[str, Any]] | None = None,
     ) -> bool:
-        """
-        Switch to question-specific mode with optional template definitions.
+        """Switch to question-specific mode with optional template definitions.
 
         :param templates: Optional dictionary mapping category names to template configs
                           Format: {
@@ -377,10 +359,9 @@ class TemplateManager:
     def use_structured_mode(
         self,
         template: str = None,
-        placeholder_mappings: Optional[Dict[str, str]] = None,
+        placeholder_mappings: dict[str, str] | None = None,
     ) -> bool:
-        """
-        Switch to structured mode with semantic placeholders.
+        """Switch to structured mode with semantic placeholders.
 
         :param template: Template with semantic placeholders like [METHODOLOGY], [RESULTS]
         :param placeholder_mappings: Custom placeholder → query mappings
@@ -391,12 +372,13 @@ class TemplateManager:
                 template="# Analysis\\n## Method\\n[METHODOLOGY]\\n## Results\\n[RESULTS]",
                 placeholder_mappings={"THEIR_METHOD": "what method did the baseline use"}
             )
+
         """
         structured_strategy = self.strategies.get("structured")
 
         if structured_strategy is None:
             structured_strategy = StructuredTemplate(
-                rag_system=self.rag_system, citation_mode=self.citation_mode
+                rag_system=self.rag_system, citation_mode=self.citation_mode,
             )
             self.strategies["structured"] = structured_strategy
         else:
@@ -418,31 +400,29 @@ class TemplateManager:
         return self.set_mode("structured")
 
     def set_rag_system(self, rag_system) -> None:
-        """
-        Set the RAG system for modes that need it (structured).
+        """Set the RAG system for modes that need it (structured).
 
         :param rag_system: RAG system instance
         """
         self.rag_system = rag_system
 
         # Update strategies that need RAG system
-        if "structured" in self.strategies and self.strategies["structured"]:
+        if self.strategies.get("structured"):
             self.strategies["structured"].set_rag_system(rag_system)
 
     async def process_structured_async(
         self,
         question: str,
-        template: Optional[str] = None,
-        placeholder_mappings: Optional[Dict[str, str]] = None,
+        template: str | None = None,
+        placeholder_mappings: dict[str, str] | None = None,
     ) -> str:
-        """
-        Convenience helper to run structured extraction.
+        """Convenience helper to run structured extraction.
 
         Note: Prefer calling rag.query_async() directly after setting up
         structured mode. This method is kept for convenience.
         """
         if not self.use_structured_mode(
-            template=template, placeholder_mappings=placeholder_mappings
+            template=template, placeholder_mappings=placeholder_mappings,
         ):
             raise ValueError("Structured mode unavailable")
 
@@ -466,8 +446,7 @@ class TemplateManager:
                 strategy.set_citation_mode(mode)
 
     def set_citation_format(self, citation_format: str) -> None:
-        """
-        Configure citation marker format for all strategies.
+        """Configure citation marker format for all strategies.
 
         :param citation_format: str.format template with {number} and {span_id} variables.
             Default "[{number}]". Example: "[{span_id}]" renders "[cite1]" when

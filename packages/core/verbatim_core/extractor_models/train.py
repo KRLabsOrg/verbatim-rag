@@ -78,7 +78,7 @@ def train(args):
                 if first_doc.sentences and len(first_doc.sentences) > 0:
                     first_sentence = first_doc.sentences[0]
                     logger.info(
-                        f"First sentence: '{first_sentence.text[:100]}...' (relevant: {first_sentence.relevant})"
+                        f"First sentence: '{first_sentence.text[:100]}...' (relevant: {first_sentence.relevant})",
                     )
 
         train_samples = [sample for sample in qa_data.samples if sample.split == "train"]
@@ -86,14 +86,14 @@ def train(args):
         test_samples = [sample for sample in qa_data.samples if sample.split == "test"]
 
         logger.info(
-            f"Train: {len(train_samples)}, Dev: {len(dev_samples)}, Test: {len(test_samples)}"
+            f"Train: {len(train_samples)}, Dev: {len(dev_samples)}, Test: {len(test_samples)}",
         )
         if not train_samples:
             logger.error("No training samples found. Check data path and split names.")
             return
         if not dev_samples:
             logger.warning(
-                "No development samples found. Training will proceed without evaluation."
+                "No development samples found. Training will proceed without evaluation.",
             )
             dev_dataset = None
         else:
@@ -121,7 +121,7 @@ def train(args):
                 logger.info(f"Train dataset item keys: {sample_item.keys()}")
                 logger.info(f"Train dataset input_ids shape: {sample_item['input_ids'].shape}")
                 logger.info(
-                    f"Train dataset has {len(sample_item['sentence_boundaries'])} sentence boundaries"
+                    f"Train dataset has {len(sample_item['sentence_boundaries'])} sentence boundaries",
                 )
             except Exception as e:
                 logger.error(f"Error accessing train dataset: {e}")
