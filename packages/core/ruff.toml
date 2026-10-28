@@ -1,0 +1,41 @@
+exclude = [
+    ".pytest_cache",
+    ".ruff_cache",
+    "__pycache__",
+    "__pypackages__",
+]
+# Allow imports relative to the "verbatim_core" directory.
+src = ["verbatim_core"]
+
+line-length = 120
+indent-width = 4
+
+output-format = "grouped"
+target-version = "py310"
+
+[analyze]
+detect-string-imports = true
+
+[lint]
+select = ["ALL"]
+ignore = [
+    "E501", # line-too-long (https://docs.astral.sh/ruff/rules/line-too-long/)
+    "C901", # complex-structure (https://docs.astral.sh/ruff/rules/complex-structure/)
+]
+
+[format]
+# Use double quotes for strings.
+quote-style = "double"
+# Use the configured quote style for nested strings (Python 3.12+ only).
+nested-string-quote-style = "preferred"
+# Indent with spaces, rather than tabs.
+indent-style = "space"
+# Respect magic trailing commas.
+skip-magic-trailing-comma = false
+# Automatically detect the appropriate line ending.
+line-ending = "auto"
+
+# Enable reformatting of code snippets in docstrings.
+docstring-code-format = true
+# Format all docstring code snippets with a line length of 60.
+docstring-code-line-length = 60
