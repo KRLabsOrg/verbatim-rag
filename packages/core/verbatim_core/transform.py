@@ -62,7 +62,7 @@ def _coerce_context_to_results(
 class VerbatimTransform:
     """RAG-agnostic verbatim transform using existing components (sync/async)."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917 - TODO: use a pydantic-settings configuration model instead of using many arguments to define behavior.
         self,
         llm_client: LLMClient | None = None,
         extractor: SpanExtractor | None = None,
@@ -97,7 +97,7 @@ class VerbatimTransform:
         self,
         question: str,
         context: Iterable[dict[str, Any]],
-        answer: str | None = None,  # Ignored for now
+        answer: str | None = None,  # noqa: ARG002 - factual correctness of answers will be introduced in a later feature.
     ) -> QueryResponse:
         """Transform retrieved context into a verbatim response."""
         search_results = _coerce_context_to_results(list(context))
@@ -125,7 +125,7 @@ class VerbatimTransform:
         self,
         question: str,
         context: Iterable[dict[str, Any]],
-        answer: str | None = None,
+        answer: str | None = None, # noqa: ARG002 - factual correctness of answers will be introduced in a later feature
     ) -> QueryResponse:
         """Transform retrieved context into a verbatim response asynchronously."""
         search_results = _coerce_context_to_results(list(context))
