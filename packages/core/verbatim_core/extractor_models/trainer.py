@@ -5,9 +5,8 @@ from datetime import timedelta
 from pathlib import Path
 
 import torch
-import torch.nn as nn
-import torch.optim as optim
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from torch import nn, optim
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -18,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def qa_collate_fn(batch: list[dict]) -> dict:
-    """batch is a list of N items (N = batch_size), each item is the dict returned by QADataset.__getitem__.
+    """Batch is a list of N items (N = batch_size), each item is the dict returned by QADataset.__getitem__.
     We need to pad input_ids and attention_mask to the max length in this batch.
 
     We'll keep:
@@ -125,8 +124,7 @@ class Trainer:
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         output_dir: str = None,
     ) -> None:
-        """
-        Simple trainer class for training a model on a dataset.
+        """Simple trainer class for training a model on a dataset.
 
         :param model: The model to train
         :param train_dataset: The training dataset
@@ -204,7 +202,7 @@ class Trainer:
                         # Make sure we have labels and logits of the same length
                         if i >= len(labels_list):
                             logger.warning(
-                                f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}"
+                                f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}",
                             )
                             continue
 
@@ -217,7 +215,7 @@ class Trainer:
                         # Make sure we have enough labels for all logits
                         if logits.size(0) > labels_i.size(0):
                             logger.warning(
-                                f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}"
+                                f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}",
                             )
                             logits = logits[: labels_i.size(0), :]
 
@@ -240,7 +238,7 @@ class Trainer:
                                 "avg_loss": f"{total_loss / step_count:.4f}"
                                 if step_count > 0
                                 else "N/A",
-                            }
+                            },
                         )
 
                 except RuntimeError as e:
@@ -248,9 +246,8 @@ class Trainer:
                         logger.error(f"CUDA out of memory error: {e}")
                         torch.cuda.empty_cache()
                         continue
-                    else:
-                        logger.error(f"Runtime error in training loop: {e}")
-                        raise
+                    logger.error(f"Runtime error in training loop: {e}")
+                    raise
                 except Exception as e:
                     logger.error(f"Error processing batch: {e}")
                     continue
@@ -289,7 +286,7 @@ class Trainer:
 
             epoch_time = time.time() - epoch_start
             print(
-                f"Epoch {self.current_epoch} completed in {timedelta(seconds=int(epoch_time))}. Average loss: {train_loss:.4f}"
+                f"Epoch {self.current_epoch} completed in {timedelta(seconds=int(epoch_time))}. Average loss: {train_loss:.4f}",
             )
 
             if self.dev_dataloader is not None:
@@ -347,7 +344,7 @@ class Trainer:
         print(
             f"Best validation F1: {self.best_f1:.4f}"
             if self.best_f1 > 0
-            else "No validation performed"
+            else "No validation performed",
         )
 
         return self.best_f1
@@ -382,7 +379,7 @@ class Trainer:
                             # Skip if we have a mismatch in lists
                             if i >= len(labels_list):
                                 logger.warning(
-                                    f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}"
+                                    f"Mismatch between logits and labels list lengths: {len(logits_list)} vs {len(labels_list)}",
                                 )
                                 continue
 
@@ -394,7 +391,7 @@ class Trainer:
                             effective_size = min(logits.size(0), labels_i.size(0))
                             if logits.size(0) != labels_i.size(0):
                                 logger.warning(
-                                    f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}"
+                                    f"Mismatch between logits and labels sizes: {logits.size(0)} vs {labels_i.size(0)}",
                                 )
                                 logits = logits[:effective_size]
                                 labels_i = labels_i[:effective_size]
@@ -442,7 +439,7 @@ class Trainer:
         try:
             if len(all_preds) > 0:
                 precision, recall, f1, _ = precision_recall_fscore_support(
-                    all_labels, all_preds, average="binary", zero_division=0
+                    all_labels, all_preds, average="binary", zero_division=0,
                 )
                 accuracy = accuracy_score(all_labels, all_preds)
 

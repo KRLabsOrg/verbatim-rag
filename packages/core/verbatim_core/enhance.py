@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
-from typing import Any, Callable, Dict, Iterable, Mapping
+from typing import Any
 
 from .transform import VerbatimTransform
 
@@ -21,7 +22,7 @@ def _to_context_dicts(obj: Any) -> list[dict]:
                     "title": data.get("title", ""),
                     "source": data.get("source", ""),
                     "metadata": data.get("metadata") or {},
-                }
+                },
             )
         return ctx
     if isinstance(obj, (list, tuple)):
@@ -52,7 +53,7 @@ def verbatim_enhance(
             result = fn(*args, **kwargs)
             question = kwargs.get("question") or (args[0] if args else "")
             answer = None
-            context: Iterable[Dict[str, Any]] = []
+            context: Iterable[dict[str, Any]] = []
 
             if isinstance(result, dict):
                 answer = result.get("answer")

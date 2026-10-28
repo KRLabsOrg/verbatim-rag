@@ -1,5 +1,4 @@
-"""
-Lightweight, RAG-agnostic core for verbatim transformation.
+"""Lightweight, RAG-agnostic core for verbatim transformation.
 
 This subpackage provides:
 - VerbatimTransform: question + context -> cited, grounded answer (sync/async)
@@ -15,10 +14,10 @@ from .transform import VerbatimTransform, verbatim_query, verbatim_query_async
 from .universal_document import UniversalDocument
 
 __all__ = [
-    "VerbatimTransform",
-    "verbatim_query",
-    "verbatim_query_async",
     "RAGProvider",
     "UniversalDocument",
+    "VerbatimTransform",
     "verbatim_enhance",
+    "verbatim_query",
+    "verbatim_query_async",
 ]

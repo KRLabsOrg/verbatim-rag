@@ -1,5 +1,4 @@
-"""
-Pydantic models for verbatim_core (RAG-agnostic).
+"""Pydantic models for verbatim_core (RAG-agnostic).
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ class Highlight(BaseModel):
     end: int = Field(..., ge=0)
 
     @model_validator(mode="after")
-    def validate_end_after_start(self) -> "Highlight":
+    def validate_end_after_start(self) -> Highlight:
         if self.end <= self.start:
             raise ValueError("end must be greater than start")
         return self

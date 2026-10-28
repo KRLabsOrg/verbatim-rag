@@ -1,19 +1,17 @@
-"""
-Template-driven structured extraction for VerbatimRAG.
+"""Template-driven structured extraction for VerbatimRAG.
 
 This strategy uses the template to guide extraction. The LLM receives the full
 template structure and extracts spans organized by placeholder.
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import TemplateStrategy
 
 
 class StructuredTemplate(TemplateStrategy):
-    """
-    Structured extraction template strategy.
+    """Structured extraction template strategy.
 
     The template controls what gets extracted - the LLM returns per-placeholder
     spans which are then used to fill the template.
@@ -30,7 +28,7 @@ class StructuredTemplate(TemplateStrategy):
     SYSTEM_PLACEHOLDERS = {"DISPLAY_SPANS", "RELEVANT_SENTENCES", "CITATION_REFS"}
 
     # Standard mappings from placeholder names to extraction hints
-    STANDARD_MAPPINGS: Dict[str, str] = {
+    STANDARD_MAPPINGS: dict[str, str] = {
         "METHODOLOGY": "methodology or methods used",
         "METHOD": "method used",
         "APPROACH": "approach taken",
@@ -54,8 +52,8 @@ class StructuredTemplate(TemplateStrategy):
     def __init__(
         self,
         rag_system=None,
-        template: Optional[str] = None,
-        placeholder_mappings: Optional[Dict[str, str]] = None,
+        template: str | None = None,
+        placeholder_mappings: dict[str, str] | None = None,
         citation_mode: str = "inline",
     ):
         self.rag_system = rag_system
@@ -84,20 +82,19 @@ class StructuredTemplate(TemplateStrategy):
         if not (has_semantic or has_standard):
             raise ValueError(
                 "Structured templates must contain semantic placeholders like "
-                "[METHODOLOGY] or standard placeholders such as [DISPLAY_SPANS]"
+                "[METHODOLOGY] or standard placeholders such as [DISPLAY_SPANS]",
             )
 
     def add_placeholder_mapping(self, placeholder: str, hint: str) -> None:
         """Add custom mapping from placeholder name to extraction hint."""
         self.custom_mappings[placeholder] = hint
 
-    def get_placeholder_mappings(self) -> Dict[str, str]:
+    def get_placeholder_mappings(self) -> dict[str, str]:
         """Get all placeholder mappings (standard + custom)."""
         return {**self.STANDARD_MAPPINGS, **self.custom_mappings}
 
-    def get_placeholder_hints(self) -> Dict[str, str]:
-        """
-        Get hints for all placeholders in the current template.
+    def get_placeholder_hints(self) -> dict[str, str]:
+        """Get hints for all placeholders in the current template.
 
         Returns dict mapping placeholder names to their extraction hints.
         """
@@ -124,7 +121,7 @@ class StructuredTemplate(TemplateStrategy):
         self.citation_mode = citation_mode
 
     # ---------------------------------------------------------------- TemplateStrategy interface
-    def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
+    def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
         if not self.template:
             raise ValueError("Structured template not set")
         return self.template
@@ -132,13 +129,13 @@ class StructuredTemplate(TemplateStrategy):
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
         # Standard fill not used for structured mode
         return template
 
-    def save_state(self) -> Dict[str, Any]:
+    def save_state(self) -> dict[str, Any]:
         return {
             "type": "structured",
             "template": self.template,
@@ -146,16 +143,15 @@ class StructuredTemplate(TemplateStrategy):
             "citation_mode": self.citation_mode,
         }
 
-    def load_state(self, state: Dict[str, Any]) -> None:
+    def load_state(self, state: dict[str, Any]) -> None:
         self.template = state.get("template", self.template)
         self.custom_mappings = state.get("placeholder_mappings", {})
         if "citation_mode" in state:
             self.citation_mode = state["citation_mode"]
 
     # ---------------------------------------------------------------- structured filling
-    def fill_with_spans(self, span_map: Dict[str, List]) -> str:
-        """
-        Fill the template with per-placeholder spans.
+    def fill_with_spans(self, span_map: dict[str, list]) -> str:
+        """Fill the template with per-placeholder spans.
 
         :param span_map: Dict mapping placeholder names to lists of spans
                          Supports both old format (list of strings) and
@@ -204,7 +200,7 @@ class StructuredTemplate(TemplateStrategy):
 
         return result
 
-    def _extract_texts(self, items: List) -> List[str]:
+    def _extract_texts(self, items: list) -> list[str]:
         """Extract text strings from items (handles both string and dict formats)."""
         texts = []
         for item in items:
@@ -218,9 +214,8 @@ class StructuredTemplate(TemplateStrategy):
                 texts.append(text)
         return texts
 
-    def _format_spans_with_offset(self, texts: List[str], start_num: int) -> str:
-        """
-        Format spans for display with global citation numbering.
+    def _format_spans_with_offset(self, texts: list[str], start_num: int) -> str:
+        """Format spans for display with global citation numbering.
 
         :param texts: List of span texts
         :param start_num: Starting citation number for this placeholder
@@ -243,11 +238,10 @@ class StructuredTemplate(TemplateStrategy):
     async def fill_async(
         self,
         question: str,
-        template: Optional[str] = None,
-        placeholder_mappings: Optional[Dict[str, str]] = None,
+        template: str | None = None,
+        placeholder_mappings: dict[str, str] | None = None,
     ) -> str:
-        """
-        Fill template via structured extraction.
+        """Fill template via structured extraction.
 
         Note: Prefer using rag.query_async() which handles this automatically
         when in structured mode. This method is kept for backwards compatibility.

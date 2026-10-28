@@ -1,5 +1,4 @@
-"""
-Template system (RAG-agnostic copy) mirroring verbatim_rag.templates.
+"""Template system (RAG-agnostic copy) mirroring verbatim_rag.templates.
 """
 
 from .base import TemplateStrategy
@@ -11,11 +10,11 @@ from .random import RandomTemplate
 from .static import StaticTemplate
 
 __all__ = [
-    "TemplateStrategy",
-    "StaticTemplate",
     "ContextualTemplate",
-    "RandomTemplate",
     "QuestionSpecificTemplate",
-    "TemplateManager",
+    "RandomTemplate",
+    "StaticTemplate",
     "TemplateFiller",
+    "TemplateManager",
+    "TemplateStrategy",
 ]

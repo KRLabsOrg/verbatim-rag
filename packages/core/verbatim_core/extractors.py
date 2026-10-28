@@ -1,5 +1,4 @@
-"""
-Extractors for identifying relevant spans in documents (RAG-agnostic).
+"""Extractors for identifying relevant spans in documents (RAG-agnostic).
 
 This copy avoids importing vector-store specific types; accepts any objects
 with a `.text` attribute as search results.
@@ -13,7 +12,7 @@ import re
 import unicodedata
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 from rapidfuzz.fuzz import partial_ratio_alignment
 
@@ -27,17 +26,16 @@ _FUZZY_TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
 @dataclass(frozen=True)
 class _NormalizedTokenText:
     text: str
-    original_token_offsets: List[tuple[int, int]]
-    normalized_token_offsets: List[tuple[int, int]]
+    original_token_offsets: list[tuple[int, int]]
+    normalized_token_offsets: list[tuple[int, int]]
 
 
 class SpanExtractor(ABC):
     """Abstract base class for span extractors."""
 
     @abstractmethod
-    def extract_spans(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
-        """
-        Extract relevant spans from search results.
+    def extract_spans(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:
+        """Extract relevant spans from search results.
 
         :param question: The query or question
         :param search_results: List of search results to extract from
@@ -46,8 +44,8 @@ class SpanExtractor(ABC):
         raise NotImplementedError
 
     async def extract_spans_async(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
+        self, question: str, search_results: list[Any],
+    ) -> dict[str, list[str]]:
         """Default async implementation that delegates to sync version."""
         import asyncio
 
@@ -89,8 +87,7 @@ class ModelSpanExtractor(SpanExtractor):
         max_length: int = 8192,
         doc_stride: int = 256,
     ):
-        """
-        :param model_path: Path or HuggingFace id. Defaults to v2 generic.
+        """:param model_path: Path or HuggingFace id. Defaults to v2 generic.
         :param device: ``"cuda"`` / ``"mps"`` / ``"cpu"`` or None to auto-detect.
         :param threshold: Probability cutoff. Default 0.2 matches v2's
             published headline; raise to 0.5 for the legacy v1 sentence model.
@@ -135,7 +132,8 @@ class ModelSpanExtractor(SpanExtractor):
     @staticmethod
     def _detect_format(model_path: str) -> str:
         """Return ``"highlighter"`` if the model exposes a ``.process()`` API
-        via ``trust_remote_code``, else ``"qa_model"`` (legacy)."""
+        via ``trust_remote_code``, else ``"qa_model"`` (legacy).
+        """
         try:
             from transformers import AutoConfig
 
@@ -194,16 +192,16 @@ class ModelSpanExtractor(SpanExtractor):
         sentences = re.split(r"(?<=[.!?])\s+", text)
         return [s.strip() for s in sentences if s.strip()]
 
-    def extract_spans(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
+    def extract_spans(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:
         """Extract spans using the loaded model. Dispatches by format."""
         if self._format == self._FORMAT_HIGHLIGHTER:
             return self._extract_highlighter(question, search_results)
         return self._extract_qa_model(question, search_results)
 
     def _extract_highlighter(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        relevant: Dict[str, List[str]] = {}
+        self, question: str, search_results: list[Any],
+    ) -> dict[str, list[str]]:
+        relevant: dict[str, list[str]] = {}
         for result in search_results:
             context = getattr(result, "text", "")
             if not context.strip():
@@ -227,8 +225,8 @@ class ModelSpanExtractor(SpanExtractor):
                 relevant[context] = []
         return relevant
 
-    def _extract_qa_model(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
-        relevant_spans: Dict[str, List[str]] = {}
+    def _extract_qa_model(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:
+        relevant_spans: dict[str, list[str]] = {}
 
         for result in search_results:
             raw_text = getattr(result, "text", "")
@@ -280,8 +278,7 @@ class ModelSpanExtractor(SpanExtractor):
 
 
 class SemanticHighlightExtractor(SpanExtractor):
-    """
-    Extract spans using Zilliz semantic highlighting model.
+    """Extract spans using Zilliz semantic highlighting model.
 
     This extractor uses a pre-trained model (zilliz/semantic-highlight-bilingual-v1)
     specifically designed for RAG highlighting tasks. It supports two output modes:
@@ -306,8 +303,7 @@ class SemanticHighlightExtractor(SpanExtractor):
         merge_gap: int = 2,
         max_tokens: int = 4096,
     ):
-        """
-        Initialize the semantic highlight extractor.
+        """Initialize the semantic highlight extractor.
 
         :param model_name: HuggingFace model name
         :param device: Device to run on (auto-detects if None)
@@ -334,20 +330,19 @@ class SemanticHighlightExtractor(SpanExtractor):
 
         logger.info("Loading semantic highlight model: %s...", model_name)
         self.model = AutoModel.from_pretrained(
-            model_name, trust_remote_code=True, max_length=max_tokens
+            model_name, trust_remote_code=True, max_length=max_tokens,
         )
         self.tokenizer = self.model.tokenizer
         self.max_tokens = max_tokens
 
-    def extract_spans(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
-        """
-        Extract relevant spans from search results.
+    def extract_spans(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:
+        """Extract relevant spans from search results.
 
         :param question: The query or question
         :param search_results: List of search results (objects with .text attribute)
         :return: Dictionary mapping result text to list of relevant spans
         """
-        relevant_spans: Dict[str, List[str]] = {}
+        relevant_spans: dict[str, list[str]] = {}
         for result in search_results:
             context = getattr(result, "text", "")
             if not context.strip():
@@ -366,7 +361,7 @@ class SemanticHighlightExtractor(SpanExtractor):
 
         return relevant_spans
 
-    def _extract_sentences(self, question: str, context: str) -> List[str]:
+    def _extract_sentences(self, question: str, context: str) -> list[str]:
         """Extract complete sentences using the model's built-in processing."""
         result = self.model.process(
             question=question,
@@ -379,7 +374,7 @@ class SemanticHighlightExtractor(SpanExtractor):
         # Clean up whitespace from sentences
         return [s.strip() for s in sentences if s.strip()]
 
-    def _extract_token_spans(self, question: str, context: str) -> List[str]:
+    def _extract_token_spans(self, question: str, context: str) -> list[str]:
         """Extract spans based on token-level probabilities."""
         import re
 
@@ -405,7 +400,7 @@ class SemanticHighlightExtractor(SpanExtractor):
         # Validate lengths match
         if len(context_probs) != len(offset_mapping):
             logger.warning(
-                "Length mismatch probs=%d tokens=%d", len(context_probs), len(offset_mapping)
+                "Length mismatch probs=%d tokens=%d", len(context_probs), len(offset_mapping),
             )
             min_len = min(len(context_probs), len(offset_mapping))
             context_probs = context_probs[:min_len]
@@ -435,7 +430,7 @@ class SemanticHighlightExtractor(SpanExtractor):
 
         return spans
 
-    def _find_span_regions(self, probs) -> List[tuple]:
+    def _find_span_regions(self, probs) -> list[tuple]:
         """Find contiguous regions of high-probability tokens."""
         above_threshold = probs > self.threshold
 
@@ -484,8 +479,7 @@ class LLMSpanExtractor(SpanExtractor):
         extraction_prompt: str | None = None,
         system_prompt: str | None = None,
     ):
-        """
-        Initialize the LLM span extractor.
+        """Initialize the LLM span extractor.
 
         :param llm_client: LLM client for extraction (creates one if None)
         :param model: The LLM model to use (if creating new client)
@@ -508,7 +502,7 @@ class LLMSpanExtractor(SpanExtractor):
         self.extraction_prompt = extraction_prompt
         self.system_prompt = system_prompt
 
-    def _build_custom_prompt(self, question: str, documents: Dict[str, str]) -> str:
+    def _build_custom_prompt(self, question: str, documents: dict[str, str]) -> str:
         """Build a prompt from the custom extraction_prompt template.
 
         Uses Jinja2 rendering (same as the prompt bank) so custom prompts
@@ -528,9 +522,8 @@ class LLMSpanExtractor(SpanExtractor):
             documents=docs_formatted,
         )
 
-    def extract_spans(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
-        """
-        Extract spans using LLM with mode selection.
+    def extract_spans(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:
+        """Extract spans using LLM with mode selection.
 
         :param question: The query or question
         :param search_results: List of search results to extract from
@@ -546,14 +539,12 @@ class LLMSpanExtractor(SpanExtractor):
 
         if should_batch:
             return self._extract_spans_batch(question, search_results)
-        else:
-            return self._extract_spans_individual(question, search_results)
+        return self._extract_spans_individual(question, search_results)
 
     async def extract_spans_async(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Async version of span extraction.
+        self, question: str, search_results: list[Any],
+    ) -> dict[str, list[str]]:
+        """Async version of span extraction.
 
         :param question: The query or question
         :param search_results: List of search results to extract from
@@ -568,20 +559,18 @@ class LLMSpanExtractor(SpanExtractor):
 
         if should_batch:
             return await self._extract_spans_batch_async(question, search_results)
-        else:
-            return await self._extract_spans_individual_async(question, search_results)
+        return await self._extract_spans_individual_async(question, search_results)
 
     def _extract_spans_batch(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Extract spans from multiple documents using batch processing.
+        self, question: str, search_results: list[Any],
+    ) -> dict[str, list[str]]:
+        """Extract spans from multiple documents using batch processing.
 
         Iterates in chunks of batch_size so all documents are processed.
         """
         logger.info("Extracting spans (batch mode)...")
 
-        all_verified: Dict[str, List[str]] = {}
+        all_verified: dict[str, list[str]] = {}
 
         for batch_start in range(0, len(search_results), self.batch_size):
             batch = search_results[batch_start : batch_start + self.batch_size]
@@ -596,7 +585,7 @@ class LLMSpanExtractor(SpanExtractor):
                     # Custom prompt path
                     prompt = self._build_custom_prompt(question, documents_text)
                     response = self.llm_client.complete(
-                        prompt, json_mode=True, system_prompt=self.system_prompt
+                        prompt, json_mode=True, system_prompt=self.system_prompt,
                     )
                     extracted_data = json.loads(response)
                 else:
@@ -628,12 +617,12 @@ class LLMSpanExtractor(SpanExtractor):
                             single_docs = {"doc_0": result_text}
                             prompt = self._build_custom_prompt(question, single_docs)
                             response = self.llm_client.complete(
-                                prompt, json_mode=True, system_prompt=self.system_prompt
+                                prompt, json_mode=True, system_prompt=self.system_prompt,
                             )
                             extracted = json.loads(response).get("doc_0", [])
                         else:
                             extracted = self.llm_client.extract_relevant_spans(
-                                question, result_text
+                                question, result_text,
                             )
                         all_verified[result_text] = self._verify_spans(extracted, result_text)
                     except Exception as inner_e:
@@ -643,16 +632,15 @@ class LLMSpanExtractor(SpanExtractor):
         return all_verified
 
     async def _extract_spans_batch_async(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Async batch extraction.
+        self, question: str, search_results: list[Any],
+    ) -> dict[str, list[str]]:
+        """Async batch extraction.
 
         Iterates in chunks of batch_size so all documents are processed.
         """
         logger.info("Extracting spans (async batch mode)...")
 
-        all_verified: Dict[str, List[str]] = {}
+        all_verified: dict[str, list[str]] = {}
 
         for batch_start in range(0, len(search_results), self.batch_size):
             batch = search_results[batch_start : batch_start + self.batch_size]
@@ -665,12 +653,12 @@ class LLMSpanExtractor(SpanExtractor):
                 if self.extraction_prompt:
                     prompt = self._build_custom_prompt(question, documents_text)
                     response = await self.llm_client.complete_async(
-                        prompt, json_mode=True, system_prompt=self.system_prompt
+                        prompt, json_mode=True, system_prompt=self.system_prompt,
                     )
                     extracted_data = json.loads(response)
                 else:
                     extracted_data = await self.llm_client.extract_spans_async(
-                        question, documents_text
+                        question, documents_text,
                     )
 
                 for i, result in enumerate(batch):
@@ -696,12 +684,12 @@ class LLMSpanExtractor(SpanExtractor):
                             single_docs = {"doc_0": result_text}
                             prompt = self._build_custom_prompt(question, single_docs)
                             response = await self.llm_client.complete_async(
-                                prompt, json_mode=True, system_prompt=self.system_prompt
+                                prompt, json_mode=True, system_prompt=self.system_prompt,
                             )
                             extracted = json.loads(response).get("doc_0", [])
                         else:
                             extracted = await self.llm_client.extract_relevant_spans_async(
-                                question, result_text
+                                question, result_text,
                             )
                         all_verified[result_text] = self._verify_spans(extracted, result_text)
                     except Exception as inner_e:
@@ -711,10 +699,9 @@ class LLMSpanExtractor(SpanExtractor):
         return all_verified
 
     def _extract_spans_individual(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Extract spans from documents individually (one at a time).
+        self, question: str, search_results: list[Any],
+    ) -> dict[str, list[str]]:
+        """Extract spans from documents individually (one at a time).
 
         :param question: The query or question
         :param search_results: List of search results to process
@@ -730,7 +717,7 @@ class LLMSpanExtractor(SpanExtractor):
                     single_docs = {"doc_0": result_text}
                     prompt = self._build_custom_prompt(question, single_docs)
                     response = self.llm_client.complete(
-                        prompt, json_mode=True, system_prompt=self.system_prompt
+                        prompt, json_mode=True, system_prompt=self.system_prompt,
                     )
                     extracted_spans = json.loads(response).get("doc_0", [])
                 else:
@@ -744,28 +731,27 @@ class LLMSpanExtractor(SpanExtractor):
         return all_spans
 
     async def _extract_spans_individual_async(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Async individual extraction using concurrent asyncio.gather.
+        self, question: str, search_results: list[Any],
+    ) -> dict[str, list[str]]:
+        """Async individual extraction using concurrent asyncio.gather.
         """
         import asyncio
 
         logger.info("Extracting spans (async individual mode)...")
 
-        async def _extract_one(result: Any) -> tuple[str, List[str]]:
+        async def _extract_one(result: Any) -> tuple[str, list[str]]:
             result_text = getattr(result, "text", "")
             try:
                 if self.extraction_prompt:
                     single_docs = {"doc_0": result_text}
                     prompt = self._build_custom_prompt(question, single_docs)
                     response = await self.llm_client.complete_async(
-                        prompt, json_mode=True, system_prompt=self.system_prompt
+                        prompt, json_mode=True, system_prompt=self.system_prompt,
                     )
                     extracted = json.loads(response).get("doc_0", [])
                 else:
                     extracted = await self.llm_client.extract_relevant_spans_async(
-                        question, result_text
+                        question, result_text,
                     )
                 return result_text, self._verify_spans(extracted, result_text)
             except Exception as e:
@@ -775,9 +761,8 @@ class LLMSpanExtractor(SpanExtractor):
         results = await asyncio.gather(*[_extract_one(r) for r in search_results])
         return dict(results)
 
-    def _verify_spans(self, spans: List[str], document_text: str) -> List[str]:
-        """
-        Verify that extracted spans actually exist in the document text.
+    def _verify_spans(self, spans: list[str], document_text: str) -> list[str]:
+        """Verify that extracted spans actually exist in the document text.
 
         When span_match_mode is "fuzzy", uses rapidfuzz to locate spans that
         may not match exactly (e.g. due to encoding issues, OCR artifacts,
@@ -800,9 +785,8 @@ class LLMSpanExtractor(SpanExtractor):
                 logger.warning("Span not found verbatim in document: '%s...'", span[:100])
         return verified
 
-    def _verify_spans_fuzzy(self, spans: List[str], document_text: str) -> List[str]:
-        """
-        Verify spans using fuzzy matching against the document text.
+    def _verify_spans_fuzzy(self, spans: list[str], document_text: str) -> list[str]:
+        """Verify spans using fuzzy matching against the document text.
 
         Returns the actual matched text from the document (not the LLM's
         version), so that downstream highlight offsets are always correct.
@@ -836,8 +820,7 @@ class LLMSpanExtractor(SpanExtractor):
 
     @classmethod
     def _find_fuzzy_span_match(cls, span: str, document_text: str) -> tuple[float, str]:
-        """
-        Locate a fuzzy span in the document and return document text on token boundaries.
+        """Locate a fuzzy span in the document and return document text on token boundaries.
 
         RapidFuzz alignment offsets are character-level and can land in the
         middle of words. Matching normalized token text keeps OCR/punctuation
@@ -861,9 +844,9 @@ class LLMSpanExtractor(SpanExtractor):
 
     @staticmethod
     def _normalize_for_fuzzy_span_match(text: str) -> _NormalizedTokenText:
-        parts: List[str] = []
-        original_token_offsets: List[tuple[int, int]] = []
-        normalized_token_offsets: List[tuple[int, int]] = []
+        parts: list[str] = []
+        original_token_offsets: list[tuple[int, int]] = []
+        normalized_token_offsets: list[tuple[int, int]] = []
         normalized_pos = 0
 
         for match in _FUZZY_TOKEN_RE.finditer(text):
