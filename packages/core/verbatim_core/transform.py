@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from verbatim_core.models import QueryResponse
-    from verbatim_core.providers import RAGProvider
 
 
 class _ResultView:
@@ -156,29 +155,3 @@ class VerbatimTransform:
             relevant_spans=relevant_spans,
             display_span_count=len(display_spans),
         )
-
-
-def verbatim_query(
-    provider: RAGProvider,
-    question: str,
-    k: int = 5,
-    filter: str | None = None,
-    answer: str | None = None,
-) -> QueryResponse:
-    """Retrieve context from a provider and transform it."""
-    context = provider.retrieve(question, k=k, filter=filter)
-    vt = VerbatimTransform()
-    return vt.transform(question=question, context=context, answer=answer)
-
-
-async def verbatim_query_async(
-    provider: RAGProvider,
-    question: str,
-    k: int = 5,
-    filter: str | None = None,
-    answer: str | None = None,
-) -> QueryResponse:
-    """Retrieve context from a provider and transform it asynchronously."""
-    context = await provider.retrieve_async(question, k=k, filter=filter)
-    vt = VerbatimTransform()
-    return await vt.transform_async(question=question, context=context, answer=answer)
