@@ -95,7 +95,7 @@ class QADataset(Dataset):
         samples: list[QASample],
         tokenizer: AutoTokenizer,
         max_length: int = 4096,
-    ):
+    ) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
 
@@ -209,7 +209,7 @@ class QADataset(Dataset):
         if len(input_ids) > max_length:
             # Find the last complete sentence that fits
             last_valid_idx = 0
-            for i, (start, end) in enumerate(sentence_boundaries):
+            for i, (_start, end) in enumerate(sentence_boundaries):
                 if end < max_length:
                     last_valid_idx = i
                 else:
@@ -258,8 +258,7 @@ class QADataset(Dataset):
         """
         question, doc = self.samples[index]
 
-        encoding = self.encode_question_and_sentences_with_offsets(
+        return self.encode_question_and_sentences_with_offsets(
             question, doc.sentences, self.tokenizer, self.max_length,
         )
 
-        return encoding

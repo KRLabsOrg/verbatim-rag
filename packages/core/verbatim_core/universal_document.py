@@ -24,10 +24,12 @@ class UniversalDocument:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UniversalDocument:
         if not isinstance(data, dict):
-            raise TypeError("UniversalDocument.from_dict expects a dict")
+            msg = "UniversalDocument.from_dict expects a dict"
+            raise TypeError(msg)
         content = data.get("content") or data.get("text")
         if not isinstance(content, str) or not content:
-            raise ValueError("UniversalDocument requires 'content' (or 'text') as non-empty string")
+            msg = "UniversalDocument requires 'content' (or 'text') as non-empty string"
+            raise ValueError(msg)
         return cls(
             content=content,
             title=data.get("title", ""),

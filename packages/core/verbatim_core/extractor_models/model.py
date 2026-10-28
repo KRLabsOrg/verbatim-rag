@@ -10,8 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class QAModel(PreTrainedModel):
-    """Model for QA span extraction using sentence classification.
-    """
+    """Model for QA span extraction using sentence classification."""
 
     config_class = AutoConfig
     base_model_prefix = "bert"
@@ -22,7 +21,7 @@ class QAModel(PreTrainedModel):
         model_name: str = "answerdotai/ModernBERT-base",
         hidden_dim: int = 768,
         num_labels: int = 2,
-    ):
+    ) -> None:
         """Initialize the QA model.
 
         :param config: HuggingFace config object (takes precedence if provided)

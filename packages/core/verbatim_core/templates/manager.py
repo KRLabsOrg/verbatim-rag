@@ -4,17 +4,21 @@ Provides a unified interface for managing different template strategies,
 including mode selection, persistence, and processing workflows.
 """
 
+import contextlib
 import json
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..llm_client import LLMClient
-from .base import TemplateStrategy
+from verbatim_core.llm_client import LLMClient
+
 from .contextual import ContextualTemplate
 from .question_specific import QuestionSpecificTemplate
 from .random import RandomTemplate
 from .static import StaticTemplate
 from .structured import StructuredTemplate
+
+if TYPE_CHECKING:
+    from .base import TemplateStrategy
 
 
 class TemplateManager:
@@ -30,7 +34,7 @@ class TemplateManager:
         llm_client: LLMClient | None = None,
         default_mode: str = "static",
         rag_system=None,
-    ):
+    ) -> None:
         """Initialize template manager.
 
         :param llm_client: Optional LLM client for contextual and random modes
@@ -60,7 +64,6 @@ class TemplateManager:
             self.current_mode = "static"
 
         if self.strategies[self.current_mode] is None:
-            print(f"Warning: {self.current_mode} mode requires LLM client, falling back to static")
             self.current_mode = "static"
 
     def set_mode(self, mode: str) -> bool:
@@ -70,11 +73,9 @@ class TemplateManager:
         :return: True if mode was switched successfully
         """
         if mode not in self.strategies:
-            print(f"Unknown template mode: {mode}")
             return False
 
         if self.strategies[mode] is None:
-            print(f"Mode {mode} is not available (requires LLM client)")
             return False
 
         self.current_mode = mode
@@ -153,7 +154,7 @@ class TemplateManager:
         return [span["text"] for span in display_spans + citation_spans], len(citation_spans)
 
     def get_template(
-        self, question: str = "", spans: list[str] = None, citation_count: int = 0,
+        self, question: str = "", spans: list[str] | None = None, citation_count: int = 0,
     ) -> str:
         """Generate a template without filling it.
 
@@ -207,7 +208,6 @@ class TemplateManager:
         :return: True if loaded successfully
         """
         if not os.path.exists(filepath):
-            print(f"Template config file not found: {filepath}")
             return False
 
         try:
@@ -224,15 +224,12 @@ class TemplateManager:
             strategies_data = data.get("strategies", {})
             for mode, state in strategies_data.items():
                 if mode in self.strategies and self.strategies[mode] is not None:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.strategies[mode].load_state(state)
-                    except Exception as e:
-                        print(f"Warning: Failed to load state for {mode} strategy: {e}")
 
             return True
 
-        except Exception as e:
-            print(f"Failed to load template config: {e}")
+        except Exception:
             return False
 
     def info(self) -> dict[str, Any]:
@@ -256,7 +253,7 @@ class TemplateManager:
 
     # Convenience methods for specific modes
 
-    def use_static_mode(self, template: str = None) -> None:
+    def use_static_mode(self, template: str | None = None) -> None:
         """Switch to static mode with optional custom template.
 
         :param template: Optional custom template
@@ -286,7 +283,6 @@ class TemplateManager:
         :return: True if switched successfully
         """
         if not self.llm_client:
-            print("Contextual mode requires LLM client")
             return False
 
         if self.strategies["contextual"] is None:
@@ -303,7 +299,7 @@ class TemplateManager:
 
         return self.set_mode("contextual")
 
-    def use_random_mode(self, templates: list[str] = None) -> bool:
+    def use_random_mode(self, templates: list[str] | None = None) -> bool:
         """Switch to random mode with optional template pool.
 
         :param templates: Optional list of templates
@@ -322,7 +318,6 @@ class TemplateManager:
         :return: True if generation was attempted
         """
         if self.current_mode != "random":
-            print("Must be in random mode to generate templates")
             return False
 
         random_strategy = self.strategies["random"]
@@ -330,8 +325,8 @@ class TemplateManager:
             try:
                 random_strategy.generate_diverse_templates(count)
                 return True
-            except Exception as e:
-                print(f"Template generation failed: {e}")
+            except Exception:
+                pass
 
         return False
 
@@ -358,10 +353,10 @@ class TemplateManager:
 
     def use_structured_mode(
         self,
-        template: str = None,
+        template: str | None = None,
         placeholder_mappings: dict[str, str] | None = None,
     ) -> bool:
-        """Switch to structured mode with semantic placeholders.
+        r"""Switch to structured mode with semantic placeholders.
 
         :param template: Template with semantic placeholders like [METHODOLOGY], [RESULTS]
         :param placeholder_mappings: Custom placeholder → query mappings
@@ -424,10 +419,12 @@ class TemplateManager:
         if not self.use_structured_mode(
             template=template, placeholder_mappings=placeholder_mappings,
         ):
-            raise ValueError("Structured mode unavailable")
+            msg = "Structured mode unavailable"
+            raise ValueError(msg)
 
         if not self.rag_system:
-            raise ValueError("RAG system not set")
+            msg = "RAG system not set"
+            raise ValueError(msg)
 
         # Delegate to RAG query which handles structured mode
         response = await self.rag_system.query_async(question)
@@ -437,7 +434,8 @@ class TemplateManager:
         """Configure how citations are rendered inside filled templates ("inline" or "hidden")."""
         allowed = {"inline", "hidden"}
         if mode not in allowed:
-            raise ValueError(f"Unsupported citation mode: {mode}")
+            msg = f"Unsupported citation mode: {mode}"
+            raise ValueError(msg)
 
         self.citation_mode = mode
 

@@ -13,7 +13,7 @@ from typing import Any
 class TemplateFiller:
     ALLOWED_MODES = {"inline", "hidden"}
 
-    def __init__(self, citation_mode: str = "inline", citation_format: str = "[{number}]"):
+    def __init__(self, citation_mode: str = "inline", citation_format: str = "[{number}]") -> None:
         """:param citation_mode: "inline" to embed markers in text, "hidden" for plain text.
         :param citation_format: str.format template for citation markers.
             Available variables: {number} (sequential integer), {span_id} (span's own id,
@@ -27,9 +27,12 @@ class TemplateFiller:
 
     def set_citation_mode(self, citation_mode: str) -> None:
         if citation_mode not in self.ALLOWED_MODES:
-            raise ValueError(
+            msg = (
                 f"Unsupported citation mode: {citation_mode}. "
-                f"Allowed values: {sorted(self.ALLOWED_MODES)}",
+                f"Allowed values: {sorted(self.ALLOWED_MODES)}"
+            )
+            raise ValueError(
+                msg,
             )
         self.citation_mode = citation_mode
 

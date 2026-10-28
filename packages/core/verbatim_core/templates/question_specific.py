@@ -50,7 +50,7 @@ Based on the available documents:
         model_name: str = "all-MiniLM-L6-v2",
         device: str = "cpu",
         citation_mode: str = "inline",
-    ):
+    ) -> None:
         """Initialize question-specific template strategy.
 
         :param templates: List of template definitions, each with 'template' and 'examples' keys
@@ -81,13 +81,16 @@ Based on the available documents:
                 self._embedder = SentenceTransformer(self.model_name, device=self.device)
                 logger.info(f"Loaded embedding model: {self.model_name}")
             except ImportError:
-                raise ImportError(
+                msg = (
                     "sentence-transformers required for question-specific templates. "
-                    "Install with: pip install sentence-transformers",
+                    "Install with: pip install sentence-transformers"
+                )
+                raise ImportError(
+                    msg,
                 )
         return self._embedder
 
-    def _validate_and_embed_templates(self):
+    def _validate_and_embed_templates(self) -> None:
         """Validate template format and precompute example embeddings."""
         if not self.templates:
             return
@@ -100,9 +103,11 @@ Based on the available documents:
 
         for idx, config in enumerate(self.templates):
             if "template" not in config:
-                raise ValueError(f"Template config {idx} missing 'template' key")
+                msg = f"Template config {idx} missing 'template' key"
+                raise ValueError(msg)
             if "examples" not in config or not config["examples"]:
-                raise ValueError(f"Template config {idx} missing or empty 'examples'")
+                msg = f"Template config {idx} missing or empty 'examples'"
+                raise ValueError(msg)
 
             # Validate template has required placeholders
             self.validate_template(config["template"])
@@ -172,7 +177,7 @@ Based on the available documents:
         :param citation_count: Number of citation spans (not used for matching)
         :return: Best matching template or default template
         """
-        template_idx, similarity = self._find_best_match(question)
+        template_idx, _similarity = self._find_best_match(question)
 
         if template_idx >= 0 and template_idx < len(self.templates):
             return self.templates[template_idx]["template"]
@@ -234,7 +239,8 @@ Based on the available documents:
         """
         self.validate_template(template)
         if not examples:
-            raise ValueError("At least one example question is required")
+            msg = "At least one example question is required"
+            raise ValueError(msg)
 
         self.templates.append({"template": template, "examples": examples})
 
@@ -250,7 +256,8 @@ Based on the available documents:
         :raises IndexError: If index is out of range
         """
         if index < 0 or index >= len(self.templates):
-            raise IndexError(f"Template index {index} out of range [0, {len(self.templates) - 1}]")
+            msg = f"Template index {index} out of range [0, {len(self.templates) - 1}]"
+            raise IndexError(msg)
 
         self.templates.pop(index)
         self._example_embeddings = None

@@ -70,6 +70,9 @@ all = [
     "verbatim-rag[dev,docs]",
 ]
 
+[tool.uv.sources]
+verbatim-core = { path = "packages/core", editable = true }
+
 [project.urls]
 "Homepage" = "https://github.com/krlabsorg/verbatim-rag"
 "Bug Tracker" = "https://github.com/krlabsorg/verbatim-rag/issues"

@@ -44,7 +44,8 @@ def load_prompt(name: str, **kwargs) -> str:
     """
     path = PROMPTS_DIR / f"{name}.txt"
     if not path.exists():
-        raise FileNotFoundError(f"Prompt not found: {name} (looked in {path})")
+        msg = f"Prompt not found: {name} (looked in {path})"
+        raise FileNotFoundError(msg)
     if kwargs:
         template = _env.get_template(f"{name}.txt")
         return template.render(**kwargs)

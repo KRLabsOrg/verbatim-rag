@@ -30,7 +30,7 @@ class ContextualTemplate(TemplateStrategy):
         preserve_span_newlines: bool = False,
         template_prompt: str | None = None,
         system_prompt: str | None = None,
-    ):
+    ) -> None:
         """:param llm_client: LLM client for template generation.
         :param use_per_fact: Whether to prefer per-span placeholders (≤8 spans).
         :param citation_mode: "inline" or "hidden".
@@ -94,8 +94,7 @@ class ContextualTemplate(TemplateStrategy):
             self._cache_template(cache_key, template)
             return template
 
-        except Exception as e:
-            print(f"Contextual template generation failed: {e}")
+        except Exception:
             return self._get_fallback_template(citation_count > 0)
 
     async def generate_async(self, question: str, spans: list[str], citation_count: int = 0) -> str:
@@ -122,8 +121,7 @@ class ContextualTemplate(TemplateStrategy):
             self._cache_template(cache_key, template)
             return template
 
-        except Exception as e:
-            print(f"Async contextual template generation failed: {e}")
+        except Exception:
             return self._get_fallback_template(citation_count > 0)
 
     def fill(
@@ -154,10 +152,7 @@ class ContextualTemplate(TemplateStrategy):
         if "preserve_span_newlines" in state:
             self.preserve_span_newlines = state["preserve_span_newlines"]
         if "model" in state or "temperature" in state:
-            print(
-                f"Note: LLM client config in saved state (model: {state.get('model')}, "
-                f"temp: {state.get('temperature')}) - client must be updated separately",
-            )
+            pass
 
     def set_per_fact_mode(self, use_per_fact: bool) -> None:
         self.use_per_fact = use_per_fact

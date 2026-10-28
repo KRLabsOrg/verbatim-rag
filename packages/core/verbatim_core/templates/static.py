@@ -29,10 +29,10 @@ The following is an unordered list of verbatim excerpts from the source document
 
     def __init__(
         self,
-        template: str = None,
+        template: str | None = None,
         citation_mode: str = "inline",
         citation_format: str = "[{number}]",
-    ):
+    ) -> None:
         """Initialize static template strategy.
 
         :param template: Custom template string (uses default if None)
@@ -108,7 +108,7 @@ The following is an unordered list of verbatim excerpts from the source document
         return self.template
 
     @classmethod
-    def create_simple(cls, intro: str = None, outro: str = None) -> "StaticTemplate":
+    def create_simple(cls, intro: str | None = None, outro: str | None = None) -> "StaticTemplate":
         """Create a simple static template with custom intro/outro.
 
         :param intro: Optional introduction text

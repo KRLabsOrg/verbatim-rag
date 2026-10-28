@@ -86,7 +86,7 @@ class ModelSpanExtractor(SpanExtractor):
         merge_gap_chars: int = 20,
         max_length: int = 8192,
         doc_stride: int = 256,
-    ):
+    ) -> None:
         """:param model_path: Path or HuggingFace id. Defaults to v2 generic.
         :param device: ``"cuda"`` / ``"mps"`` / ``"cpu"`` or None to auto-detect.
         :param threshold: Probability cutoff. Default 0.2 matches v2's
@@ -221,7 +221,7 @@ class ModelSpanExtractor(SpanExtractor):
                     sp["text"] for sp in out.get("spans", []) if sp.get("text", "").strip()
                 ]
             except Exception as exc:
-                logger.error("Highlighter extraction failed: %s", exc)
+                logger.exception("Highlighter extraction failed: %s", exc)
                 relevant[context] = []
         return relevant
 
@@ -302,7 +302,7 @@ class SemanticHighlightExtractor(SpanExtractor):
         min_span_tokens: int = 3,
         merge_gap: int = 2,
         max_tokens: int = 4096,
-    ):
+    ) -> None:
         """Initialize the semantic highlight extractor.
 
         :param model_name: HuggingFace model name
@@ -318,7 +318,8 @@ class SemanticHighlightExtractor(SpanExtractor):
         from transformers import AutoModel
 
         if output_mode not in ("sentences", "spans"):
-            raise ValueError(f"output_mode must be 'sentences' or 'spans', got {output_mode!r}")
+            msg = f"output_mode must be 'sentences' or 'spans', got {output_mode!r}"
+            raise ValueError(msg)
 
         self.threshold = threshold
         self.output_mode = output_mode
@@ -356,7 +357,7 @@ class SemanticHighlightExtractor(SpanExtractor):
                     spans = self._extract_token_spans(question, context)
                 relevant_spans[context] = spans
             except Exception as e:
-                logger.error("Semantic highlight extraction failed: %s", e)
+                logger.exception("Semantic highlight extraction failed: %s", e)
                 relevant_spans[context] = []
 
         return relevant_spans
@@ -478,7 +479,7 @@ class LLMSpanExtractor(SpanExtractor):
         fuzzy_threshold: float = 0.8,
         extraction_prompt: str | None = None,
         system_prompt: str | None = None,
-    ):
+    ) -> None:
         """Initialize the LLM span extractor.
 
         :param llm_client: LLM client for extraction (creates one if None)
@@ -492,7 +493,8 @@ class LLMSpanExtractor(SpanExtractor):
         :param system_prompt: Optional system prompt to use with custom extraction_prompt
         """
         if span_match_mode not in ("exact", "fuzzy"):
-            raise ValueError(f"span_match_mode must be 'exact' or 'fuzzy', got {span_match_mode!r}")
+            msg = f"span_match_mode must be 'exact' or 'fuzzy', got {span_match_mode!r}"
+            raise ValueError(msg)
         self.llm_client = llm_client or LLMClient(model)
         self.extraction_mode = extraction_mode
         self.max_display_spans = max_display_spans
@@ -626,7 +628,7 @@ class LLMSpanExtractor(SpanExtractor):
                             )
                         all_verified[result_text] = self._verify_spans(extracted, result_text)
                     except Exception as inner_e:
-                        logger.error("Individual fallback extraction failed: %s", inner_e)
+                        logger.exception("Individual fallback extraction failed: %s", inner_e)
                         all_verified[result_text] = []
 
         return all_verified
@@ -693,7 +695,7 @@ class LLMSpanExtractor(SpanExtractor):
                             )
                         all_verified[result_text] = self._verify_spans(extracted, result_text)
                     except Exception as inner_e:
-                        logger.error("Async individual fallback extraction failed: %s", inner_e)
+                        logger.exception("Async individual fallback extraction failed: %s", inner_e)
                         all_verified[result_text] = []
 
         return all_verified
@@ -725,7 +727,7 @@ class LLMSpanExtractor(SpanExtractor):
                 verified = self._verify_spans(extracted_spans, result_text)
                 all_spans[result_text] = verified
             except Exception as e:
-                logger.error("Individual extraction failed for document: %s", e)
+                logger.exception("Individual extraction failed for document: %s", e)
                 all_spans[result_text] = []
 
         return all_spans
@@ -733,8 +735,7 @@ class LLMSpanExtractor(SpanExtractor):
     async def _extract_spans_individual_async(
         self, question: str, search_results: list[Any],
     ) -> dict[str, list[str]]:
-        """Async individual extraction using concurrent asyncio.gather.
-        """
+        """Async individual extraction using concurrent asyncio.gather."""
         import asyncio
 
         logger.info("Extracting spans (async individual mode)...")
@@ -755,7 +756,7 @@ class LLMSpanExtractor(SpanExtractor):
                     )
                 return result_text, self._verify_spans(extracted, result_text)
             except Exception as e:
-                logger.error("Async individual extraction failed for document: %s", e)
+                logger.exception("Async individual extraction failed for document: %s", e)
                 return result_text, []
 
         results = await asyncio.gather(*[_extract_one(r) for r in search_results])

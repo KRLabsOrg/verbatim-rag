@@ -61,10 +61,10 @@ The relevant information from the documents includes:
 
     def __init__(
         self,
-        templates: list[str] = None,
+        templates: list[str] | None = None,
         llm_client: LLMClient | None = None,
         citation_mode: str = "inline",
-    ):
+    ) -> None:
         """Initialize random template strategy.
 
         :param templates: Optional list of templates (uses defaults if None)
@@ -129,8 +129,7 @@ The relevant information from the documents includes:
             for template in self.templates:
                 try:
                     self.validate_template(template)
-                except ValueError as e:
-                    print(f"Warning: Invalid template removed during load: {e}")
+                except ValueError:
                     self.templates.remove(template)
 
     def add_template(self, template: str) -> None:
@@ -172,7 +171,8 @@ The relevant information from the documents includes:
         :raises ValueError: If no LLM client is available
         """
         if not self.llm_client:
-            raise ValueError("LLM client required for template generation")
+            msg = "LLM client required for template generation"
+            raise ValueError(msg)
 
         prompt = f"""Create {count} diverse answer templates for a Q&A system using **Markdown formatting**. Each should:
 
@@ -206,10 +206,8 @@ Return only the templates, one per line. No numbering or explanations."""
                 except ValueError:
                     continue  # Skip invalid templates
 
-            print(f"Generated and added {added_count} new templates to the pool")
 
-        except Exception as e:
-            print(f"Template generation failed: {e}")
+        except Exception:
             # Add some fallback templates if generation fails
             fallback_templates = [
                 "Here's what the documents reveal:\n\n[DISPLAY_SPANS]",
