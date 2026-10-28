@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 try:
     import openai
 except ImportError:
-    raise ImportError("OpenAI package required: pip install openai")
+    msg = "OpenAI package required: pip install openai"
+    raise ImportError(msg)
 
 
 class LLMClient:
@@ -29,7 +30,7 @@ class LLMClient:
         temperature: float = 0.7,
         api_base: str = "https://api.openai.com/v1",
         api_key: str | None = None,
-    ):
+    ) -> None:
         """Initialize the LLM client.
 
         :param model: The OpenAI model to use
@@ -74,7 +75,8 @@ class LLMClient:
 
         response = self.client.chat.completions.create(**kwargs)
         if not response.choices or response.choices[0].message is None:
-            raise ValueError("LLM returned empty or filtered response")
+            msg = "LLM returned empty or filtered response"
+            raise ValueError(msg)
         return response.choices[0].message.content
 
     async def complete_async(
@@ -107,7 +109,8 @@ class LLMClient:
 
         response = await self.async_client.chat.completions.create(**kwargs)
         if not response.choices or response.choices[0].message is None:
-            raise ValueError("LLM returned empty or filtered response")
+            msg = "LLM returned empty or filtered response"
+            raise ValueError(msg)
         return response.choices[0].message.content
 
     def extract_spans(self, question: str, documents: dict[str, str]) -> dict[str, list[str]]:
@@ -284,7 +287,7 @@ class LLMClient:
         try:
             return self.complete(prompt, temperature=self.temperature, system_prompt=system_prompt)
         except Exception as e:
-            logger.error("Template generation failed: %s", e)
+            logger.exception("Template generation failed: %s", e)
             return self._fallback_template(citation_count > 0)
 
     async def generate_template_async(
@@ -298,8 +301,7 @@ class LLMClient:
         template_prompt: str | None = None,
         system_prompt: str | None = None,
     ) -> str:
-        """Async template generation. See generate_template for parameter docs.
-        """
+        """Async template generation. See generate_template for parameter docs."""
         if use_per_fact and len(spans) <= 8:
             prompt = self._build_per_fact_template_prompt(
                 question,
@@ -324,7 +326,7 @@ class LLMClient:
                 prompt, temperature=self.temperature, system_prompt=system_prompt,
             )
         except Exception as e:
-            logger.error("Async template generation failed: %s", e)
+            logger.exception("Async template generation failed: %s", e)
             return self._fallback_template(citation_count > 0)
 
     def _build_extraction_prompt(self, question: str, documents: dict[str, str]) -> str:
@@ -358,12 +360,12 @@ class LLMClient:
             span_lines.append(f"{i}. {text}{suffix}")
         spans_block = "\n".join(span_lines)
 
-        ctx = dict(
-            question=question,
-            n_spans=len(spans),
-            spans_block=spans_block,
-            citation_count=citation_count,
-        )
+        ctx = {
+            "question": question,
+            "n_spans": len(spans),
+            "spans_block": spans_block,
+            "citation_count": citation_count,
+        }
         if template_prompt is not None:
             return render_prompt(template_prompt, **ctx)
         return load_prompt("template/per_fact", **ctx)
@@ -386,12 +388,12 @@ class LLMClient:
             preview_spans.append(text[:preview_chars] + "...")
         span_preview = " | ".join(preview_spans)
 
-        ctx = dict(
-            question=question,
-            n_spans=len(spans),
-            span_preview=span_preview,
-            citation_count=citation_count,
-        )
+        ctx = {
+            "question": question,
+            "n_spans": len(spans),
+            "span_preview": span_preview,
+            "citation_count": citation_count,
+        }
         if template_prompt is not None:
             return render_prompt(template_prompt, **ctx)
         return load_prompt("template/aggregate", **ctx)

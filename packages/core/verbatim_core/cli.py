@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
-from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .transform import VerbatimTransform
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def _iter_records(fp) -> Iterable[dict[str, Any]]:
     """Yield JSON objects from a file path or stdin. Supports JSONL or JSON array."""
     try:
         data = fp.read()
-    except Exception as e:
-        print(f"Error reading input: {e}", file=sys.stderr)
+    except Exception:
         return
     data = (data or "").strip()
     if not data:
@@ -25,19 +27,15 @@ def _iter_records(fp) -> Iterable[dict[str, Any]]:
             line = line.strip()
             if not line:
                 continue
-            try:
+            with contextlib.suppress(Exception):
                 yield json.loads(line)
-            except Exception as e:
-                print(f"Skipping malformed JSONL line: {e}", file=sys.stderr)
     else:
         try:
             obj = json.loads(data)
-        except Exception as e:
-            print(f"Malformed JSON input: {e}", file=sys.stderr)
+        except Exception:
             return
         if isinstance(obj, list):
-            for item in obj:
-                yield item
+            yield from obj
         else:
             yield obj
 

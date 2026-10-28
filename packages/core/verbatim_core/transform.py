@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # Reuse existing components from verbatim_rag without importing vector/index types
 from .extractors import LLMSpanExtractor, SpanExtractor
 from .llm_client import LLMClient
-from .providers import RAGProvider
 from .response_builder import ResponseBuilder
 from .templates import TemplateManager
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from .providers import RAGProvider
 
 
 class _ResultView:
@@ -20,7 +23,7 @@ class _ResultView:
         metadata: dict[str, Any] | None = None,
         rid: str = "ctx",
         score: float = 1.0,
-    ):
+    ) -> None:
         self.id = rid
         self.text = text
         self.metadata = metadata or {}
@@ -39,10 +42,12 @@ def _coerce_context_to_results(
             results.append(_ResultView(text=text, metadata=meta, rid=f"ctx_{i}"))
             continue
         if not isinstance(item, dict):
-            raise TypeError("Each context item must be a dict with 'content' (or 'text').")
+            msg = "Each context item must be a dict with 'content' (or 'text')."
+            raise TypeError(msg)
         text = item.get("content") or item.get("text")
         if not text or not isinstance(text, str):
-            raise ValueError("Context item missing 'content' (or 'text') string field.")
+            msg = "Context item missing 'content' (or 'text') string field."
+            raise ValueError(msg)
         meta = {
             "title": item.get("title", ""),
             "source": item.get("source", ""),
@@ -67,7 +72,7 @@ class VerbatimTransform:
         fuzzy_threshold: float = 0.8,
         extraction_prompt: str | None = None,
         system_prompt: str | None = None,
-    ):
+    ) -> None:
         self.llm_client = llm_client or LLMClient()
         self.extractor = extractor or LLMSpanExtractor(
             llm_client=self.llm_client,

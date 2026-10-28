@@ -63,7 +63,8 @@ class TemplateStrategy(ABC):
         :raises ValueError: If template is invalid
         """
         if not template or not template.strip():
-            raise ValueError("Template cannot be empty")
+            msg = "Template cannot be empty"
+            raise ValueError(msg)
 
         # Check for at least one acceptable placeholder
         acceptable_placeholders = [
@@ -75,7 +76,10 @@ class TemplateStrategy(ABC):
 
         has_placeholder = any(placeholder in template for placeholder in acceptable_placeholders)
         if not has_placeholder:
-            raise ValueError(
+            msg = (
                 "Template must contain at least one of: "
-                "[RELEVANT_SENTENCES], [DISPLAY_SPANS], or [SPAN_1]",
+                "[RELEVANT_SENTENCES], [DISPLAY_SPANS], or [SPAN_1]"
+            )
+            raise ValueError(
+                msg,
             )

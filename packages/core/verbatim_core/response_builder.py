@@ -23,7 +23,7 @@ class ResponseBuilder:
     object with proper document highlighting and citation tracking.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the response builder."""
 
     def build_response(
@@ -32,7 +32,7 @@ class ResponseBuilder:
         answer: str,
         search_results: list[Any],
         relevant_spans: dict[str, list[str]],
-        display_span_count: int = None,
+        display_span_count: int | None = None,
     ) -> QueryResponse:
         """Build a complete QueryResponse from components.
 
@@ -138,11 +138,7 @@ class ResponseBuilder:
         :param regions: Set of existing (start, end) tuples
         :return: True if there's overlap, False otherwise
         """
-        for region_start, region_end in regions:
-            # Check for overlap: new region starts before old ends and ends after old starts
-            if start < region_end and end > region_start:
-                return True
-        return False
+        return any(start < region_end and end > region_start for region_start, region_end in regions)
 
     def clean_answer(self, answer: str) -> str:
         """Clean up generated answer text.

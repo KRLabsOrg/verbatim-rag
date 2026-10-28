@@ -48,7 +48,6 @@ def create_sample(
     doc_idx = 0
 
     if sample["documents_sentences"] is None:
-        print("No documents_sentences found for sample", sample["id"])
         return None
 
     for document in sample["documents_sentences"]:
@@ -74,8 +73,8 @@ def create_sample(
     )
 
 
-def main(input_dir: str, output_dir: Path, dataset_name: str | None = None):
-    """Main function to load the RAGBench data and save it
+def main(input_dir: str, output_dir: Path, dataset_name: str | None = None) -> None:
+    """Main function to load the RAGBench data and save it.
 
     :param input_dir: Path to the Hugging Face dataset
     :param output_dir: Path to save the RAGBench data
@@ -88,7 +87,6 @@ def main(input_dir: str, output_dir: Path, dataset_name: str | None = None):
         dataset = {dataset_name: dataset[dataset_name]}
 
     for dataset_name in dataset:
-        print(f"Processing {dataset_name}...")
         for split in ["train", "test", "validation"]:
             data_split = dataset[dataset_name][split]
             split = "dev" if split == "validation" else split

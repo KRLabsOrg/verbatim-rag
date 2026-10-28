@@ -69,8 +69,7 @@ def verbatim_enhance(
             context_dicts = _to_context_dicts(context)
 
             vt = VerbatimTransform(max_display_spans=max_display_spans)
-            resp = vt.transform(question=question or "", context=context_dicts, answer=answer)
-            return resp
+            return vt.transform(question=question or "", context=context_dicts, answer=answer)
 
         return wrapper
 

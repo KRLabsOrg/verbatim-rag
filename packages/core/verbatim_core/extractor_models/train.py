@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def set_seed(seed):
+def set_seed(seed) -> None:
     """Set random seed for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
@@ -31,7 +31,7 @@ def set_seed(seed):
         torch.cuda.manual_seed_all(seed)
 
 
-def train(args):
+def train(args) -> None:
     set_seed(args.seed)
 
     if args.cpu_only:
@@ -59,7 +59,7 @@ def train(args):
             data_json = json.loads(data_text)
             logger.info("Successfully parsed JSON data")
         except json.JSONDecodeError as e:
-            logger.error(f"Error parsing JSON: {e}")
+            logger.exception(f"Error parsing JSON: {e}")
             return
 
         qa_data = QAData.from_json(data_json)
@@ -107,7 +107,7 @@ def train(args):
                     logger.info(f"Dev dataset item keys: {sample_item.keys()}")
                     logger.info(f"Dev dataset input_ids shape: {sample_item['input_ids'].shape}")
                 except Exception as e:
-                    logger.error(f"Error accessing dev dataset: {e}")
+                    logger.exception(f"Error accessing dev dataset: {e}")
 
         # Create datasets
         logger.info(f"Creating train dataset with max_length={args.max_seq_length}")
@@ -124,7 +124,7 @@ def train(args):
                     f"Train dataset has {len(sample_item['sentence_boundaries'])} sentence boundaries",
                 )
             except Exception as e:
-                logger.error(f"Error accessing train dataset: {e}")
+                logger.exception(f"Error accessing train dataset: {e}")
 
         if test_samples:
             logger.info(f"Creating test dataset with max_length={args.max_seq_length}")
@@ -215,7 +215,7 @@ def train(args):
         raise
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
 
     # Data arguments

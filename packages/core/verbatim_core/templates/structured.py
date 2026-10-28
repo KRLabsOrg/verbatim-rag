@@ -55,7 +55,7 @@ class StructuredTemplate(TemplateStrategy):
         template: str | None = None,
         placeholder_mappings: dict[str, str] | None = None,
         citation_mode: str = "inline",
-    ):
+    ) -> None:
         self.rag_system = rag_system
         self.template = template
         self.custom_mappings = placeholder_mappings or {}
@@ -71,7 +71,8 @@ class StructuredTemplate(TemplateStrategy):
 
     def validate_template(self, template: str) -> None:
         if not template or not template.strip():
-            raise ValueError("Template cannot be empty")
+            msg = "Template cannot be empty"
+            raise ValueError(msg)
 
         has_semantic = bool(self.PLACEHOLDER_PATTERN.search(template))
         has_standard = any(
@@ -80,9 +81,12 @@ class StructuredTemplate(TemplateStrategy):
         )
 
         if not (has_semantic or has_standard):
-            raise ValueError(
+            msg = (
                 "Structured templates must contain semantic placeholders like "
-                "[METHODOLOGY] or standard placeholders such as [DISPLAY_SPANS]",
+                "[METHODOLOGY] or standard placeholders such as [DISPLAY_SPANS]"
+            )
+            raise ValueError(
+                msg,
             )
 
     def add_placeholder_mapping(self, placeholder: str, hint: str) -> None:
@@ -123,7 +127,8 @@ class StructuredTemplate(TemplateStrategy):
     # ---------------------------------------------------------------- TemplateStrategy interface
     def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
         if not self.template:
-            raise ValueError("Structured template not set")
+            msg = "Structured template not set"
+            raise ValueError(msg)
         return self.template
 
     def fill(
@@ -159,7 +164,8 @@ class StructuredTemplate(TemplateStrategy):
         :return: Filled template
         """
         if not self.template:
-            raise ValueError("Template not set")
+            msg = "Template not set"
+            raise ValueError(msg)
 
         result = self.template
 
@@ -247,7 +253,8 @@ class StructuredTemplate(TemplateStrategy):
         when in structured mode. This method is kept for backwards compatibility.
         """
         if not self.rag_system:
-            raise ValueError("RAG system not set")
+            msg = "RAG system not set"
+            raise ValueError(msg)
 
         if template:
             self.set_template(template)

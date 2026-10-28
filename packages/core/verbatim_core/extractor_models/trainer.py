@@ -1,7 +1,6 @@
 import json
 import logging
 import time
-from datetime import timedelta
 from pathlib import Path
 
 import torch
@@ -71,7 +70,7 @@ def qa_collate_fn(batch: list[dict]) -> dict:
             sentence_offset_mappings.append(item["sentence_offset_mappings"])
             labels_list.append(item["labels"])
         except Exception as e:
-            logger.error(f"Error processing item in collate_fn: {e}")
+            logger.exception(f"Error processing item in collate_fn: {e}")
             # Skip this item or add placeholder
             # Add an empty placeholder to keep batch size consistent
             input_ids_list.append(torch.tensor([0], dtype=torch.long))
@@ -100,7 +99,7 @@ def qa_collate_fn(batch: list[dict]) -> dict:
             "labels": labels_list,  # list of length batch_size (each is a 1D Tensor)
         }
     except Exception as e:
-        logger.error(f"Error padding sequences in collate_fn: {e}")
+        logger.exception(f"Error padding sequences in collate_fn: {e}")
         return {
             "input_ids": torch.zeros((len(input_ids_list), 1), dtype=torch.long),
             "attention_mask": torch.zeros((len(attention_mask_list), 1), dtype=torch.long),
@@ -122,7 +121,7 @@ class Trainer:
         lr: float = 2e-5,
         epochs: int = 3,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
-        output_dir: str = None,
+        output_dir: str | None = None,
     ) -> None:
         """Simple trainer class for training a model on a dataset.
 
@@ -243,17 +242,17 @@ class Trainer:
 
                 except RuntimeError as e:
                     if "out of memory" in str(e).lower():
-                        logger.error(f"CUDA out of memory error: {e}")
+                        logger.exception(f"CUDA out of memory error: {e}")
                         torch.cuda.empty_cache()
                         continue
-                    logger.error(f"Runtime error in training loop: {e}")
+                    logger.exception(f"Runtime error in training loop: {e}")
                     raise
                 except Exception as e:
-                    logger.error(f"Error processing batch: {e}")
+                    logger.exception(f"Error processing batch: {e}")
                     continue
 
         except Exception as e:
-            logger.error(f"Error during training: {e}")
+            logger.exception(f"Error during training: {e}")
             if step_count == 0:
                 # If we haven't successfully completed any steps, re-raise the error
                 raise
@@ -271,33 +270,20 @@ class Trainer:
         """
         start_time = time.time()
 
-        print(f"\nStarting training on {self.device}")
-        print(f"Training samples: {len(self.train_dataloader.dataset)}")
         if self.dev_dataloader:
-            print(f"Validation samples: {len(self.dev_dataloader.dataset)}")
+            pass
 
         for epoch in range(self.epochs):
             self.current_epoch = epoch + 1  # Update current epoch
             epoch_start = time.time()
-            print(f"\nEpoch {self.current_epoch}/{self.epochs}")
 
             # Train for one epoch
-            train_loss = self._train_one_epoch()
+            self._train_one_epoch()
 
-            epoch_time = time.time() - epoch_start
-            print(
-                f"Epoch {self.current_epoch} completed in {timedelta(seconds=int(epoch_time))}. Average loss: {train_loss:.4f}",
-            )
+            time.time() - epoch_start
 
             if self.dev_dataloader is not None:
-                print("\nEvaluating...")
                 metrics = self._evaluate(self.dev_dataloader)
-                print("Validation metrics:")
-                print(f"  Loss:      {metrics['loss']:.4f}")
-                print(f"  Precision: {metrics['precision']:.4f}")
-                print(f"  Recall:    {metrics['recall']:.4f}")
-                print(f"  F1 Score:  {metrics['f1']:.4f}")
-                print(f"  Accuracy:  {metrics['accuracy']:.4f}")
 
                 # Save metrics to a JSON file
                 if self.output_dir:
@@ -326,26 +312,16 @@ class Trainer:
                     with open(best_metrics_path, "w") as f:
                         json.dump(metrics_data, f, indent=2)
 
-                    print(f"New best model saved with F1: {self.best_f1:.4f}")
-            else:
-                print("No validation data provided, skipping evaluation.")
 
-                # If no validation data, save the latest model after each epoch
-                if self.output_dir:
-                    model_path = self.output_dir
-                    self.save_model(model_path)
-                    print(f"Model saved after epoch {self.current_epoch}")
+            # If no validation data, save the latest model after each epoch
+            elif self.output_dir:
+                model_path = self.output_dir
+                self.save_model(model_path)
 
         # Final training summary
         total_time = time.time() - start_time
-        hours, remainder = divmod(int(total_time), 3600)
-        minutes, seconds = divmod(remainder, 60)
-        print(f"\nTraining completed in {hours:02}:{minutes:02}:{seconds:02}")
-        print(
-            f"Best validation F1: {self.best_f1:.4f}"
-            if self.best_f1 > 0
-            else "No validation performed",
-        )
+        _hours, remainder = divmod(int(total_time), 3600)
+        _minutes, _seconds = divmod(remainder, 60)
 
         return self.best_f1
 
@@ -417,10 +393,10 @@ class Trainer:
                             # Update progress bar with loss
                             progress_bar.set_postfix({"loss": f"{batch_loss.item():.4f}"})
                     except Exception as e:
-                        logger.error(f"Error evaluating batch: {e}")
+                        logger.exception(f"Error evaluating batch: {e}")
                         continue
         except Exception as e:
-            logger.error(f"Error during evaluation: {e}")
+            logger.exception(f"Error during evaluation: {e}")
             # If we have no results, still try to return partial metrics
 
         # Calculate metrics
@@ -454,7 +430,7 @@ class Trainer:
                 metrics["f1"] = 0.0
                 metrics["accuracy"] = 0.0
         except Exception as e:
-            logger.error(f"Error calculating metrics: {e}")
+            logger.exception(f"Error calculating metrics: {e}")
             metrics["precision"] = 0.0
             metrics["recall"] = 0.0
             metrics["f1"] = 0.0
@@ -468,7 +444,7 @@ class Trainer:
         :param save_path: Path to save the model to
         :return: None
         """
-        if isinstance(save_path, str) or isinstance(save_path, Path):
+        if isinstance(save_path, (str, Path)):
             save_dir = Path(save_path)
             if save_dir.suffix:
                 save_dir = save_dir.parent
