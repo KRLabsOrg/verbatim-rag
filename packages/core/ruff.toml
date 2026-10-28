@@ -35,6 +35,17 @@ ignore = [
     "ARG002", # unused-method-argument (template interface signatures)
 ]
 
+[lint.per-file-ignores]
+## TODO: Refactor design patterns for template management.
+"verbatim_core/templates/*.py" = [
+    "FBT001", # boolean-type-hint-positional-argument (public API)
+    "FBT002", # boolean-default-value-positional-argument (public API)
+    "PLR0913", # too-many-arguments
+    "PLR0917", # too-many-positional-arguments
+    "PLC0415", # import-outside-top-level (optional/lazy dependencies)
+    "ARG002", # unused-method-argument (template interface signatures)
+]
+
 [lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
