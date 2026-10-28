@@ -8,10 +8,10 @@ This subpackage provides:
 - CLI: `verbatim-enhance` for batch processing JSON(L)
 """
 
-from .enhance import verbatim_enhance
-from .providers import RAGProvider
-from .transform import VerbatimTransform, verbatim_query, verbatim_query_async
-from .universal_document import UniversalDocument
+from verbatim_core.enhance import verbatim_enhance
+from verbatim_core.providers import RAGProvider
+from verbatim_core.transform import VerbatimTransform, verbatim_query, verbatim_query_async
+from verbatim_core.universal_document import UniversalDocument
 
 __all__ = [
     "RAGProvider",

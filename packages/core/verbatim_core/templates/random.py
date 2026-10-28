@@ -8,9 +8,8 @@ import random
 from typing import Any, ClassVar
 
 from verbatim_core.llm_client import LLMClient
-
-from .base import TemplateStrategy
-from .filler import TemplateFiller
+from verbatim_core.templates.base import TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 
 
 class RandomTemplate(TemplateStrategy):

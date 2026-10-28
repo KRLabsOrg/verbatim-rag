@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
 
-from .transform import VerbatimTransform
+from verbatim_core.transform import VerbatimTransform
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

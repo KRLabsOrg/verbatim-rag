@@ -8,9 +8,8 @@ and aggregate placeholders.
 from typing import Any
 
 from verbatim_core.llm_client import LLMClient
-
-from .base import TemplateStrategy
-from .filler import TemplateFiller
+from verbatim_core.templates.base import TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 
 MAX_PER_FACT_SPANS = 8
 

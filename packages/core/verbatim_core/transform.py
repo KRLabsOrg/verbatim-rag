@@ -5,16 +5,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 # Reuse existing components from verbatim_rag without importing vector/index types
-from .extractors import LLMSpanExtractor, SpanExtractor
-from .llm_client import LLMClient
-from .response_builder import ResponseBuilder
-from .templates import TemplateManager
+from verbatim_core.extractors import LLMSpanExtractor, SpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates import TemplateManager
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from .models import QueryResponse
-    from .providers import RAGProvider
+    from verbatim_core.models import QueryResponse
+    from verbatim_core.providers import RAGProvider
 
 
 class _ResultView:

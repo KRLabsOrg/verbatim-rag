@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
 from typing import Any
 
-from .transform import VerbatimTransform
+from verbatim_core.transform import VerbatimTransform
 
 _ANSWER_SOURCES_PAIR_LEN = 2
 
