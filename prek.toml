@@ -10,7 +10,7 @@ repo = "builtin"
 hooks = [
     { id = "trailing-whitespace" },
     { id = "end-of-file-fixer" },
-    { id = "check-added-large-files" },
+    { id = "check-added-large-files", exclude = '(^|/)uv\.lock$' },
     { id = "check-yaml" },
     { id = "check-toml" },
     { id = "check-merge-conflict" }

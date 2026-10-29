@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "verbatim-core"
-version = "0.2.8"
+version = "0.2.9"
 description = "Lightweight verbatim span extraction -- the RAG-agnostic core of verbatim-rag"
 readme = "README.md"
 requires-python = ">=3.10"
