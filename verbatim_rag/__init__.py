@@ -1,6 +1,6 @@
 """Provenance-first RAG with verbatim evidence spans and citations."""
 
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 
 from verbatim_rag.core import VerbatimRAG as VerbatimRAG
 from verbatim_rag.document import Document as Document
