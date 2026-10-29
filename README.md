@@ -69,14 +69,32 @@ pip install -e .
 ### Git hooks (prek)
 
 This repository uses [prek](https://prek.j178.dev/installation/#pypi), a
-fast pre-commit hook runner, to lint and format code (ruff) and keep the
-lock files in sync. The hooks are defined in `prek.toml`.
+fast pre-commit hook runner, to lint and format code (ruff), keep the
+lock files in sync, and run security checks (secret detection, shell script and
+GitHub Actions linting). The hooks are defined in `prek.toml`.
 
 ```bash
 # Install prek, ruff and ty (the ty hook runs the locally installed `ty`)
 uv tool install prek
 uv tool install ruff
 uv tool install ty
+
+# Security tooling: secret detection and GitHub Actions security audit
+uv tool install detect-secrets
+uv tool install zizmor
+
+# GitHub Actions linting and shell script linting (not on PyPI), e.g. with Homebrew
+brew install actionlint shellcheck
+```
+
+On other platforms, see the
+[actionlint installation guide](https://github.com/rhysd/actionlint/blob/main/docs/install.md)
+(e.g. `go install github.com/rhysd/actionlint/cmd/actionlint@latest` or the
+download script) and the
+[shellcheck installation guide](https://github.com/koalaman/shellcheck#installing)
+(e.g. `sudo apt install shellcheck`).
+
+```bash
 
 # Install the git hooks (run before every commit)
 prek install

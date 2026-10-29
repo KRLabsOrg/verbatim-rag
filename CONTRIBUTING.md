@@ -46,14 +46,33 @@ document-processing, and vector-store dependencies.
 
 Install the git hooks with [prek](https://prek.j178.dev/installation/#pypi).
 **Using the pre-commit hook is required for contributions**: it runs ruff,
-file hygiene checks and lock-file sync (`prek.toml`) before every commit, and CI
-runs the same hooks. `api/`, `frontend/` and `docs/` are currently excluded.
+file hygiene checks, lock-file sync and security checks (`prek.toml`) before
+every commit, and CI runs the same hooks. `api/`, `frontend/` and `docs/` are
+currently excluded.
 
 ```bash
 uv tool install prek
 uv tool install ruff   # also used directly for the manual checks below
 uv tool install ty     # the ty hook runs the locally installed `ty`
 
+# Security tooling
+uv tool install detect-secrets   # secret detection (baseline: .secrets.baseline)
+uv tool install zizmor           # GitHub Actions security audit
+brew install actionlint shellcheck   # GitHub Actions and shell script linting
+```
+
+`actionlint` and `shellcheck` are not on PyPI. On other platforms, follow the
+[actionlint installation guide](https://github.com/rhysd/actionlint/blob/main/docs/install.md)
+(e.g. `go install github.com/rhysd/actionlint/cmd/actionlint@latest` or the
+download script) and the
+[shellcheck installation guide](https://github.com/koalaman/shellcheck#installing)
+(e.g. `sudo apt install shellcheck`).
+
+If `detect-secrets` flags a false positive, review it and update the baseline
+with `detect-secrets scan --baseline .secrets.baseline`; never add a real secret
+to the baseline.
+
+```bash
 prek install                         # pre-commit hooks, run before every commit
 prek install --hook-type pre-push    # pytest, package build and pip-audit before push
 ```
