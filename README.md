@@ -73,8 +73,10 @@ fast pre-commit hook runner, to lint and format code (ruff) and keep the
 lock files in sync. The hooks are defined in `prek.toml`.
 
 ```bash
-# Install prek
+# Install prek, ruff and ty (the ty hook runs the locally installed `ty`)
 uv tool install prek
+uv tool install ruff
+uv tool install ty
 
 # Install the git hooks (run before every commit)
 prek install
@@ -88,6 +90,15 @@ To run all hooks manually on every file:
 ```bash
 prek run --all-files
 ```
+
+Keep the hook repository references (`rev`) in `prek.toml` up to date:
+
+```bash
+prek update
+```
+
+Review the resulting `prek.toml` diff, then run `prek run --all-files` before
+committing it.
 
 ## Lightweight Core
 

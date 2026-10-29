@@ -51,6 +51,8 @@ runs the same hooks. `api/`, `frontend/` and `docs/` are currently excluded.
 
 ```bash
 uv tool install prek
+uv tool install ruff   # also used directly for the manual checks below
+uv tool install ty     # the ty hook runs the locally installed `ty`
 
 prek install                         # pre-commit hooks, run before every commit
 prek install --hook-type pre-push    # pytest, package build and pip-audit before push
@@ -61,6 +63,16 @@ Run the hooks manually on all files (this may modify files):
 ```bash
 prek run --all-files
 ```
+
+Keep the hook repository references (`rev`) in `prek.toml` up to date. Update
+them periodically, and whenever you touch the hook configuration:
+
+```bash
+prek update
+```
+
+Review the `prek.toml` diff, run `prek run --all-files`, and include the bump in
+your PR. Keep the locally installed tools current too (`uv tool upgrade --all`).
 
 ## Verification
 

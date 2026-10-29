@@ -2,6 +2,8 @@
 # See https://prek.j178.dev for more information.
 #:schema https://www.schemastore.org/prek.json
 
+# Keep the `rev` references below up to date with `prek update`.
+
 # api/, frontend/, examples/ and docs/ are not covered yet and will be introduced later
 exclude = '^(api|frontend|docs|examples)/'
 
