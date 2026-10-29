@@ -8,6 +8,8 @@ import json
 import logging
 import os
 
+from verbatim_core.prompts import load_prompt, render_prompt
+
 logger = logging.getLogger(__name__)
 
 _MAX_PER_FACT_SPANS = 8
@@ -50,7 +52,7 @@ class LLMClient:
     def complete(
         self,
         prompt: str,
-        json_mode: bool = False,
+        json_mode: bool = False,  # noqa: FBT001, FBT002
         temperature: float | None = None,
         system_prompt: str | None = None,
     ) -> str:
@@ -84,7 +86,7 @@ class LLMClient:
     async def complete_async(
         self,
         prompt: str,
-        json_mode: bool = False,
+        json_mode: bool = False,  # noqa: FBT001, FBT002
         temperature: float | None = None,
         system_prompt: str | None = None,
     ) -> str:
@@ -237,8 +239,6 @@ class LLMClient:
         documents: list[str],
     ) -> str:
         """Build prompt for structured extraction with document attribution."""
-        from verbatim_core.prompts import load_prompt
-
         placeholder_spec = "\n".join(f"- {name}: {hint}" for name, hint in placeholders.items())
         docs_text = "\n\n---\n\n".join(f"[Document {i}]\n{doc}" for i, doc in enumerate(documents))
 
@@ -250,14 +250,14 @@ class LLMClient:
             docs_text=docs_text,
         )
 
-    def generate_template(
+    def generate_template(  # noqa: PLR0913, PLR0917
         self,
         question: str,
         spans: list[str],
         citation_count: int,
-        use_per_fact: bool = True,
+        use_per_fact: bool = True,  # noqa: FBT001, FBT002
         template_preview_chars: int | None = 100,
-        preserve_span_newlines: bool = False,
+        preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002
         template_prompt: str | None = None,
         system_prompt: str | None = None,
     ) -> str:
@@ -302,14 +302,14 @@ class LLMClient:
             logger.exception("Template generation failed")
             return self._fallback_template(citation_count > 0)
 
-    async def generate_template_async(
+    async def generate_template_async(  # noqa: PLR0913, PLR0917
         self,
         question: str,
         spans: list[str],
         citation_count: int,
-        use_per_fact: bool = True,
+        use_per_fact: bool = True,  # noqa: FBT001, FBT002
         template_preview_chars: int | None = 100,
-        preserve_span_newlines: bool = False,
+        preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002
         template_prompt: str | None = None,
         system_prompt: str | None = None,
     ) -> str:
@@ -345,25 +345,21 @@ class LLMClient:
 
     def _build_extraction_prompt(self, question: str, documents: dict[str, str]) -> str:
         """Build the prompt for batch span extraction."""
-        from verbatim_core.prompts import load_prompt
-
         return load_prompt(
             "extraction/default",
             question=question,
             documents=json.dumps(documents, indent=2),
         )
 
-    def _build_per_fact_template_prompt(
+    def _build_per_fact_template_prompt(  # noqa: PLR0913, PLR0917
         self,
         question: str,
         spans: list[str],
         citation_count: int,
         template_preview_chars: int | None = 100,
-        preserve_span_newlines: bool = False,
+        preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002
         template_prompt: str | None = None,
     ) -> str:
-        from verbatim_core.prompts import load_prompt, render_prompt
-
         span_lines = []
         for i, span in enumerate(spans, start=1):
             text = span if preserve_span_newlines else span.replace("\n", " ")
@@ -384,17 +380,15 @@ class LLMClient:
             return render_prompt(template_prompt, **ctx)
         return load_prompt("template/per_fact", **ctx)
 
-    def _build_aggregate_template_prompt(
+    def _build_aggregate_template_prompt(  # noqa: PLR0913, PLR0917
         self,
         question: str,
         spans: list[str],
         citation_count: int,
         template_preview_chars: int | None = 100,
-        preserve_span_newlines: bool = False,
+        preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002
         template_prompt: str | None = None,
     ) -> str:
-        from verbatim_core.prompts import load_prompt, render_prompt
-
         preview_chars = 50 if template_preview_chars is None else min(50, template_preview_chars)
         preview_spans = []
         for span in spans[:3]:
@@ -412,10 +406,8 @@ class LLMClient:
             return render_prompt(template_prompt, **ctx)
         return load_prompt("template/aggregate", **ctx)
 
-    def _fallback_template(self, has_citations: bool = False) -> str:
+    def _fallback_template(self, has_citations: bool = False) -> str:  # noqa: FBT001, FBT002
         """Return a simple fallback template when generation fails."""
-        from verbatim_core.prompts import load_prompt
-
         return load_prompt("template/fallback", has_citations=has_citations)
 
     # Batch span extraction API (for compatibility)
