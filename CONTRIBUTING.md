@@ -42,10 +42,31 @@ The core runtime depends on `openai`, `pydantic`, `rapidfuzz`, and `jinja2`.
 The optional model extra and full RAG package add substantially heavier ML,
 document-processing, and vector-store dependencies.
 
+### Git hooks (prek)
+
+Install the git hooks with [prek](https://prek.j178.dev/installation/#pypi).
+**Using the pre-commit hook is required for contributions**: it runs ruff,
+file hygiene checks and lock-file sync (`prek.toml`) before every commit, and CI
+runs the same hooks. `api/`, `frontend/` and `docs/` are currently excluded.
+
+```bash
+uv tool install prek
+
+prek install                         # pre-commit hooks, run before every commit
+prek install --hook-type pre-push    # pytest, package build and pip-audit before push
+```
+
+Run the hooks manually on all files (this may modify files):
+
+```bash
+prek run --all-files
+```
+
 ## Verification
 
 Run the checks that match the files you changed and list the exact commands in
-your pull request.
+your pull request. The prek hooks cover linting, formatting, tests, packaging
+and dependency auditing; to run the individual commands by hand:
 
 ```bash
 pytest tests/ -v
@@ -69,8 +90,8 @@ npm run build
 ```
 
 CI currently gates the network-free `verbatim-core` tests on Python 3.10–3.12,
-Ruff across the core, full-RAG and API Python sources, dependency auditing for
-the core package, and distribution builds. A green core test matrix does not by
+the prek pre-commit hooks (Ruff and file checks), dependency auditing for the
+core package, and distribution builds. A green core test matrix does not by
 itself validate model downloads, the API, or the frontend; include focused
 tests for those surfaces in the same PR.
 
