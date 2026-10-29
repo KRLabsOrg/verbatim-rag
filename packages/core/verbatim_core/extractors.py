@@ -6,6 +6,7 @@ with a `.text` attribute as search results.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -17,6 +18,7 @@ from typing import Any
 from rapidfuzz.fuzz import partial_ratio_alignment
 
 from verbatim_core.llm_client import LLMClient
+from verbatim_core.prompts import render_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +51,6 @@ class SpanExtractor(ABC):
         search_results: list[Any],
     ) -> dict[str, list[str]]:
         """Default async implementation that delegates to sync version."""
-        import asyncio
-
         return await asyncio.to_thread(self.extract_spans, question, search_results)
 
 
@@ -76,13 +76,13 @@ class ModelSpanExtractor(SpanExtractor):
     _FORMAT_HIGHLIGHTER = "highlighter"
     _FORMAT_QA_MODEL = "qa_model"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         model_path: str = DEFAULT_MODEL,
         device: str | None = None,
         threshold: float = 0.2,
-        extraction_mode: str = "individual",
-        max_display_spans: int = 5,
+        extraction_mode: str = "individual",  # noqa: ARG002
+        max_display_spans: int = 5,  # noqa: ARG002
         # Highlighter-format-only knobs (ignored for the legacy qa_model path):
         min_span_chars: int = 30,
         merge_gap_chars: int = 20,
@@ -104,7 +104,7 @@ class ModelSpanExtractor(SpanExtractor):
         :param max_length: (highlighter only) max tokens per sliding window.
         :param doc_stride: (highlighter only) token overlap between windows.
         """
-        import torch
+        import torch  # noqa: PLC0415
 
         self.model_path = model_path
         self.threshold = threshold
@@ -138,7 +138,7 @@ class ModelSpanExtractor(SpanExtractor):
         via ``trust_remote_code``, else ``"qa_model"`` (legacy).
         """
         try:
-            from transformers import AutoConfig
+            from transformers import AutoConfig  # noqa: PLC0415
 
             config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
             auto_map = getattr(config, "auto_map", None) or {}
@@ -150,7 +150,7 @@ class ModelSpanExtractor(SpanExtractor):
         return ModelSpanExtractor._FORMAT_QA_MODEL
 
     def _init_highlighter(self, model_path: str) -> None:
-        from transformers import AutoModel
+        from transformers import AutoModel  # noqa: PLC0415
 
         self.model = AutoModel.from_pretrained(model_path, trust_remote_code=True)
         self.model.to(self.device)
@@ -158,12 +158,12 @@ class ModelSpanExtractor(SpanExtractor):
         self.tokenizer = None  # the highlighter loads its tokenizer internally
 
     def _init_qa_model(self, model_path: str) -> None:
-        from transformers import AutoTokenizer
+        from transformers import AutoTokenizer  # noqa: PLC0415
 
-        from verbatim_core.extractor_models.dataset import Document as DatasetDocument
-        from verbatim_core.extractor_models.dataset import QADataset, QASample
-        from verbatim_core.extractor_models.dataset import Sentence as DatasetSentence
-        from verbatim_core.extractor_models.model import QAModel
+        from verbatim_core.extractor_models.dataset import Document as DatasetDocument  # noqa: PLC0415
+        from verbatim_core.extractor_models.dataset import QADataset, QASample  # noqa: PLC0415
+        from verbatim_core.extractor_models.dataset import Sentence as DatasetSentence  # noqa: PLC0415
+        from verbatim_core.extractor_models.model import QAModel  # noqa: PLC0415
 
         self.QADataset = QADataset
         self.DatasetSentence = DatasetSentence
@@ -183,8 +183,6 @@ class ModelSpanExtractor(SpanExtractor):
 
     def _split_into_sentences(self, text: str) -> list[str]:
         """Split text into sentences with a simple regex."""
-        import re
-
         sentences = re.split(r"(?<=[.!?])\s+", text)
         return [s.strip() for s in sentences if s.strip()]
 
@@ -288,7 +286,7 @@ class SemanticHighlightExtractor(SpanExtractor):
     model that works out of the box for English and Chinese text.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         model_name: str = "zilliz/semantic-highlight-bilingual-v1",
         device: str | None = None,
@@ -310,8 +308,8 @@ class SemanticHighlightExtractor(SpanExtractor):
         :param merge_gap: Merge spans separated by <= N tokens (spans mode only)
         :param max_tokens: Token limit of the extractor model
         """
-        import torch
-        from transformers import AutoModel
+        import torch  # noqa: PLC0415
+        from transformers import AutoModel  # noqa: PLC0415
 
         if output_mode not in ("sentences", "spans"):
             msg = f"output_mode must be 'sentences' or 'spans', got {output_mode!r}"
@@ -375,8 +373,6 @@ class SemanticHighlightExtractor(SpanExtractor):
 
     def _extract_token_spans(self, question: str, context: str) -> list[str]:
         """Extract spans based on token-level probabilities."""
-        import re
-
         # Get token-level scores
         raw = self.model.get_raw_predictions(question, [context])
         token_probs = raw.pruning_probs
@@ -468,7 +464,7 @@ class SemanticHighlightExtractor(SpanExtractor):
 class LLMSpanExtractor(SpanExtractor):
     """Extract spans using an LLM with centralized client and batch processing."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         llm_client: LLMClient | None = None,
         model: str = "gpt-4o-mini",
@@ -515,8 +511,6 @@ class LLMSpanExtractor(SpanExtractor):
         :param documents: Dictionary mapping doc IDs to document text
         :return: Formatted prompt string
         """
-        from verbatim_core.prompts import render_prompt
-
         docs_formatted = "\n\n".join(f"[{doc_id}]\n{text}" for doc_id, text in documents.items())
         return render_prompt(
             self.extraction_prompt,
@@ -757,8 +751,6 @@ class LLMSpanExtractor(SpanExtractor):
         search_results: list[Any],
     ) -> dict[str, list[str]]:
         """Async individual extraction using concurrent asyncio.gather."""
-        import asyncio
-
         logger.info("Extracting spans (async individual mode)...")
 
         async def _extract_one(result: object) -> tuple[str, list[str]]:
