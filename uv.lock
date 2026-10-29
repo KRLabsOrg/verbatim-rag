@@ -6583,7 +6583,7 @@ provides-extras = ["model"]
 
 [[package]]
 name = "verbatim-rag"
-version = "0.2.8"
+version = "0.2.9"
 source = { editable = "." }
 dependencies = [
     { name = "chonkie" },
