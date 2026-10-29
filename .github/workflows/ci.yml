@@ -7,16 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  lint:
+  prek:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check packages/core/verbatim_core/ verbatim_rag/ api/ tests/
-      - run: ruff format --check packages/core/verbatim_core/ verbatim_rag/ api/ tests/
+      - uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
 
   test:
     runs-on: ubuntu-latest
@@ -32,25 +27,12 @@ jobs:
       - run: pip install -e packages/core/
       - run: pytest tests/ -v
 
-  package-build:
+  prek-pre-push:
+    # package build + twine check and pip-audit; pytest runs in the `test` matrix instead
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
+      - uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
         with:
-          python-version: "3.12"
-      - run: pip install build twine
-      - run: python -m build packages/core
-      - run: python -m build .
-      - run: twine check packages/core/dist/* dist/*
-
-  pip-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pip-audit
-      - run: pip install packages/core/
-      - run: pip-audit
+          extra-args: package-build pip-audit --all-files --stage pre-push
