@@ -1,0 +1,26 @@
+# Type checking is introduced progressively. The baseline records existing
+# diagnostics so new code is checked strictly. Remove it once the refactoring
+# phases are complete and the baseline is empty or fully addressed.
+baseline = "ty-baseline.json"
+
+[environment]
+root = ["./verbatim_rag", "./packages", "./tests", "./examples", "./scripts"]
+python-version = "3.10"
+
+[src]
+# Type checking is narrowed down to the core package (packages/core).
+# Other packages will be added to type checking in later phases.
+include = ["packages/core"]
+
+[rules]
+all = "error"
+# Style or strictness issues, or noise from untyped third-party libraries.
+missing-type-argument = "warn"
+missing-override-decorator = "warn"
+truthiness-test-of-none-union = "warn"  # often intentional
+redundant-condition-strict = "warn"
+unsound-return-statement = "warn"  # mostly Any/Unknown leaking from torch and transformers
+unsupported-base = "warn"  # transformers base type unresolved here
+
+[terminal]
+output-format = "full"
