@@ -5,6 +5,7 @@ search results and constructs a complete QueryResponse with proper highlighting
 and citation numbering.
 """
 
+import re
 from typing import Any
 
 from verbatim_core.models import (
@@ -157,8 +158,6 @@ class ResponseBuilder:
         answer = answer.replace("\\n", "\n")
 
         # Clean up multiple spaces
-        import re
-
         answer = re.sub(r" {2,}", " ", answer)
 
         # Clean up multiple newlines (but preserve paragraph breaks)
