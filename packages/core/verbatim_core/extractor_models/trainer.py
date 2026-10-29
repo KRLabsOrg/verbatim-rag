@@ -12,13 +12,14 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import PreTrainedTokenizerBase
+
 from verbatim_core.extractor_models.dataset import QADataset
 
 # Set up logger
 logger = logging.getLogger(__name__)
 
 
-def qa_collate_fn(batch: list[dict]) -> dict:
+def qa_collate_fn(batch: list[dict]) -> dict:  # noqa: PLR0912
     """Collate a batch of QADataset items into padded tensors.
 
     Batch is a list of N items (N = batch_size), each item is the dict returned by QADataset.__getitem__.
@@ -118,7 +119,7 @@ def qa_collate_fn(batch: list[dict]) -> dict:
 class Trainer:
     """Simple trainer for a sentence-level QA model."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         model: nn.Module,
         train_dataset: QADataset,
@@ -177,7 +178,7 @@ class Trainer:
         self.optimizer = optim.AdamW(self.model.parameters(), lr=self.lr)
         self.model.to(self.device)
 
-    def _train_one_epoch(self) -> float:
+    def _train_one_epoch(self) -> float:  # noqa: PLR0915
         """Train the model for one epoch.
 
         :return: Average loss for the epoch
@@ -334,7 +335,7 @@ class Trainer:
 
         return self.best_f1
 
-    def _evaluate(self, dev_dataloader: DataLoader) -> dict:
+    def _evaluate(self, dev_dataloader: DataLoader) -> dict:  # noqa: PLR0915
         """Evaluate the model on the development dataset.
 
         :return: Dictionary with metrics including loss, precision, recall, f1

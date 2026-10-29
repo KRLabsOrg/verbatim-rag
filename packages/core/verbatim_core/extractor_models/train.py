@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import random
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
+
 from verbatim_core.extractor_models.dataset import QAData, QADataset
 from verbatim_core.extractor_models.model import QAModel
 from verbatim_core.extractor_models.trainer import Trainer, qa_collate_fn
@@ -33,7 +35,7 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def train(args: argparse.Namespace) -> None:
+def train(args: argparse.Namespace) -> None:  # noqa: PLR0912, PLR0915
     """Train the extractor model with the given command-line arguments."""
     set_seed(args.seed)
 
@@ -275,9 +277,6 @@ def main() -> None:
         logging.getLogger().setLevel(logging.DEBUG)
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug mode enabled")
-
-        # Print some system info
-        import sys
 
         logger.debug("Python version: %s", sys.version)
         logger.debug("PyTorch version: %s", torch.__version__)
