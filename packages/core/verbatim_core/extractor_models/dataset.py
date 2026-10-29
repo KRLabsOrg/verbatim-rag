@@ -127,7 +127,7 @@ class QADataset(Dataset):
                     self.samples.append((sample.question, doc))
 
     @classmethod
-    def encode_question_and_sentences_with_offsets(
+    def encode_question_and_sentences_with_offsets(  # noqa: PLR0915
         cls,
         question: str,
         sentences: list[Sentence],

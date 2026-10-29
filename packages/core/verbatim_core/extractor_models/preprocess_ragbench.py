@@ -7,6 +7,7 @@ from typing import Literal
 
 from datasets import load_dataset
 from tqdm import tqdm
+
 from verbatim_core.extractor_models.dataset import Document, QAData, QASample, Sentence
 
 
