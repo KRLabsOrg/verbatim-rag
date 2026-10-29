@@ -1,0 +1,38 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+
+[[repos]]
+repo = "builtin"
+hooks = [
+    { id = "trailing-whitespace" },
+    { id = "end-of-file-fixer" },
+    { id = "check-added-large-files" },
+    { id = "check-yaml" },
+    { id = "check-toml" },
+    { id = "check-merge-conflict" }
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.17.3" # https://github.com/astral-sh/ruff-pre-commit/releases
+hooks = [
+  { id = "ruff-check", args = ["--fix"] },
+  { id = "ruff-format" },
+]
+
+[[repos]]
+repo = "https://github.com/astral-sh/uv-pre-commit"
+rev = "0.13.6" # https://github.com/astral-sh/uv-pre-commit/releases
+hooks = [
+  { id = "uv-lock" },
+  { id = "uv-export" },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "pytest", name = "pytest", language = "system", entry = "uv run --extra dev pytest tests/ -q", pass_filenames = false, types = ["python"], stages = ["pre-push"] },
+  { id = "package-build", name = "package build + twine check", language = "system", entry = "bash -c 'rm -rf dist packages/core/dist && uvx --from build pyproject-build packages/core && uvx --from build pyproject-build . && uvx twine check packages/core/dist/* dist/*'", pass_filenames = false, files = '(^|/)pyproject\.toml$', stages = ["pre-push"] },
+  { id = "pip-audit", name = "pip-audit", language = "system", entry = "uvx pip-audit ./packages/core", pass_filenames = false, files = '(^|/)(pyproject\.toml|uv\.lock)$', stages = ["pre-push"] },
+]
