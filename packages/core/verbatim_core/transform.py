@@ -125,7 +125,7 @@ class VerbatimTransform:
         self,
         question: str,
         context: Iterable[dict[str, Any]],
-        answer: str | None = None, # noqa: ARG002 - factual correctness of answers will be introduced in a later feature
+        answer: str | None = None,  # noqa: ARG002 - factual correctness of answers will be introduced in a later feature
     ) -> QueryResponse:
         """Transform retrieved context into a verbatim response asynchronously."""
         search_results = _coerce_context_to_results(list(context))
