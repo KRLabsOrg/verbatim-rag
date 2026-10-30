@@ -1,5 +1,4 @@
-"""
-Template filling utilities for the Verbatim RAG system.
+"""Template filling utilities for the Verbatim RAG system.
 
 Handles aggregate placeholders ([DISPLAY_SPANS], [RELEVANT_SENTENCES]) and
 per-span placeholders ([SPAN_1], ...). Supports toggling inline citation
@@ -8,14 +7,19 @@ clean text with citations handled separately.
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar
+
+MIN_TABLE_LINES = 2
 
 
 class TemplateFiller:
-    ALLOWED_MODES = {"inline", "hidden"}
+    """Fill template placeholders with spans and citation markers."""
 
-    def __init__(self, citation_mode: str = "inline", citation_format: str = "[{number}]"):
-        """
+    ALLOWED_MODES: ClassVar[set[str]] = {"inline", "hidden"}
+
+    def __init__(self, citation_mode: str = "inline", citation_format: str = "[{number}]") -> None:
+        """Initialize the filler.
+
         :param citation_mode: "inline" to embed markers in text, "hidden" for plain text.
         :param citation_format: str.format template for citation markers.
             Available variables: {number} (sequential integer), {span_id} (span's own id,
@@ -28,14 +32,15 @@ class TemplateFiller:
         self.citation_format = citation_format
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set the citation mode ("inline" or "hidden")."""
         if citation_mode not in self.ALLOWED_MODES:
+            msg = f"Unsupported citation mode: {citation_mode}. Allowed values: {sorted(self.ALLOWED_MODES)}"
             raise ValueError(
-                f"Unsupported citation mode: {citation_mode}. "
-                f"Allowed values: {sorted(self.ALLOWED_MODES)}"
+                msg,
             )
         self.citation_mode = citation_mode
 
-    def _render_marker(self, number: int, span_data: Dict[str, Any]) -> str:
+    def _render_marker(self, number: int, span_data: dict[str, Any]) -> str:
         """Render a citation marker using citation_format.
 
         Provides {number} and {span_id} (falls back to str(number) if absent).
@@ -46,9 +51,10 @@ class TemplateFiller:
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
+        """Fill the template with display and citation spans."""
         if not template:
             return ""
 
@@ -58,9 +64,7 @@ class TemplateFiller:
         citation_refs = ""
         if citation_spans and self.citation_mode == "inline" and not has_linked_citations:
             start_num = len(display_spans) + 1
-            citation_refs = " ".join(
-                self._render_marker(start_num + i, span) for i, span in enumerate(citation_spans)
-            )
+            citation_refs = " ".join(self._render_marker(start_num + i, span) for i, span in enumerate(citation_spans))
 
         fact_pattern = re.compile(r"\[(?:SPAN|FACT)_(\d+)\]")
         if fact_pattern.search(template):
@@ -87,26 +91,28 @@ class TemplateFiller:
     def _fill_per_fact_placeholders(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
-        citation_number_by_id: Dict[str, int],
-        span_id_by_citation_id: Dict[str, str],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
+        citation_number_by_id: dict[str, int],
+        span_id_by_citation_id: dict[str, str],
     ) -> str:
         fact_pattern = re.compile(r"\[(?:SPAN|FACT)_(\d+)\]")
         total_spans = display_spans + citation_spans
 
-        def replace_fact(match):
+        def replace_fact(match: re.Match[str]) -> str:
             idx = int(match.group(1))
             if 1 <= idx <= len(total_spans):
                 if idx <= len(display_spans):
                     span_data = display_spans[idx - 1]
                     return self._format_span(
-                        span_data, idx, citation_number_by_id, span_id_by_citation_id
+                        span_data,
+                        idx,
+                        citation_number_by_id,
+                        span_id_by_citation_id,
                     )
-                else:
-                    if self.citation_mode == "inline":
-                        return self._render_marker(idx, total_spans[idx - 1])
-                    return ""
+                if self.citation_mode == "inline":
+                    return self._render_marker(idx, total_spans[idx - 1])
+                return ""
             return ""
 
         return fact_pattern.sub(replace_fact, template)
@@ -114,24 +120,25 @@ class TemplateFiller:
     def _fill_aggregate_placeholders(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
         citation_refs: str,
-        citation_number_by_id: Dict[str, int],
-        span_id_by_citation_id: Dict[str, str],
+        citation_number_by_id: dict[str, int],
+        span_id_by_citation_id: dict[str, str],
     ) -> str:
         if display_spans:
             formatted = []
             for i, span_data in enumerate(display_spans, 1):
                 block = self._format_span(
-                    span_data, i, citation_number_by_id, span_id_by_citation_id
+                    span_data,
+                    i,
+                    citation_number_by_id,
+                    span_id_by_citation_id,
                 )
                 if block:
                     formatted.append(block)
 
             display_content = (
-                "\n\n".join(formatted)
-                if formatted
-                else "No relevant information found in the provided documents."
+                "\n\n".join(formatted) if formatted else "No relevant information found in the provided documents."
             )
         else:
             display_content = "No relevant information found in the provided documents."
@@ -146,10 +153,10 @@ class TemplateFiller:
 
     def _format_span(
         self,
-        span_data: Dict[str, Any],
+        span_data: dict[str, Any],
         index: int,
-        citation_number_by_id: Dict[str, int],
-        span_id_by_citation_id: Dict[str, str],
+        citation_number_by_id: dict[str, int],
+        span_id_by_citation_id: dict[str, str],
     ) -> str:
         text = span_data.get("text", "")
         cleaned = text.strip()
@@ -157,7 +164,9 @@ class TemplateFiller:
             return ""
 
         linked_refs = self._format_linked_citation_refs(
-            span_data, citation_number_by_id, span_id_by_citation_id
+            span_data,
+            citation_number_by_id,
+            span_id_by_citation_id,
         )
         is_table = self._is_table(cleaned)
         marker = self._render_marker(index, span_data)
@@ -174,16 +183,16 @@ class TemplateFiller:
         return cleaned
 
     @staticmethod
-    def _has_linked_citations(display_spans: List[Dict[str, Any]]) -> bool:
+    def _has_linked_citations(display_spans: list[dict[str, Any]]) -> bool:
         return any(span.get("citation_ids") for span in display_spans)
 
     @staticmethod
     def _build_citation_number_map(
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
-    ) -> Dict[str, int]:
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
+    ) -> dict[str, int]:
         start_num = len(display_spans) + 1
-        citation_number_by_id: Dict[str, int] = {}
+        citation_number_by_id: dict[str, int] = {}
         for offset, citation_span in enumerate(citation_spans):
             citation_id = citation_span.get("citation_id")
             if citation_id:
@@ -192,11 +201,11 @@ class TemplateFiller:
 
     @staticmethod
     def _build_span_id_map(
-        citation_spans: List[Dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
         start_num: int,
-    ) -> Dict[str, str]:
+    ) -> dict[str, str]:
         """Map citation_id → span_id for linked citation refs."""
-        result: Dict[str, str] = {}
+        result: dict[str, str] = {}
         for offset, span in enumerate(citation_spans):
             cid = span.get("citation_id")
             if cid:
@@ -205,9 +214,9 @@ class TemplateFiller:
 
     def _format_linked_citation_refs(
         self,
-        span_data: Dict[str, Any],
-        citation_number_by_id: Dict[str, int],
-        span_id_by_citation_id: Optional[Dict[str, str]] = None,
+        span_data: dict[str, Any],
+        citation_number_by_id: dict[str, int],
+        span_id_by_citation_id: dict[str, str] | None = None,
     ) -> str:
         if self.citation_mode != "inline":
             return ""
@@ -226,11 +235,11 @@ class TemplateFiller:
     @staticmethod
     def _is_table(text: str) -> bool:
         lines = [line for line in text.strip().splitlines() if line.strip()]
-        if len(lines) < 2:
+        if len(lines) < MIN_TABLE_LINES:
             return False
 
         pipe_lines = sum(1 for line in lines if "|" in line)
-        if pipe_lines < 2:
+        if pipe_lines < MIN_TABLE_LINES:
             return False
 
         return pipe_lines >= len(lines) / 2
@@ -238,7 +247,7 @@ class TemplateFiller:
     @staticmethod
     def _is_table_content(text: str) -> bool:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        if len(lines) < 2:
+        if len(lines) < MIN_TABLE_LINES:
             return False
 
         pipe_lines = sum(1 for line in lines if "|" in line)
@@ -247,6 +256,7 @@ class TemplateFiller:
 
     @staticmethod
     def ensure_placeholder(template: str, placeholder: str = "[DISPLAY_SPANS]") -> str:
+        """Append the placeholder to the template when it has no standard placeholder."""
         acceptable = ["[RELEVANT_SENTENCES]", "[DISPLAY_SPANS]", "[SPAN_1]", "[FACT_1]"]
 
         if any(p in template for p in acceptable):

@@ -6,17 +6,21 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  lint:
+  prek:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check packages/core/verbatim_core/ verbatim_rag/ api/ tests/
-      - run: ruff format --check packages/core/verbatim_core/ verbatim_rag/ api/ tests/
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.01
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # the local `ty-check` hook runs the system `ty` binary
+      - run: uv tool install ty
+      # ty resolves imports (torch, transformers, ...) from the project's .venv;
+      # without it every third-party import is reported as unresolved
+      - run: uv sync --extra dev
+      - uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
 
   test:
     runs-on: ubuntu-latest
@@ -24,33 +28,22 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.01
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.01
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install pytest pytest-asyncio
       - run: pip install -e packages/core/
       - run: pytest tests/ -v
 
-  package-build:
+  prek-pre-push:
+    # package build + twine check and pip-audit; pytest runs in the `test` matrix instead
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.01
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # the local `ty-check` hook runs the system `ty` binary
+      - run: uv tool install ty
+      - uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
         with:
-          python-version: "3.12"
-      - run: pip install build twine
-      - run: python -m build packages/core
-      - run: python -m build .
-      - run: twine check packages/core/dist/* dist/*
-
-  pip-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pip-audit
-      - run: pip install packages/core/
-      - run: pip-audit
+          extra-args: package-build pip-audit --all-files --stage pre-push

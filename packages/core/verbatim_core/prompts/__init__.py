@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent
 
-_env = Environment(
+# Prompts are plain-text LLM prompts, not HTML, so autoescaping must stay off.
+_env = Environment(  # noqa: S701  # LLM prompt text, not HTML
     loader=FileSystemLoader(str(PROMPTS_DIR)),
     keep_trailing_newline=True,
     trim_blocks=True,
@@ -24,7 +25,7 @@ _env = Environment(
 )
 
 
-def render_prompt(prompt_template: str, **kwargs) -> str:
+def render_prompt(prompt_template: str, **kwargs: object) -> str:
     """Render a prompt template string with Jinja2.
 
     :param prompt_template: Jinja2 template string
@@ -35,7 +36,7 @@ def render_prompt(prompt_template: str, **kwargs) -> str:
     return template.render(**kwargs)
 
 
-def load_prompt(name: str, **kwargs) -> str:
+def load_prompt(name: str, **kwargs: object) -> str:
     """Load and optionally render a prompt template from the prompt bank.
 
     :param name: Prompt name (e.g. 'extraction/default')
@@ -44,7 +45,8 @@ def load_prompt(name: str, **kwargs) -> str:
     """
     path = PROMPTS_DIR / f"{name}.txt"
     if not path.exists():
-        raise FileNotFoundError(f"Prompt not found: {name} (looked in {path})")
+        msg = f"Prompt not found: {name} (looked in {path})"
+        raise FileNotFoundError(msg)
     if kwargs:
         template = _env.get_template(f"{name}.txt")
         return template.render(**kwargs)

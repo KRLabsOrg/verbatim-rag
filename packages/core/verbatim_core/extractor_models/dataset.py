@@ -1,3 +1,5 @@
+"""Dataset classes and encoding utilities for sentence-level extraction."""
+
 import logging
 from dataclasses import dataclass
 from typing import Literal
@@ -11,11 +13,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Sentence:
+    """A single sentence with its relevance label."""
+
     text: str
     relevant: bool
     sentence_id: str
 
     def to_json(self) -> dict:
+        """Serialize to a JSON-compatible structure."""
         return {
             "text": self.text,
             "relevant": self.relevant,
@@ -24,6 +29,7 @@ class Sentence:
 
     @classmethod
     def from_json(cls, json_dict: dict) -> "Sentence":
+        """Deserialize from a JSON-compatible structure."""
         return cls(
             text=json_dict["text"],
             relevant=json_dict["relevant"],
@@ -33,18 +39,24 @@ class Sentence:
 
 @dataclass
 class Document:
+    """A document made of sentences."""
+
     sentences: list[Sentence]
 
     def to_json(self) -> list[dict]:
+        """Serialize to a JSON-compatible structure."""
         return [sentence.to_json() for sentence in self.sentences]
 
     @classmethod
     def from_json(cls, json_dict: dict) -> "Document":
+        """Deserialize from a JSON-compatible structure."""
         return cls(sentences=[Sentence.from_json(sentence) for sentence in json_dict])
 
 
 @dataclass
 class QASample:
+    """A question with its documents and split metadata."""
+
     question: str
     documents: list[Document]
     split: Literal["train", "dev", "test"]
@@ -52,6 +64,7 @@ class QASample:
     task_type: str
 
     def to_json(self) -> dict:
+        """Serialize to a JSON-compatible structure."""
         return {
             "question": self.question,
             "documents": [document.to_json() for document in self.documents],
@@ -62,6 +75,7 @@ class QASample:
 
     @classmethod
     def from_json(cls, json_dict: dict) -> "QASample":
+        """Deserialize from a JSON-compatible structure."""
         return cls(
             question=json_dict["question"],
             documents=[Document.from_json(document) for document in json_dict["documents"]],
@@ -73,18 +87,23 @@ class QASample:
 
 @dataclass
 class QAData:
+    """A collection of QA samples."""
+
     samples: list[QASample]
 
     def to_json(self) -> dict:
+        """Serialize to a JSON-compatible structure."""
         return [sample.to_json() for sample in self.samples]
 
     @classmethod
     def from_json(cls, json_dict: dict) -> "QAData":
+        """Deserialize from a JSON-compatible structure."""
         return cls(samples=[QASample.from_json(sample) for sample in json_dict])
 
 
 class QADataset(Dataset):
     """Dataset for extracting relevant sentences from a question and a list of documents.
+
     We train a sentence-level binary classifier to predict whether a sentence is relevant to the question.
     We process the whole sample in one class to get context for each sentence, then, each sentence is classified
     independently.
@@ -95,7 +114,8 @@ class QADataset(Dataset):
         samples: list[QASample],
         tokenizer: AutoTokenizer,
         max_length: int = 4096,
-    ):
+    ) -> None:
+        """Initialize the dataset from samples, flattening them into (question, document) pairs."""
         self.tokenizer = tokenizer
         self.max_length = max_length
 
@@ -107,15 +127,15 @@ class QADataset(Dataset):
                     self.samples.append((sample.question, doc))
 
     @classmethod
-    def encode_question_and_sentences_with_offsets(
+    def encode_question_and_sentences_with_offsets(  # noqa: PLR0915
         cls,
         question: str,
         sentences: list[Sentence],
         tokenizer: AutoTokenizer,
         max_length: int = 4096,
     ) -> dict:
-        """
-        Build a single input sequence:
+        """Build a single input sequence.
+
         [CLS] question [SEP] S1 [SEP] S2 [SEP] ... [SEP]
         *and* collect offset mappings so you can retrieve partial text from each sentence.
 
@@ -210,7 +230,7 @@ class QADataset(Dataset):
         if len(input_ids) > max_length:
             # Find the last complete sentence that fits
             last_valid_idx = 0
-            for i, (start, end) in enumerate(sentence_boundaries):
+            for i, (_start, end) in enumerate(sentence_boundaries):
                 if end < max_length:
                     last_valid_idx = i
                 else:
@@ -243,6 +263,7 @@ class QADataset(Dataset):
         }
 
     def __len__(self) -> int:
+        """Return the number of (question, document) pairs."""
         return len(self.samples)
 
     def __getitem__(self, index: int) -> list[dict]:
@@ -259,8 +280,9 @@ class QADataset(Dataset):
         """
         question, doc = self.samples[index]
 
-        encoding = self.encode_question_and_sentences_with_offsets(
-            question, doc.sentences, self.tokenizer, self.max_length
+        return self.encode_question_and_sentences_with_offsets(
+            question,
+            doc.sentences,
+            self.tokenizer,
+            self.max_length,
         )
-
-        return encoding

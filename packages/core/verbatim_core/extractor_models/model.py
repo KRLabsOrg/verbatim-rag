@@ -1,31 +1,31 @@
+"""Sentence-classification model for extractive QA."""
+
 import logging
+import os
 from typing import Any
 
 import torch
-import torch.nn as nn
-from transformers import AutoConfig, AutoModel, PreTrainedModel
+from torch import nn
+from transformers import AutoConfig, AutoModel, PretrainedConfig, PreTrainedModel
 
 # Set up logger
 logger = logging.getLogger(__name__)
 
 
 class QAModel(PreTrainedModel):
-    """
-    Model for QA span extraction using sentence classification.
-    """
+    """Model for QA span extraction using sentence classification."""
 
     config_class = AutoConfig
     base_model_prefix = "bert"
 
     def __init__(
         self,
-        config=None,
+        config: PretrainedConfig | None = None,
         model_name: str = "answerdotai/ModernBERT-base",
         hidden_dim: int = 768,
         num_labels: int = 2,
-    ):
-        """
-        Initialize the QA model.
+    ) -> None:
+        """Initialize the QA model.
 
         :param config: HuggingFace config object (takes precedence if provided)
         :param model_name: Base model name to use
@@ -62,8 +62,7 @@ class QAModel(PreTrainedModel):
         attention_mask: torch.Tensor,
         sentence_boundaries: list[list[tuple[int, int]]],
     ) -> list[torch.Tensor]:
-        """
-        Forward pass of the model.
+        """Forward pass of the model.
 
         :param input_ids: Token IDs
         :param attention_mask: Attention mask
@@ -87,15 +86,14 @@ class QAModel(PreTrainedModel):
             sentence_reprs = []
             for start, end in batch_sentence_boundaries:
                 # If the sentence extends beyond the sequence, adjust the end
-                if end >= sequence_output.size(1):
-                    end = sequence_output.size(1) - 1
+                end_idx = min(end, sequence_output.size(1) - 1)
 
                 # Skip empty or invalid sentences
-                if end < start or start < 0:
+                if end_idx < start or start < 0:
                     continue
 
                 # Get the token embeddings for this sentence
-                sentence_tokens = sequence_output[batch_idx, start : end + 1]
+                sentence_tokens = sequence_output[batch_idx, start : end_idx + 1]
 
                 # Average the token embeddings to get a sentence embedding
                 sentence_repr = torch.mean(sentence_tokens, dim=0)
@@ -124,7 +122,12 @@ class QAModel(PreTrainedModel):
         return self.config.to_dict()
 
     @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs) -> "QAModel":
+    def from_pretrained(
+        cls,
+        pretrained_model_name_or_path: str | os.PathLike,
+        *model_args: Any,  # noqa: ANN401 - mirrors HF signature
+        **kwargs: Any,  # noqa: ANN401 - mirrors HF signature
+    ) -> "QAModel":
         """Load a model from a pretrained model or path.
 
         This overrides the from_pretrained method from PreTrainedModel to handle
@@ -138,8 +141,9 @@ class QAModel(PreTrainedModel):
         # Let HuggingFace handle the downloading, caching, etc.
         return super().from_pretrained(pretrained_model_name_or_path, *model_args, **kwargs)
 
-    def save_pretrained(self, save_directory, **kwargs) -> None:
+    def save_pretrained(self, save_directory: str | os.PathLike, **kwargs: Any) -> None:  # noqa: ANN401
         """Save the model to a directory.
+
         This overrides the save_pretrained method from PreTrainedModel to handle
         our specific model architecture.
 

@@ -1,12 +1,12 @@
-"""
-Response builder for constructing QueryResponse objects with highlights and citations.
+"""Response builder for constructing QueryResponse objects with highlights and citations.
 
 This module provides the ResponseBuilder class which takes extracted spans and
 search results and constructs a complete QueryResponse with proper highlighting
 and citation numbering.
 """
 
-from typing import Any, Dict, List, Set, Tuple
+import re
+from typing import Any
 
 from verbatim_core.models import (
     Citation,
@@ -18,27 +18,24 @@ from verbatim_core.models import (
 
 
 class ResponseBuilder:
-    """
-    Builds structured query responses with highlights and citations.
+    """Builds structured query responses with highlights and citations.
 
     Takes search results and extracted spans and creates a complete QueryResponse
     object with proper document highlighting and citation tracking.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the response builder."""
-        pass
 
     def build_response(
         self,
         question: str,
         answer: str,
-        search_results: List[Any],
-        relevant_spans: Dict[str, List[str]],
-        display_span_count: int = None,
+        search_results: list[Any],
+        relevant_spans: dict[str, list[str]],
+        display_span_count: int | None = None,
     ) -> QueryResponse:
-        """
-        Build a complete QueryResponse from components.
+        """Build a complete QueryResponse from components.
 
         :param question: The original question
         :param answer: The generated answer text
@@ -66,9 +63,7 @@ class ResponseBuilder:
                 # Create citations for each highlight
                 for highlight_index, highlight in enumerate(highlights):
                     # Determine if this should be a display citation or reference-only
-                    is_display = (
-                        display_span_count is None or current_citation_number <= display_span_count
-                    )
+                    is_display = display_span_count is None or current_citation_number <= display_span_count
 
                     all_citations.append(
                         Citation(
@@ -77,7 +72,7 @@ class ResponseBuilder:
                             highlight_index=highlight_index,
                             number=current_citation_number,
                             type="display" if is_display else "reference",
-                        )
+                        ),
                     )
                     current_citation_number += 1
 
@@ -89,7 +84,7 @@ class ResponseBuilder:
                     title=getattr(result, "title", "") or result.metadata.get("title", ""),
                     source=getattr(result, "source", "") or result.metadata.get("source", ""),
                     metadata=getattr(result, "metadata", {}),
-                )
+                ),
             )
 
         # Create structured answer with citations
@@ -102,9 +97,8 @@ class ResponseBuilder:
             documents=documents_with_highlights,
         )
 
-    def _create_highlights(self, doc_content: str, spans: List[str]) -> List[Highlight]:
-        """
-        Create highlight objects for spans in document content.
+    def _create_highlights(self, doc_content: str, spans: list[str]) -> list[Highlight]:
+        """Create highlight objects for spans in document content.
 
         Uses sophisticated overlap detection to avoid conflicting highlights.
 
@@ -112,8 +106,8 @@ class ResponseBuilder:
         :param spans: List of text spans to highlight
         :return: List of Highlight objects
         """
-        highlights: List[Highlight] = []
-        highlighted_regions: Set[Tuple[int, int]] = set()
+        highlights: list[Highlight] = []
+        highlighted_regions: set[tuple[int, int]] = set()
 
         for span in spans:
             # Find all occurrences of this span in the document
@@ -135,24 +129,18 @@ class ResponseBuilder:
 
         return highlights
 
-    def _has_overlap(self, start: int, end: int, regions: Set[Tuple[int, int]]) -> bool:
-        """
-        Check if a text region overlaps with existing highlighted regions.
+    def _has_overlap(self, start: int, end: int, regions: set[tuple[int, int]]) -> bool:
+        """Check if a text region overlaps with existing highlighted regions.
 
         :param start: Start position of new region
         :param end: End position of new region
         :param regions: Set of existing (start, end) tuples
         :return: True if there's overlap, False otherwise
         """
-        for region_start, region_end in regions:
-            # Check for overlap: new region starts before old ends and ends after old starts
-            if start < region_end and end > region_start:
-                return True
-        return False
+        return any(start < region_end and end > region_start for region_start, region_end in regions)
 
     def clean_answer(self, answer: str) -> str:
-        """
-        Clean up generated answer text.
+        """Clean up generated answer text.
 
         Removes common formatting issues and artifacts from LLM generation.
 
@@ -163,17 +151,13 @@ class ResponseBuilder:
             return ""
 
         # Remove surrounding quotes if present
-        if answer.startswith('"') and answer.endswith('"'):
-            answer = answer[1:-1]
-        elif answer.startswith("'") and answer.endswith("'"):
+        if (answer.startswith('"') and answer.endswith('"')) or (answer.startswith("'") and answer.endswith("'")):
             answer = answer[1:-1]
 
         # Convert literal newlines
         answer = answer.replace("\\n", "\n")
 
         # Clean up multiple spaces
-        import re
-
         answer = re.sub(r" {2,}", " ", answer)
 
         # Clean up multiple newlines (but preserve paragraph breaks)

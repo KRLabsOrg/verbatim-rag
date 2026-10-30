@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "verbatim-rag"
-version = "0.2.8"
+version = "0.2.9"
 description = "Provenance-first extractive RAG with verbatim source spans and citations"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,18 +38,18 @@ dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "PyYAML>=6.0",
-    
+
     # Vector storage and search
     "pymilvus>=2.6.3",
     "pymilvus[milvus_lite]",
-    
+
     # Embeddings
     "sentence-transformers>=5.0.0",
 
     # API and web
     "fastapi>=0.100.0",
     "uvicorn>=0.20.0",
-    
+
     # Utilities
     "tqdm>=4.65.0",
     "huggingface_hub>=0.16.0",
@@ -69,6 +69,9 @@ docs = [
 all = [
     "verbatim-rag[dev,docs]",
 ]
+
+[tool.uv.sources]
+verbatim-core = { path = "packages/core", editable = true }
 
 [project.urls]
 "Homepage" = "https://github.com/krlabsorg/verbatim-rag"

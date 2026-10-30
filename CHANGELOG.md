@@ -12,6 +12,16 @@ All notable changes to this project will be documented in this file.
 - `docker/constraints.txt`: a checked-in dependency lock used only by the container image;
   the published ranges in `pyproject.toml` are unchanged. Pins `milvus-lite<3`, whose 3.x
   line rejects the vector-less metadata collection `LocalMilvusStore` creates.
+- [prek](https://prek.j178.dev) git hooks (`prek.toml`): builtin file checks, Ruff
+  check/format and `uv-lock`/`uv-export` run on pre-commit; pytest, package build with
+  `twine check`, and `pip-audit` run on pre-push. `api/`, `frontend/` and `docs/` are excluded
+  for now. Install with `uv tool install prek && prek install` (see `CONTRIBUTING.md`).
+
+### Changed
+- CI now runs the prek hooks (`j178/prek-action`) instead of separate Ruff, package-build and
+  `pip-audit` jobs; the Python 3.10–3.12 test matrix is unchanged.
+- `verbatim-core` lint cleanup (#80): the package has its own `ruff.toml`, imports in
+  `llm_client` moved to module level, and out-of-scope rules are suppressed inline.
 
 ### Fixed
 - `LocalMilvusStore` no longer fails on Milvus Lite 3 and pymilvus 3. Its metadata collection
