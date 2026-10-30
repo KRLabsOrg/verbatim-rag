@@ -92,5 +92,6 @@ repo = "local"
 hooks = [
   { id = "pytest", name = "pytest", language = "system", entry = "uv run --extra dev pytest tests/ -q", pass_filenames = false, types = ["python"], stages = ["pre-push"] },
   { id = "package-build", name = "package build + twine check", language = "system", entry = "bash -c 'rm -rf dist packages/core/dist && uvx --from build pyproject-build packages/core && uvx --from build pyproject-build . && uvx twine check packages/core/dist/* dist/*'", pass_filenames = false, files = '(^|/)pyproject\.toml$', stages = ["pre-push"] },
+  # Note: `uv audit` will become stable soon; migrate from `pip-audit` once it does (https://astral.sh/blog/uv-audit)
   { id = "pip-audit", name = "pip-audit", language = "system", entry = "uvx pip-audit ./packages/core", pass_filenames = false, files = '(^|/)(pyproject\.toml|uv\.lock)$', stages = ["pre-push"] },
 ]
