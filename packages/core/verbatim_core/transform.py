@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from verbatim_core.models import QueryResponse
+    from verbatim_core.providers import RAGProvider
 
 
 class _ResultView:
@@ -62,7 +63,7 @@ def _coerce_context_to_results(
 class VerbatimTransform:
     """RAG-agnostic verbatim transform using existing components (sync/async)."""
 
-    def __init__(  # noqa: PLR0913, PLR0917 - TODO: use a pydantic-settings configuration model instead of using many arguments to define behavior.
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         llm_client: LLMClient | None = None,
         extractor: SpanExtractor | None = None,
@@ -97,7 +98,7 @@ class VerbatimTransform:
         self,
         question: str,
         context: Iterable[dict[str, Any]],
-        answer: str | None = None,  # noqa: ARG002 - factual correctness of answers will be introduced in a later feature.
+        answer: str | None = None,  # Ignored for now  # noqa: ARG002
     ) -> QueryResponse:
         """Transform retrieved context into a verbatim response."""
         search_results = _coerce_context_to_results(list(context))
@@ -125,7 +126,7 @@ class VerbatimTransform:
         self,
         question: str,
         context: Iterable[dict[str, Any]],
-        answer: str | None = None,  # noqa: ARG002 - factual correctness of answers will be introduced in a later feature
+        answer: str | None = None,  # noqa: ARG002
     ) -> QueryResponse:
         """Transform retrieved context into a verbatim response asynchronously."""
         search_results = _coerce_context_to_results(list(context))
@@ -155,3 +156,29 @@ class VerbatimTransform:
             relevant_spans=relevant_spans,
             display_span_count=len(display_spans),
         )
+
+
+def verbatim_query(
+    provider: RAGProvider,
+    question: str,
+    k: int = 5,
+    filter: str | None = None,  # noqa: A002
+    answer: str | None = None,
+) -> QueryResponse:
+    """Retrieve context from a provider and transform it."""
+    context = provider.retrieve(question, k=k, filter=filter)
+    vt = VerbatimTransform()
+    return vt.transform(question=question, context=context, answer=answer)
+
+
+async def verbatim_query_async(
+    provider: RAGProvider,
+    question: str,
+    k: int = 5,
+    filter: str | None = None,  # noqa: A002
+    answer: str | None = None,
+) -> QueryResponse:
+    """Retrieve context from a provider and transform it asynchronously."""
+    context = await provider.retrieve_async(question, k=k, filter=filter)
+    vt = VerbatimTransform()
+    return await vt.transform_async(question=question, context=context, answer=answer)
