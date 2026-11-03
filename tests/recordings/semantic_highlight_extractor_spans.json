@@ -1,0 +1,25 @@
+[
+  {
+    "chunk": "The Harbour Bridge opened in March 1932 after eight years of construction. It carries eight lanes of road traffic and two railway lines. Around 160,000 vehicles cross it each day.",
+    "spans": [
+      "The Harbour Bridge opened in March 1932 after eight years of construction",
+      "Around 160,000 vehicles cross it each day"
+    ]
+  },
+  {
+    "chunk": "Crews repaint the steel arch continuously ; one full coat takes about ten years . The arch rises 134 metres above the water.",
+    "spans": [
+      "The arch rises 134 metres above the water"
+    ]
+  },
+  {
+    "chunk": "Tolls are collected electronically in both directions.",
+    "spans": []
+  },
+  {
+    "chunk": "The bridge was designed by a team led by John Bradfield. Its granite pylons carry no load.",
+    "spans": [
+      "Its granite pylons carry no load"
+    ]
+  }
+]

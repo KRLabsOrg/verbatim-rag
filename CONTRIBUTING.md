@@ -54,6 +54,12 @@ ruff format --check packages/core/verbatim_core/ verbatim_rag/ api/ tests/
 ruff check packages/core/verbatim_core/ verbatim_rag/ api/ tests/
 ```
 
+`tests/test_recorded_outputs.py` compares the output of the public entry points
+with recordings in `tests/recordings/`. If your change alters that output on
+purpose, rewrite the recordings with
+`RECORD_OUTPUTS=1 pytest tests/test_recorded_outputs.py`, with the full
+verbatim-rag package installed, and explain the diff in your pull request.
+
 For packaging changes:
 
 ```bash

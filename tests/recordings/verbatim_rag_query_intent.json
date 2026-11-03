@@ -1,0 +1,9 @@
+{
+  "question": "When did the Harbour Bridge open, and how many vehicles cross it?",
+  "answer": "Hello! Ask me about the Harbour Bridge.",
+  "structured_answer": {
+    "text": "Hello! Ask me about the Harbour Bridge.",
+    "citations": []
+  },
+  "documents": []
+}
