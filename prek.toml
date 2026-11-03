@@ -11,8 +11,8 @@ exclude = '^(frontend|docs)/'
 [[repos]]
 repo = "builtin"
 hooks = [
-    { id = "trailing-whitespace", exclude = '^(packages/core/verbatim_core/prompts/.*\.txt|examples/verbatim_doc_demo\.py)$' },
-    { id = "end-of-file-fixer", exclude = '^packages/core/verbatim_core/prompts/.*\.txt$' },
+    { id = "trailing-whitespace", exclude = '^(packages/core/verbatim_core/prompts/.*\.txt|examples/verbatim_doc_demo\.py|examples/.*/.*\.txt)$' },
+    { id = "end-of-file-fixer", exclude = '^packages/core/verbatim_core/prompts/.*\.txt|examples/.*/.*\.txt$' },
     { id = "check-added-large-files", exclude = '(^|/)uv\.lock$' },
     { id = "check-yaml" },
     { id = "check-toml" },
