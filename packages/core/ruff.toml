@@ -3,6 +3,7 @@ exclude = [
     ".ruff_cache",
     "__pycache__",
     "__pypackages__",
+    "verbatim_core/prompts/**/*.txt",
 ]
 # Allow imports relative to the "verbatim_core" directory.
 src = ["verbatim_core"]
