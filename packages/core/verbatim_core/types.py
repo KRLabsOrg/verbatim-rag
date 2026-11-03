@@ -18,7 +18,7 @@ class HasText(Protocol):
 class Chunk(BaseModel):
     """A piece of source text with an id, the unit spans are extracted from."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
     id: str = Field(min_length=1)
     text: str
@@ -44,7 +44,7 @@ class Span(BaseModel):
     the text is always a chunk, and extractors return an `ExtractedSpan`.
     """
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
     start: int = Field(ge=0)  # inclusive
     end: int  # exclusive
@@ -70,7 +70,7 @@ class Usage(BaseModel):
     """What one model or service did during a call."""
 
     # Older pydantic 2 releases reserve the "model_" prefix for their own methods.
-    model_config = ConfigDict(frozen=True, protected_namespaces=())
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True, protected_namespaces=())
 
     model_id: str | None  # None for work without a model, or with a model the code doesn't name
     model_version: str | None
@@ -80,7 +80,7 @@ class Usage(BaseModel):
 class ResultWarning(BaseModel):
     """Something that made a result less complete without making it wrong."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
     code: str = Field(min_length=1)  # stable snake_case identifier, for example "quote_not_found"
     message: str
@@ -89,7 +89,7 @@ class ResultWarning(BaseModel):
 class Extraction(BaseModel):
     """The spans an extractor found in a set of chunks."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
     spans: list[ExtractedSpan] = Field(default_factory=list)
     usage: list[Usage] = Field(default_factory=list)
@@ -99,7 +99,7 @@ class Extraction(BaseModel):
 class AnswerCitation(BaseModel):
     """A numbered citation in an answer. It points at its span by chunk id and offsets."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
     number: int = Field(ge=1)
     type: Literal["display", "reference"]  # shown in the answer, or cited for reference only
@@ -111,7 +111,7 @@ class AnswerCitation(BaseModel):
 class Answer(BaseModel):
     """A cited answer, written from the spans extracted from a set of chunks."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
     text: str
     citations: list[AnswerCitation] = Field(default_factory=list)

@@ -137,3 +137,28 @@ class TestAnswer:
         )
         assert answer.warnings == []
         assert Answer.model_validate_json(answer.model_dump_json()) == answer
+
+
+# Stands in for customer text. Pydantic shortens long inputs, so the test looks for a fragment.
+MARKER = "zq7-customer-text-zq7"
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: Chunk(id="c1", text=MARKER.encode() + b"\xff"),
+        lambda: Chunk(id="c1", text=MARKER, source_start=5, source_end=1),
+        lambda: Chunk(id="c1", text="x", metadata=[MARKER]),
+        lambda: Span(start=0, end=3, text=MARKER, score=0.5),
+        lambda: ExtractedSpan(chunk_id=[MARKER], start=0, end=1, text="x", score=0.5),
+        lambda: ResultWarning(code="c", message=[MARKER]),
+        lambda: AnswerCitation(number=1, type="display", chunk_id=[MARKER], start=0, end=1),
+        lambda: Answer(text=[MARKER]),
+        lambda: Extraction(spans=[MARKER]),
+    ],
+)
+def test_validation_errors_never_repeat_the_input(build):
+    with pytest.raises(ValidationError) as raised:
+        build()
+
+    assert "zq7" not in str(raised.value)

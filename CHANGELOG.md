@@ -14,7 +14,8 @@ All notable changes to this project will be documented in this file.
   line rejects the vector-less metadata collection `LocalMilvusStore` creates.
 - Groundwork for the stateless core (#89), not yet used by the rest of the library.
   `verbatim_core` exports the result types `Chunk`, `Span`, `ExtractedSpan`, `Usage`,
-  `ResultWarning`, `Extraction`, `AnswerCitation` and `Answer`, and the errors
+  `ResultWarning`, `Extraction`, `AnswerCitation` and `Answer`, whose validation errors leave
+  out the input values so that customer text can't reach logs through them, and the errors
   `VerbatimError`, `InvalidInputError` (also a `ValueError`), `ConfigurationError` and
   `UpstreamError`. Both `verbatim_core` and `verbatim_rag` export `VerbatimDeprecationWarning`.
   verbatim-core now lists `typing_extensions>=4.5.0` as a direct dependency.
