@@ -2,6 +2,8 @@
 
 __version__ = "0.2.8"
 
+from verbatim_core import VerbatimDeprecationWarning as VerbatimDeprecationWarning
+
 from verbatim_rag.core import VerbatimRAG as VerbatimRAG
 from verbatim_rag.document import Document as Document
 from verbatim_rag.extractors import LLMSpanExtractor as LLMSpanExtractor

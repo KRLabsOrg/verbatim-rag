@@ -38,7 +38,8 @@ pip install -e packages/core/
 pip install -e ".[dev]"
 ```
 
-The core runtime depends on `openai`, `pydantic`, `rapidfuzz`, and `jinja2`.
+The core runtime depends on `openai`, `pydantic`, `rapidfuzz`, `jinja2`, and
+`typing_extensions`.
 The optional model extra and full RAG package add substantially heavier ML,
 document-processing, and vector-store dependencies.
 

@@ -28,6 +28,18 @@
 
 ::: verbatim_core.models
 
+## Shared types
+
+::: verbatim_core.types
+
+## Errors
+
+::: verbatim_core.errors
+
+## Deprecation warning
+
+::: verbatim_core._deprecation.VerbatimDeprecationWarning
+
 ## UniversalDocument
 
 ::: verbatim_core.universal_document.UniversalDocument

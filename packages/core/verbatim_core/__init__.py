@@ -9,9 +9,21 @@ This subpackage provides:
 - CLI: `verbatim-enhance` for batch processing JSON(L)
 """
 
+from ._deprecation import VerbatimDeprecationWarning
 from .enhance import verbatim_enhance
+from .errors import ConfigurationError, InvalidInputError, UpstreamError, VerbatimError
 from .providers import RAGProvider
 from .transform import VerbatimTransform, verbatim_query, verbatim_query_async
+from .types import (
+    Answer,
+    AnswerCitation,
+    Chunk,
+    ExtractedSpan,
+    Extraction,
+    ResultWarning,
+    Span,
+    Usage,
+)
 from .universal_document import UniversalDocument
 
 __all__ = [
@@ -21,4 +33,17 @@ __all__ = [
     "RAGProvider",
     "UniversalDocument",
     "verbatim_enhance",
+    "VerbatimError",
+    "InvalidInputError",
+    "ConfigurationError",
+    "UpstreamError",
+    "Chunk",
+    "Span",
+    "ExtractedSpan",
+    "Usage",
+    "ResultWarning",
+    "Extraction",
+    "AnswerCitation",
+    "Answer",
+    "VerbatimDeprecationWarning",
 ]

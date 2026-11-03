@@ -12,6 +12,12 @@ All notable changes to this project will be documented in this file.
 - `docker/constraints.txt`: a checked-in dependency lock used only by the container image;
   the published ranges in `pyproject.toml` are unchanged. Pins `milvus-lite<3`, whose 3.x
   line rejects the vector-less metadata collection `LocalMilvusStore` creates.
+- Groundwork for the stateless core (#89), not yet used by the rest of the library.
+  `verbatim_core` exports the result types `Chunk`, `Span`, `ExtractedSpan`, `Usage`,
+  `ResultWarning`, `Extraction`, `AnswerCitation` and `Answer`, and the errors
+  `VerbatimError`, `InvalidInputError` (also a `ValueError`), `ConfigurationError` and
+  `UpstreamError`. Both `verbatim_core` and `verbatim_rag` export `VerbatimDeprecationWarning`.
+  verbatim-core now lists `typing_extensions>=4.5.0` as a direct dependency.
 
 ### Fixed
 - `LocalMilvusStore` no longer fails on Milvus Lite 3 and pymilvus 3. Its metadata collection
