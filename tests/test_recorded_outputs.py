@@ -191,6 +191,12 @@ class FakeHighlighter:
 
 
 class FakeSemanticHighlighter:
+    def to(self, device):
+        return self
+
+    def eval(self):
+        return self
+
     def tokenizer(self, text, **settings):
         return {"offset_mapping": token_offsets(text)}
 
@@ -266,24 +272,24 @@ class TestLLMSpanExtractor:
 @pytest.mark.usefixtures("fake_model_packages")
 class TestModelExtractors:
     def test_highlighter_extract_spans(self):
-        extractor = ModelSpanExtractor()
-
-        relevant_spans = extractor.extract_spans(QUESTION, search_results())
+        with pytest.warns(VerbatimDeprecationWarning):
+            extractor = ModelSpanExtractor()
+            relevant_spans = extractor.extract_spans(QUESTION, search_results())
 
         assert_recorded("model_span_extractor_highlighter", spans_by_chunk(relevant_spans))
 
     async def test_highlighter_extract_spans_async(self):
-        extractor = ModelSpanExtractor()
-
-        relevant_spans = await extractor.extract_spans_async(QUESTION, search_results())
+        with pytest.warns(VerbatimDeprecationWarning):
+            extractor = ModelSpanExtractor()
+            relevant_spans = await extractor.extract_spans_async(QUESTION, search_results())
 
         assert_recorded("model_span_extractor_highlighter", spans_by_chunk(relevant_spans))
 
     @pytest.mark.parametrize("output_mode", ["sentences", "spans"])
     def test_semantic_highlight_extract_spans(self, output_mode):
-        extractor = SemanticHighlightExtractor(output_mode=output_mode)
-
-        relevant_spans = extractor.extract_spans(QUESTION, search_results())
+        with pytest.warns(VerbatimDeprecationWarning):
+            extractor = SemanticHighlightExtractor(output_mode=output_mode)
+            relevant_spans = extractor.extract_spans(QUESTION, search_results())
 
         assert_recorded(
             f"semantic_highlight_extractor_{output_mode}", spans_by_chunk(relevant_spans)
@@ -291,9 +297,9 @@ class TestModelExtractors:
 
     @pytest.mark.parametrize("output_mode", ["sentences", "spans"])
     async def test_semantic_highlight_extract_spans_async(self, output_mode):
-        extractor = SemanticHighlightExtractor(output_mode=output_mode)
-
-        relevant_spans = await extractor.extract_spans_async(QUESTION, search_results())
+        with pytest.warns(VerbatimDeprecationWarning):
+            extractor = SemanticHighlightExtractor(output_mode=output_mode)
+            relevant_spans = await extractor.extract_spans_async(QUESTION, search_results())
 
         assert_recorded(
             f"semantic_highlight_extractor_{output_mode}", spans_by_chunk(relevant_spans)
