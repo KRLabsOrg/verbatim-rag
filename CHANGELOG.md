@@ -56,6 +56,29 @@ All notable changes to this project will be documented in this file.
   the mean token probability. When a model examines only part of a chunk, the result has a
   warning with the code `chunk_truncated`. `aextract` runs the model in a worker thread.
 - `ModelExtractConfig` and `SemanticHighlightConfig`, the settings of the model extractors (#92).
+- `Transformer(extractor, templates, config=TransformConfig(...))`, which writes a cited answer
+  from a question and chunks, without an index (#93). `transform` and `atransform` return an
+  `Answer`: its text, a citation for each span (its number, whether the answer shows the span or
+  cites it for reference only, and the span's chunk id and offsets), the spans, the usage of the
+  extractor and of the template LLM when one ran, and the warnings. `stream` and `astream` yield a
+  `spans` event once the spans are extracted and an `answer` event with the same `Answer`.
+  `TransformConfig` holds the settings of a call: the number of displayed spans, the template
+  mode, the citation mode and format, and a seed. Nothing is set on the transformer between
+  calls, so one transformer can serve concurrent calls. In random template mode it chooses the
+  template by a hash of the question, combined with the seed, so the same question gets the same
+  template. Structured template mode raises: it stays in `VerbatimRAG`.
+- In a `Transformer` call, a contextual template falls back to the fallback template only when
+  the LLM call fails with an `UpstreamError` or the LLM sends an empty template, and the answer
+  then has the warning `template_fallback`. A rejected API key, model or quota raises
+  `ConfigurationError`. Generated templates are logged only on the `verbatim_core.content`
+  logger. A client that replaces `LLMClient.generate_template` is still called that way (#93).
+- `ResponseBuilder.build_from_answer`, which builds today's `QueryResponse` from an `Answer`. It
+  highlights each cited span at its offsets, without searching for its text, and of two
+  overlapping spans keeps the first. A citation of a chunk it isn't given, or with offsets
+  outside its chunk, raises `InvalidInputError` (#93).
+- `LLMClient.template_completion` and `template_completion_async`, which return the completion
+  of a template prompt and raise when the call fails, and `TemplateStrategy.generate_result`,
+  which returns a template with the usage and warnings of writing it (#93).
 
 ### Changed
 - A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
@@ -106,6 +129,8 @@ All notable changes to this project will be documented in this file.
 - The settings arguments of the model extractors. Pass them in `config=ModelExtractConfig(...)`
   or `config=SemanticHighlightConfig(...)`. The `ModelSpanExtractor` arguments
   `extraction_mode` and `max_display_spans` have no effect (#92).
+- Contextual template mode without an LLM client in a `Transformer` call. It uses the static
+  template and warns. Give the `TemplateManager` an `llm_client` (#93).
 
 ### Fixed
 - `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans

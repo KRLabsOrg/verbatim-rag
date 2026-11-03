@@ -75,10 +75,15 @@ class ExtractorContract:
     ):
         caplog.set_level(logging.DEBUG)
 
-        extractor.extract(question, chunks)
+        extraction = extractor.extract(question, chunks)
         await extractor.aextract(question, chunks)
 
-        customer_texts = [question, *(chunk.text for chunk in chunks)]
+        customer_texts = [
+            question,
+            *(chunk.text for chunk in chunks),
+            *(chunk.id for chunk in chunks),
+            *(span.text for span in extraction.spans),
+        ]
         for record in caplog.records:
             if record.name.endswith(".content"):
                 assert record.levelno == logging.DEBUG

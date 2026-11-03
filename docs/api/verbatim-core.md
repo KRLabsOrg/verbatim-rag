@@ -1,5 +1,13 @@
 # verbatim_core API Reference
 
+## Transformer
+
+::: verbatim_core.transformer.Transformer
+
+## TransformConfig
+
+::: verbatim_core.transformer.TransformConfig
+
 ## VerbatimTransform
 
 ::: verbatim_core.transform.VerbatimTransform

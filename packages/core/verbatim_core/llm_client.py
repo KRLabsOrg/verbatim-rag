@@ -112,6 +112,34 @@ def _translate_error(error: APIError) -> VerbatimError:
     )
 
 
+def client_completion(client, prompt: str, **settings) -> Completion:
+    """The completion of a prompt by a client, also by one written before 0.3.0.
+
+    Such clients replace `LLMClient.complete`, for example to call another provider. They are
+    called that way, and their completion has no model name or token counts.
+    """
+    if _replaces(client, "complete", "completion"):
+        return Completion(text=client.complete(prompt, **settings))
+    return client.completion(prompt, **settings)
+
+
+async def client_completion_async(client, prompt: str, **settings) -> Completion:
+    """Async version of `client_completion`."""
+    if _replaces(client, "complete_async", "completion_async"):
+        return Completion(text=await client.complete_async(prompt, **settings))
+    return await client.completion_async(prompt, **settings)
+
+
+def _replaces(client, old: str, new: str) -> bool:
+    """Whether a client replaces LLMClient's old method but not the new one."""
+    client_class = type(client)
+    if not hasattr(client_class, new):
+        return True
+    if getattr(client_class, new) is not getattr(LLMClient, new):
+        return False
+    return getattr(client_class, old) is not getattr(LLMClient, old)
+
+
 def _retry_after(error: APIStatusError) -> float | None:
     try:
         return float(error.response.headers["retry-after"])
@@ -426,25 +454,15 @@ class LLMClient:
         :param system_prompt: System message for the template-generation call.
         :return: Generated template string
         """
-        if use_per_fact and len(spans) <= 8:
-            prompt = self._build_per_fact_template_prompt(
-                question,
-                spans,
-                citation_count,
-                template_preview_chars,
-                preserve_span_newlines,
-                template_prompt,
-            )
-        else:
-            prompt = self._build_aggregate_template_prompt(
-                question,
-                spans,
-                citation_count,
-                template_preview_chars,
-                preserve_span_newlines,
-                template_prompt,
-            )
-
+        prompt = self._template_prompt(
+            question,
+            spans,
+            citation_count,
+            use_per_fact,
+            template_preview_chars,
+            preserve_span_newlines,
+            template_prompt,
+        )
         try:
             return self.complete(prompt, temperature=self.temperature, system_prompt=system_prompt)
         except Exception as e:
@@ -465,25 +483,15 @@ class LLMClient:
         """
         Async template generation. See generate_template for parameter docs.
         """
-        if use_per_fact and len(spans) <= 8:
-            prompt = self._build_per_fact_template_prompt(
-                question,
-                spans,
-                citation_count,
-                template_preview_chars,
-                preserve_span_newlines,
-                template_prompt,
-            )
-        else:
-            prompt = self._build_aggregate_template_prompt(
-                question,
-                spans,
-                citation_count,
-                template_preview_chars,
-                preserve_span_newlines,
-                template_prompt,
-            )
-
+        prompt = self._template_prompt(
+            question,
+            spans,
+            citation_count,
+            use_per_fact,
+            template_preview_chars,
+            preserve_span_newlines,
+            template_prompt,
+        )
         try:
             return await self.complete_async(
                 prompt, temperature=self.temperature, system_prompt=system_prompt
@@ -491,6 +499,87 @@ class LLMClient:
         except Exception as e:
             logger.error("Async template generation failed: %s", e)
             return self._fallback_template(citation_count > 0)
+
+    def template_completion(
+        self,
+        question: str,
+        spans: List[str],
+        citation_count: int,
+        use_per_fact: bool = True,
+        template_preview_chars: Optional[int] = 100,
+        preserve_span_newlines: bool = False,
+        template_prompt: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+    ) -> Completion:
+        """
+        Like `generate_template`, but returns the completion and raises when the call fails.
+
+        :raises UpstreamError: If the call fails or the reply is empty
+        :raises ConfigurationError: If the service rejects the key, the model or the quota
+        """
+        prompt = self._template_prompt(
+            question,
+            spans,
+            citation_count,
+            use_per_fact,
+            template_preview_chars,
+            preserve_span_newlines,
+            template_prompt,
+        )
+        return client_completion(
+            self, prompt, temperature=self.temperature, system_prompt=system_prompt
+        )
+
+    async def template_completion_async(
+        self,
+        question: str,
+        spans: List[str],
+        citation_count: int,
+        use_per_fact: bool = True,
+        template_preview_chars: Optional[int] = 100,
+        preserve_span_newlines: bool = False,
+        template_prompt: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+    ) -> Completion:
+        """
+        Async version of `template_completion`.
+        """
+        prompt = self._template_prompt(
+            question,
+            spans,
+            citation_count,
+            use_per_fact,
+            template_preview_chars,
+            preserve_span_newlines,
+            template_prompt,
+        )
+        return await client_completion_async(
+            self, prompt, temperature=self.temperature, system_prompt=system_prompt
+        )
+
+    def _template_prompt(
+        self,
+        question: str,
+        spans: List[str],
+        citation_count: int,
+        use_per_fact: bool,
+        template_preview_chars: Optional[int],
+        preserve_span_newlines: bool,
+        template_prompt: Optional[str],
+    ) -> str:
+        build = (
+            self._build_per_fact_template_prompt
+            if use_per_fact and len(spans) <= 8
+            else self._build_aggregate_template_prompt
+        )
+        return build(
+            question,
+            spans,
+            citation_count,
+            template_preview_chars,
+            preserve_span_newlines,
+            template_prompt,
+        )
 
     def _build_extraction_prompt(self, question: str, documents: Dict[str, str]) -> str:
         """Build the prompt for batch span extraction."""
