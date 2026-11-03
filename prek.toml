@@ -5,13 +5,13 @@
 # Keep the `rev` references below up to date with `prek update`.
 
 # api/, frontend/, examples/ and docs/ are not covered yet and will be introduced later
-exclude = '^(frontend|docs|examples)/'
+exclude = '^(frontend|docs)/'
 
 # Basic file hygiene: whitespace, EOF newlines, large files, YAML/TOML syntax, merge markers
 [[repos]]
 repo = "builtin"
 hooks = [
-    { id = "trailing-whitespace", exclude = '^packages/core/verbatim_core/prompts/.*\.txt$' },
+    { id = "trailing-whitespace", exclude = '^(packages/core/verbatim_core/prompts/.*\.txt|examples/verbatim_doc_demo\.py)$' },
     { id = "end-of-file-fixer", exclude = '^packages/core/verbatim_core/prompts/.*\.txt$' },
     { id = "check-added-large-files", exclude = '(^|/)uv\.lock$' },
     { id = "check-yaml" },
