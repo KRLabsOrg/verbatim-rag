@@ -28,16 +28,54 @@ All notable changes to this project will be documented in this file.
 - The `verbatim_core.content` logger. Log records that hold customer text, such as questions,
   chunks and span texts, go only to this logger and only at DEBUG. Leave it at INFO to keep
   customer text out of your logs whatever level the other `verbatim_core` loggers have.
+- `LLMSpanExtractor.extract` and `aextract` (#91). Each quote of the LLM is located in its
+  chunk, and the span's text is the chunk's text at the located offsets. Every span has the
+  score 1.0, "extracted without a score". Quotes that can't be located are dropped and reported
+  in the result's warnings with the code `quote_not_found`. A failed LLM call raises, and the
+  whole extraction fails. The usage names the LLM, with the model version the LLM service
+  returned, and counts the chunks, characters, LLM calls and, where the service reports them,
+  tokens. `aextract` makes its LLM calls concurrently. A client that replaces
+  `LLMClient.complete`, for example to call another provider, is still called that way, and its
+  usage then has no model version or tokens.
+- `ExtractConfig`, the base class of the extractors' settings, and `LLMExtractConfig`, the
+  settings of `LLMSpanExtractor`: `LLMSpanExtractor(llm_client, config=LLMExtractConfig(...))`.
+  A `config` passed to `extract` replaces the default for one call (#91).
+- `LLMClient.completion` and `completion_async`, which return the text of a reply with the
+  model name and the token counts the LLM service sent (#91).
 
 ### Changed
 - A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
   `TypeError` when it is defined, not when it is instantiated (#90).
+- `LLMClient` translates the errors of the OpenAI client (#91). A rejected API key, model or
+  quota raises `ConfigurationError`. A timeout, a connection error, a rate limit, a server error
+  or a reply that can't be read raises `UpstreamError`, which says whether a retry may help. The
+  OpenAI exception is the `__cause__`. An empty reply raises `UpstreamError` instead of
+  `ValueError`, and so does a reply without text, which returned `None`.
+- `LLMSpanExtractor.extract_spans` raises `ConfigurationError` when the LLM service rejects the
+  API key, the model or the quota, instead of returning no spans. It still tolerates the other
+  failed calls, and now also counts a reply that isn't a JSON object of quote lists as one (#91).
+- `LLMSpanExtractor` logs quotes it can't locate in one WARNING record that counts them, without
+  their text, and its steps at DEBUG instead of INFO. The quotes go to the
+  `verbatim_core.content` logger at DEBUG (#91).
+- The settings of an `LLMSpanExtractor` are in its `config`. The attributes `extraction_mode`,
+  `batch_size`, `span_match_mode`, `fuzzy_threshold`, `extraction_prompt`, `system_prompt` and
+  `max_display_spans` are gone (#91).
+- An unknown `extraction_mode`, which acted like `individual`, raises: `ConfigurationError` from
+  `LLMSpanExtractor`, and pydantic's `ValidationError`, a `ValueError`, from `VerbatimRAG` and
+  `VerbatimTransform` (#91).
 
 ### Deprecated
 - Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
   when they are called on it. Implement `extract` instead (#90).
 - `extract_spans` and `extract_spans_async` where an extractor inherits them from
   `SpanExtractor`. Use `extract` and `aextract` (#90).
+- `LLMSpanExtractor.extract_spans` and `extract_spans_async`. Use `extract` and `aextract` (#91).
+- `LLMSpanExtractor()` without an `llm_client`, which builds `LLMClient(model)`. Pass the client:
+  `LLMSpanExtractor(LLMClient(model))`. The argument `model` next to a client and the argument
+  `max_display_spans` have no effect (#91).
+- The `LLMSpanExtractor` arguments `extraction_mode`, `batch_size`, `span_match_mode`,
+  `fuzzy_threshold`, `extraction_prompt` and `system_prompt`. Pass them in
+  `config=LLMExtractConfig(...)` (#91).
 
 ### Fixed
 - `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans

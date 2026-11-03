@@ -16,6 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from verbatim_core import VerbatimDeprecationWarning
 from verbatim_core.extractors import (
     LLMSpanExtractor,
     ModelSpanExtractor,
@@ -238,22 +239,26 @@ class TestLLMSpanExtractor:
     @pytest.mark.parametrize("extraction_mode", ["batch", "individual"])
     @pytest.mark.parametrize("span_match_mode", ["exact", "fuzzy"])
     def test_extract_spans(self, span_match_mode, extraction_mode):
-        extractor = LLMSpanExtractor(
-            llm_client=LLMClient(), extraction_mode=extraction_mode, span_match_mode=span_match_mode
-        )
-
-        relevant_spans = extractor.extract_spans(QUESTION, search_results())
+        with pytest.warns(VerbatimDeprecationWarning):
+            extractor = LLMSpanExtractor(
+                llm_client=LLMClient(),
+                extraction_mode=extraction_mode,
+                span_match_mode=span_match_mode,
+            )
+            relevant_spans = extractor.extract_spans(QUESTION, search_results())
 
         assert_recorded(f"llm_span_extractor_{span_match_mode}", spans_by_chunk(relevant_spans))
 
     @pytest.mark.parametrize("extraction_mode", ["batch", "individual"])
     @pytest.mark.parametrize("span_match_mode", ["exact", "fuzzy"])
     async def test_extract_spans_async(self, span_match_mode, extraction_mode):
-        extractor = LLMSpanExtractor(
-            llm_client=LLMClient(), extraction_mode=extraction_mode, span_match_mode=span_match_mode
-        )
-
-        relevant_spans = await extractor.extract_spans_async(QUESTION, search_results())
+        with pytest.warns(VerbatimDeprecationWarning):
+            extractor = LLMSpanExtractor(
+                llm_client=LLMClient(),
+                extraction_mode=extraction_mode,
+                span_match_mode=span_match_mode,
+            )
+            relevant_spans = await extractor.extract_spans_async(QUESTION, search_results())
 
         assert_recorded(f"llm_span_extractor_{span_match_mode}", spans_by_chunk(relevant_spans))
 

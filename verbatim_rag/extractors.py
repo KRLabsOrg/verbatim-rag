@@ -5,6 +5,8 @@ Compatibility layer: expose extractors from verbatim_core.
 from __future__ import annotations
 
 from verbatim_core.extractors import (
+    ExtractConfig,
+    LLMExtractConfig,
     LLMSpanExtractor,
     ModelSpanExtractor,
     SemanticHighlightExtractor,
@@ -13,7 +15,9 @@ from verbatim_core.extractors import (
 
 __all__ = [
     "SpanExtractor",
+    "ExtractConfig",
     "ModelSpanExtractor",
     "LLMSpanExtractor",
+    "LLMExtractConfig",
     "SemanticHighlightExtractor",
 ]
