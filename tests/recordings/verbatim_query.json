@@ -1,0 +1,102 @@
+{
+  "question": "When did the Harbour Bridge open, and how many vehicles cross it?",
+  "answer": "The sources say:\n- [1] The Harbour Bridge opened in March 1932 after eight years of construction.\n- [2] Around 160,000 vehicles cross it each day.\n- [3] The arch rises 134 metres above the water.\n- [4] The bridge was designed by a team led by John Bradfield.",
+  "structured_answer": {
+    "text": "The sources say:\n- [1] The Harbour Bridge opened in March 1932 after eight years of construction.\n- [2] Around 160,000 vehicles cross it each day.\n- [3] The arch rises 134 metres above the water.\n- [4] The bridge was designed by a team led by John Bradfield.",
+    "citations": [
+      {
+        "text": "The Harbour Bridge opened in March 1932 after eight years of construction.",
+        "doc_index": 0,
+        "highlight_index": 0,
+        "number": 1,
+        "type": "display"
+      },
+      {
+        "text": "Around 160,000 vehicles cross it each day.",
+        "doc_index": 0,
+        "highlight_index": 1,
+        "number": 2,
+        "type": "display"
+      },
+      {
+        "text": "The arch rises 134 metres above the water.",
+        "doc_index": 1,
+        "highlight_index": 0,
+        "number": 3,
+        "type": "display"
+      },
+      {
+        "text": "The bridge was designed by a team led by John Bradfield.",
+        "doc_index": 3,
+        "highlight_index": 0,
+        "number": 4,
+        "type": "display"
+      }
+    ]
+  },
+  "documents": [
+    {
+      "content": "The Harbour Bridge opened in March 1932 after eight years of construction. It carries eight lanes of road traffic and two railway lines. Around 160,000 vehicles cross it each day.",
+      "highlights": [
+        {
+          "text": "The Harbour Bridge opened in March 1932 after eight years of construction.",
+          "start": 0,
+          "end": 74
+        },
+        {
+          "text": "Around 160,000 vehicles cross it each day.",
+          "start": 137,
+          "end": 179
+        }
+      ],
+      "title": "Harbour Bridge",
+      "source": "bridge.md",
+      "metadata": {
+        "title": "Harbour Bridge",
+        "source": "bridge.md"
+      }
+    },
+    {
+      "content": "Crews repaint the steel arch continuously ; one full coat takes about ten years . The arch rises 134 metres above the water.",
+      "highlights": [
+        {
+          "text": "The arch rises 134 metres above the water.",
+          "start": 82,
+          "end": 124
+        }
+      ],
+      "title": "Maintenance",
+      "source": "maintenance.md",
+      "metadata": {
+        "title": "Maintenance",
+        "source": "maintenance.md"
+      }
+    },
+    {
+      "content": "Tolls are collected electronically in both directions.",
+      "highlights": [],
+      "title": "Tolls",
+      "source": "tolls.md",
+      "metadata": {
+        "title": "Tolls",
+        "source": "tolls.md"
+      }
+    },
+    {
+      "content": "The bridge was designed by a team led by John Bradfield. Its granite pylons carry no load.",
+      "highlights": [
+        {
+          "text": "The bridge was designed by a team led by John Bradfield.",
+          "start": 0,
+          "end": 56
+        }
+      ],
+      "title": "Design",
+      "source": "design.md",
+      "metadata": {
+        "title": "Design",
+        "source": "design.md"
+      }
+    }
+  ]
+}
