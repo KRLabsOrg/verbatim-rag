@@ -6,8 +6,10 @@ search results and constructs a complete QueryResponse with proper highlighting
 and citation numbering.
 """
 
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Sequence, Set, Tuple
 
+from verbatim_core._checks import _check_unique_ids
+from verbatim_core.errors import InvalidInputError
 from verbatim_core.models import (
     Citation,
     DocumentWithHighlights,
@@ -15,6 +17,7 @@ from verbatim_core.models import (
     QueryResponse,
     StructuredAnswer,
 )
+from verbatim_core.types import Answer, Chunk
 
 
 class ResponseBuilder:
@@ -100,6 +103,75 @@ class ResponseBuilder:
             answer=answer,
             structured_answer=structured_answer,
             documents=documents_with_highlights,
+        )
+
+    def build_from_answer(
+        self, question: str, answer: Answer, chunks: Sequence[Chunk]
+    ) -> QueryResponse:
+        """
+        Build a QueryResponse from an answer and the chunks it was written from.
+
+        Each citation's span is highlighted at its offsets, without searching for its text. When
+        it overlaps a span cited before it in the same chunk, the earlier one keeps the highlight,
+        and the later one gets neither a highlight nor a citation in the response.
+
+        :param question: The original question
+        :param answer: The answer, whose citations point at spans of the chunks
+        :param chunks: The chunks the answer was written from, in the order of the documents
+        :return: Complete QueryResponse object
+        :raises InvalidInputError: If two chunks share an id, or a citation points outside them
+        """
+        _check_unique_ids(chunks)
+        positions = {chunk.id: position for position, chunk in enumerate(chunks)}
+        highlights: List[List[Highlight]] = [[] for _ in chunks]
+        citations = []
+        for index, citation in enumerate(answer.citations):
+            position = positions.get(citation.chunk_id)
+            if position is None:
+                raise InvalidInputError(
+                    f"answer.citations[{index}] points at a chunk that is not in chunks.",
+                    code="invalid_value",
+                    param=f"answer.citations[{index}].chunk_id",
+                )
+            if not citation.start < citation.end <= len(chunks[position].text):
+                raise InvalidInputError(
+                    f"answer.citations[{index}] has offsets outside its chunk.",
+                    code="invalid_value",
+                    param=f"answer.citations[{index}].end",
+                )
+            chunk_highlights = highlights[position]
+            if any(
+                citation.start < highlight.end and citation.end > highlight.start
+                for highlight in chunk_highlights
+            ):
+                continue
+            text = chunks[position].text[citation.start : citation.end]
+            chunk_highlights.append(Highlight(text=text, start=citation.start, end=citation.end))
+            citations.append(
+                Citation(
+                    text=text,
+                    doc_index=position,
+                    highlight_index=len(chunk_highlights) - 1,
+                    number=citation.number,
+                    type=citation.type,
+                )
+            )
+
+        documents = [
+            DocumentWithHighlights(
+                content=chunk.text,
+                highlights=chunk_highlights,
+                title=chunk.metadata.get("title", ""),
+                source=chunk.metadata.get("source", ""),
+                metadata=chunk.metadata,
+            )
+            for chunk, chunk_highlights in zip(chunks, highlights)
+        ]
+        return QueryResponse(
+            question=question,
+            answer=answer.text,
+            structured_answer=StructuredAnswer(text=answer.text, citations=citations),
+            documents=documents,
         )
 
     def _create_highlights(self, doc_content: str, spans: List[str]) -> List[Highlight]:

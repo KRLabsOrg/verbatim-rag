@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+from verbatim_core import Answer, AnswerCitation, Chunk, InvalidInputError
 from verbatim_core.response_builder import ResponseBuilder
 
 
@@ -142,3 +144,97 @@ class TestBuildResponse:
         assert len(response.documents) == 1
         assert len(response.documents[0].highlights) == 0
         assert len(response.structured_answer.citations) == 0
+
+
+class TestBuildFromAnswer:
+    CHUNKS = [
+        Chunk(
+            id="opened",
+            text="Tolls apply. The bridge opened in 1932. Tolls apply.",
+            metadata={"title": "History", "source": "bridge.md", "year": 1932},
+        ),
+        Chunk(id="design", text="Bradfield designed the bridge."),
+    ]
+
+    def answer(self, *citations):
+        return Answer(
+            text="The answer.",
+            citations=[
+                AnswerCitation(number=number, type=kind, chunk_id=chunk_id, start=start, end=end)
+                for number, (kind, chunk_id, start, end) in enumerate(citations, start=1)
+            ],
+        )
+
+    def test_each_citation_highlights_its_span_at_its_offsets(self):
+        answer = self.answer(("display", "opened", 13, 39), ("reference", "design", 0, 30))
+
+        response = ResponseBuilder().build_from_answer("When?", answer, self.CHUNKS)
+
+        opened, design = response.documents
+        assert [(h.start, h.end, h.text) for h in opened.highlights] == [
+            (13, 39, "The bridge opened in 1932.")
+        ]
+        assert [h.text for h in design.highlights] == ["Bradfield designed the bridge."]
+        assert [
+            (c.number, c.type, c.doc_index, c.highlight_index, c.text)
+            for c in response.structured_answer.citations
+        ] == [
+            (1, "display", 0, 0, "The bridge opened in 1932."),
+            (2, "reference", 1, 0, "Bradfield designed the bridge."),
+        ]
+        assert (response.question, response.answer) == ("When?", "The answer.")
+
+    def test_repeated_text_is_highlighted_only_where_it_is_cited(self):
+        answer = self.answer(("display", "opened", 40, 52))
+
+        response = ResponseBuilder().build_from_answer("When?", answer, self.CHUNKS)
+
+        assert [(h.start, h.end) for h in response.documents[0].highlights] == [(40, 52)]
+
+    def test_a_span_overlapping_an_earlier_one_gets_no_highlight_or_citation(self):
+        answer = self.answer(
+            ("display", "opened", 13, 39),
+            ("display", "opened", 24, 52),
+            ("display", "design", 0, 9),
+        )
+
+        response = ResponseBuilder().build_from_answer("When?", answer, self.CHUNKS)
+
+        assert [(h.start, h.end) for h in response.documents[0].highlights] == [(13, 39)]
+        assert [c.number for c in response.structured_answer.citations] == [1, 3]
+
+    def test_a_citation_of_a_chunk_that_is_not_given_is_an_input_error(self):
+        answer = self.answer(("display", "private-chunk-id", 0, 5))
+
+        with pytest.raises(InvalidInputError) as raised:
+            ResponseBuilder().build_from_answer("When?", answer, self.CHUNKS)
+
+        assert raised.value.param == "answer.citations[0].chunk_id"
+        assert "private-chunk-id" not in str(raised.value)
+
+    def test_offsets_outside_the_chunk_are_an_input_error(self):
+        answer = self.answer(("display", "design", 0, 30), ("display", "design", 20, 99))
+
+        with pytest.raises(InvalidInputError) as raised:
+            ResponseBuilder().build_from_answer("When?", answer, self.CHUNKS)
+
+        assert raised.value.param == "answer.citations[1].end"
+
+    def test_two_chunks_with_the_same_id_are_an_input_error(self):
+        chunks = [*self.CHUNKS, Chunk(id="opened", text="Another text.")]
+
+        with pytest.raises(InvalidInputError) as raised:
+            ResponseBuilder().build_from_answer("When?", self.answer(), chunks)
+
+        assert raised.value.param == "chunks[2].id"
+
+    def test_documents_carry_the_chunk_metadata(self):
+        response = ResponseBuilder().build_from_answer("When?", self.answer(), self.CHUNKS)
+
+        document = response.documents[0]
+        assert (document.content, document.title, document.source) == (
+            self.CHUNKS[0].text,
+            "History",
+            "bridge.md",
+        )
+        assert document.metadata == {"title": "History", "source": "bridge.md", "year": 1932}

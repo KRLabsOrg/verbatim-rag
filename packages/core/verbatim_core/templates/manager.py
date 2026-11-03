@@ -92,6 +92,16 @@ class TemplateManager:
         """
         return self.current_mode
 
+    def strategy(self, mode: str) -> Optional[TemplateStrategy]:
+        """
+        The strategy of a template mode, without switching to it.
+
+        :param mode: Template mode
+        :return: The strategy, or None if the mode needs an LLM client the manager doesn't have
+        :raises KeyError: If there is no such mode
+        """
+        return self.strategies[mode]
+
     def get_available_modes(self) -> List[str]:
         """
         Get list of available template modes.
