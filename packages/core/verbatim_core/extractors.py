@@ -7,34 +7,67 @@ with a `.text` attribute as search results.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import re
-import unicodedata
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Dict, List
+from abc import ABC
+from typing import Any, Dict, List, Sequence
 
-from rapidfuzz.fuzz import partial_ratio_alignment
-
+from ._deprecation import deprecated, warn_deprecated
+from ._locate import find_fuzzy_match, locate
+from ._logging import content_logger
+from .errors import InvalidInputError
 from .llm_client import LLMClient
+from .types import Chunk, Extraction, ResultWarning, Usage
 
 logger = logging.getLogger(__name__)
 
-_FUZZY_TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
-
-
-@dataclass(frozen=True)
-class _NormalizedTokenText:
-    text: str
-    original_token_offsets: List[tuple[int, int]]
-    normalized_token_offsets: List[tuple[int, int]]
-
 
 class SpanExtractor(ABC):
-    """Abstract base class for span extractors."""
+    """Base class for span extractors.
 
-    @abstractmethod
+    A subclass implements `extract`, and `aextract` when it has a native async path. Otherwise
+    `aextract` runs `extract` in a worker thread.
+
+    A subclass written against the old interface implements only `extract_spans`. It gets
+    `extract` and `aextract` from this class, which locate each span text in its chunk and warn
+    that the subclass should implement `extract`. A span text that can't be located is dropped
+    and reported in the result's warnings with the code `span_text_not_found`.
+    """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if not (_overrides(cls, "extract") or _overrides(cls, "extract_spans")):
+            raise TypeError(f"{cls.__qualname__} must implement extract() or extract_spans()")
+
+    def extract(self, question: str, chunks: Sequence[Chunk], *, config: Any = None) -> Extraction:
+        """
+        Extract the spans of the chunks that are relevant to the question.
+
+        :param question: The query or question
+        :param chunks: Chunks with unique ids
+        :param config: Replaces the extractor's default config for this call
+        :return: The spans, with the usage and warnings of the call
+        :raises InvalidInputError: If two chunks share an id
+        """
+        _check_old_interface_call(type(self), chunks, config)
+        return _locate_span_texts(chunks, self.extract_spans(question, chunks))
+
+    async def aextract(
+        self, question: str, chunks: Sequence[Chunk], *, config: Any = None
+    ) -> Extraction:
+        """Async version of `extract`."""
+        if _overrides(type(self), "extract"):
+            return await asyncio.to_thread(self.extract, question, chunks, config=config)
+
+        _check_old_interface_call(type(self), chunks, config)
+        if _overrides(type(self), "extract_spans_async"):
+            span_texts = await self.extract_spans_async(question, chunks)
+        else:
+            span_texts = await asyncio.to_thread(self.extract_spans, question, chunks)
+        return _locate_span_texts(chunks, span_texts)
+
+    @deprecated("SpanExtractor.extract_spans", use="extract()")
     def extract_spans(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
         """
         Extract relevant spans from search results.
@@ -43,15 +76,119 @@ class SpanExtractor(ABC):
         :param search_results: List of search results to extract from
         :return: Dictionary mapping result text to list of relevant spans
         """
-        raise NotImplementedError
+        chunks = _chunks_from_results(search_results)
+        return _span_texts_by_chunk_text(chunks, self.extract(question, chunks))
 
+    @deprecated("SpanExtractor.extract_spans_async", use="aextract()")
     async def extract_spans_async(
         self, question: str, search_results: List[Any]
     ) -> Dict[str, List[str]]:
-        """Default async implementation that delegates to sync version."""
-        import asyncio
+        """Async version of `extract_spans`."""
+        if not _overrides(type(self), "extract"):
+            return await asyncio.to_thread(self.extract_spans, question, search_results)
 
-        return await asyncio.to_thread(self.extract_spans, question, search_results)
+        chunks = _chunks_from_results(search_results)
+        return _span_texts_by_chunk_text(chunks, await self.aextract(question, chunks))
+
+
+def _overrides(cls: type, name: str) -> bool:
+    return getattr(cls, name) is not getattr(SpanExtractor, name)
+
+
+def _check_unique_ids(chunks: Sequence[Chunk]) -> None:
+    positions: Dict[str, int] = {}
+    for position, chunk in enumerate(chunks):
+        if chunk.id in positions:
+            raise InvalidInputError(
+                f"chunks[{position}] has the same id as chunks[{positions[chunk.id]}]. "
+                "Chunk ids must be unique within a call.",
+                code="invalid_value",
+                param=f"chunks[{position}].id",
+            )
+        positions[chunk.id] = position
+
+
+def _check_old_interface_call(cls: type, chunks: Sequence[Chunk], config: Any) -> None:
+    """Check a call of the extract_spans implementation of an extractor, and warn about it."""
+    implementation = _extract_spans_implementation(cls)
+    _check_unique_ids(chunks)
+    if config is not None:
+        raise InvalidInputError(
+            f"{implementation.__qualname__} implements only extract_spans(), which takes no config.",
+            code="invalid_value",
+            param="config",
+        )
+    warn_deprecated(
+        f"Implementing only extract_spans() in {implementation.__qualname__}",
+        use="extract()",
+        stacklevel=4,
+    )
+
+
+def _extract_spans_implementation(cls: type) -> type:
+    """The class that implements extract_spans for `cls`, which may be `cls` or a parent."""
+    for parent in cls.__mro__:
+        if parent is SpanExtractor:
+            break
+        if "extract_spans" in vars(parent):
+            return parent
+    raise NotImplementedError(
+        f"SpanExtractor.extract() needs an extract_spans() implementation, and {cls.__qualname__} "
+        "has none. Implement extract() without calling the base class."
+    )
+
+
+def _locate_span_texts(chunks: Sequence[Chunk], span_texts: Dict[str, List[str]]) -> Extraction:
+    """Turn today's span texts, keyed by chunk text, into an extraction."""
+    spans = []
+    warnings = []
+    dropped = []
+    for position, chunk in enumerate(chunks):
+        for text in span_texts.get(chunk.text, []):
+            span = locate(text, chunk)
+            if span is None:
+                dropped.append(text)
+                warnings.append(
+                    ResultWarning(
+                        code="span_text_not_found",
+                        message=f"A span text for chunks[{position}] is not in the chunk.",
+                    )
+                )
+            elif span not in spans:
+                spans.append(span)
+
+    if dropped:
+        logger.warning(
+            "Dropped %d span texts that are not in their chunks",
+            len(dropped),
+            extra={"event": "fallback_used", "warning_code": "span_text_not_found"},
+        )
+        content_logger.debug("Dropped span texts: %r", dropped)
+
+    # The extractor doesn't say which model it runs.
+    usage = Usage(
+        model_id=None,
+        model_version=None,
+        units={"chunks": len(chunks), "characters": sum(len(chunk.text) for chunk in chunks)},
+    )
+    return Extraction(spans=spans, usage=[usage], warnings=warnings)
+
+
+def _chunks_from_results(search_results: List[Any]) -> List[Chunk]:
+    return [
+        Chunk(id=str(position), text=getattr(result, "text", ""))
+        for position, result in enumerate(search_results)
+    ]
+
+
+def _span_texts_by_chunk_text(
+    chunks: Sequence[Chunk], extraction: Extraction
+) -> Dict[str, List[str]]:
+    """Today's shape of an extraction. Of two chunks with the same text, the last one wins."""
+    texts_by_id: Dict[str, List[str]] = {chunk.id: [] for chunk in chunks}
+    for span in extraction.spans:
+        texts_by_id[span.chunk_id].append(span.text)
+    return {chunk.text: texts_by_id[chunk.id] for chunk in chunks}
 
 
 class ModelSpanExtractor(SpanExtractor):
@@ -834,83 +971,11 @@ class LLMSpanExtractor(SpanExtractor):
                 )
         return verified
 
-    @classmethod
-    def _find_fuzzy_span_match(cls, span: str, document_text: str) -> tuple[float, str]:
-        """
-        Locate a fuzzy span in the document and return document text on token boundaries.
-
-        RapidFuzz alignment offsets are character-level and can land in the
-        middle of words. Matching normalized token text keeps OCR/punctuation
-        tolerance while mapping the final slice back to original token offsets.
-        """
-        normalized_span = cls._normalize_for_fuzzy_span_match(span)
-        normalized_document = cls._normalize_for_fuzzy_span_match(document_text)
-
-        if not normalized_span.text or not normalized_document.text:
+    @staticmethod
+    def _find_fuzzy_span_match(span: str, document_text: str) -> tuple[float, str]:
+        """Locate a fuzzy span in the document and return document text on token boundaries."""
+        match = find_fuzzy_match(span, document_text)
+        if match is None:
             return 0.0, ""
-
-        result = partial_ratio_alignment(normalized_span.text, normalized_document.text)
-        score = result.score / 100.0
-        matched_text = cls._slice_original_text_from_normalized_offsets(
-            document_text,
-            normalized_document,
-            result.dest_start,
-            result.dest_end,
-        )
-        return score, matched_text
-
-    @staticmethod
-    def _normalize_for_fuzzy_span_match(text: str) -> _NormalizedTokenText:
-        parts: List[str] = []
-        original_token_offsets: List[tuple[int, int]] = []
-        normalized_token_offsets: List[tuple[int, int]] = []
-        normalized_pos = 0
-
-        for match in _FUZZY_TOKEN_RE.finditer(text):
-            token = unicodedata.normalize("NFKC", match.group(0)).casefold()
-            if not token:
-                continue
-
-            if parts:
-                parts.append(" ")
-                normalized_pos += 1
-
-            token_start = normalized_pos
-            parts.append(token)
-            normalized_pos += len(token)
-
-            original_token_offsets.append((match.start(), match.end()))
-            normalized_token_offsets.append((token_start, normalized_pos))
-
-        return _NormalizedTokenText(
-            text="".join(parts),
-            original_token_offsets=original_token_offsets,
-            normalized_token_offsets=normalized_token_offsets,
-        )
-
-    @staticmethod
-    def _slice_original_text_from_normalized_offsets(
-        original_text: str,
-        normalized_text: _NormalizedTokenText,
-        normalized_start: int,
-        normalized_end: int,
-    ) -> str:
-        first_token_idx = None
-        last_token_idx = None
-
-        for idx, (token_start, token_end) in enumerate(normalized_text.normalized_token_offsets):
-            if token_end <= normalized_start:
-                continue
-            if token_start >= normalized_end:
-                break
-
-            if first_token_idx is None:
-                first_token_idx = idx
-            last_token_idx = idx
-
-        if first_token_idx is None or last_token_idx is None:
-            return ""
-
-        original_start = normalized_text.original_token_offsets[first_token_idx][0]
-        original_end = normalized_text.original_token_offsets[last_token_idx][1]
-        return original_text[original_start:original_end]
+        score, start, end = match
+        return score, document_text[start:end]

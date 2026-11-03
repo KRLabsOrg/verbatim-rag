@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from verbatim_core import VerbatimDeprecationWarning
-from verbatim_core._deprecation import REMOVED_IN, deprecated, warn_deprecated_argument
+from verbatim_core._deprecation import REMOVED_IN, deprecated, warn_deprecated
 
 OLD_EXTRACT_MESSAGE = (
     f"old_extract is deprecated since 0.3.0 and will be removed in {REMOVED_IN}. Use extract()."
@@ -22,7 +22,7 @@ _UNSET = object()
 def build_extractor(model=_UNSET):
     """Stands in for a library function with a deprecated argument."""
     if model is not _UNSET:
-        warn_deprecated_argument("model", use="llm_client")
+        warn_deprecated("model", use="llm_client")
     return "extractor"
 
 
