@@ -42,7 +42,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install pytest pytest-asyncio
       - run: pip install -e packages/core/
-      - run: pytest tests/ -v
+      - run: pytest tests/ packages/core/tests/ -v
 
   package-build:
     # package build + twine check; pytest runs in the `test` matrix instead

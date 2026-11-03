@@ -43,6 +43,12 @@ ignore = [
     "T201", # print(permanent) (https://docs.astral.sh/ruff/rules/print/)
 ]
 
+## pytest tests rely on bare asserts and are not packaged.
+"tests/*.py" = [
+    "S101", # assert(permanent) (https://docs.astral.sh/ruff/rules/assert/)
+    "INP001", # implicit-namespace-package(permanent) (tests are not a package) (https://docs.astral.sh/ruff/rules/implicit-namespace-package/)
+]
+
 [lint.flake8-tidy-imports]
 ban-relative-imports = "all"
 
