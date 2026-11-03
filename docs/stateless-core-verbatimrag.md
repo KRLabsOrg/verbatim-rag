@@ -42,7 +42,9 @@ The design doc requires that a span's `text` always equals the slice at its offs
 
 ➡️ `Span.text` is the slice of the chunk, never the LLM's quote. A quote without a match is dropped and reported in `Extraction.warnings`, not silently discarded, in line with "Typed errors, and no fallbacks that hide a failure".
 
-Decision: `Span.text` is the slice of the chunk, which both match modes already return today; the matchers now return the offsets too. A quote without a match is dropped and reported in `Extraction.warnings`. "Quote" (the string the LLM returns) and "span" (its located slice) are defined in `GLOSSARY.md`. PR #79 merges before the offsets change, because both rewrite `_find_fuzzy_span_match`. (2026-11-02)
+Decision: `Span.text` is the slice of the chunk, which both match modes already return today; the matchers now return the offsets too. A quote without a match is dropped and reported in `Extraction.warnings`. "Quote" (the string the LLM returns) and "span" (its located slice) are defined in `GLOSSARY.md`. (2026-11-02)
+
+Revised: the offsets work no longer waits for PR #79 (#34). Fixing #34 well is a larger problem than it looks, so it is done separately. The locator uses today's fuzzy matcher, changed only to return offsets with the text and kept behind one function, which the fix for #34 replaces. The fuzzy-mode fixtures record today's matcher, and that fix updates them as an intended change. (2026-11-03)
 
 ---
 
