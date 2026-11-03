@@ -119,18 +119,23 @@ Uses OpenAI models for extraction. Requires `OPENAI_API_KEY`.
 ```python
 from verbatim_rag.extractors import ModelSpanExtractor
 
-extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v2")
+extractor = ModelSpanExtractor.from_pretrained("KRLabsOrg/verbatim-rag-modern-bert-v2")
 rag = VerbatimRAG(index, extractor=extractor, template_mode="static")
 ```
+
+`from_pretrained` downloads and loads the model, or loads it from a local path. It records the
+model's Hugging Face commit as the version that the usage of each extraction reports. For a local
+path, pass the version yourself: `from_pretrained("/models/v2", model_version="v2.1")`. The spans
+keep the character offsets and probabilities the model computed.
 
 ### Semantic Highlighting
 
 ```python
-from verbatim_rag.extractors import SemanticHighlightExtractor
+from verbatim_rag.extractors import SemanticHighlightConfig, SemanticHighlightExtractor
 
-extractor = SemanticHighlightExtractor(
-    threshold=0.5,
-    output_mode="sentences",
+extractor = SemanticHighlightExtractor.from_pretrained(
+    "zilliz/semantic-highlight-bilingual-v1",
+    config=SemanticHighlightConfig(threshold=0.5, output_mode="sentences"),
 )
 ```
 

@@ -42,6 +42,20 @@ All notable changes to this project will be documented in this file.
   A `config` passed to `extract` replaces the default for one call (#91).
 - `LLMClient.completion` and `completion_async`, which return the text of a reply with the
   model name and the token counts the LLM service sent (#91).
+- `ModelSpanExtractor.from_pretrained(model_id, device=None)` and
+  `SemanticHighlightExtractor.from_pretrained(...)`, which download and load a model or load it
+  from a local path (#92). They record the model's Hugging Face commit as the version the usage
+  of each extraction reports; for a local path, pass `model_version`. They also load the
+  highlighter's tokenizer, which it used to load on the first extraction. Loading logs the event
+  `model_loaded` at INFO. The constructors take a loaded model and a config, and load nothing.
+- `extract` and `aextract` on `ModelSpanExtractor` and `SemanticHighlightExtractor`, whose spans
+  keep the offsets and probabilities the model computed (#92). Highlighter models give their
+  character spans with the span probability, the v1 sentence model the sentences of a chunk with
+  the sentence probability. `SemanticHighlightExtractor` locates the sentences it highlights in
+  order, scored with the sentence probability, and turns token regions into offsets, scored with
+  the mean token probability. When a model examines only part of a chunk, the result has a
+  warning with the code `chunk_truncated`. `aextract` runs the model in a worker thread.
+- `ModelExtractConfig` and `SemanticHighlightConfig`, the settings of the model extractors (#92).
 
 ### Changed
 - A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
@@ -63,6 +77,16 @@ All notable changes to this project will be documented in this file.
 - An unknown `extraction_mode`, which acted like `individual`, raises: `ConfigurationError` from
   `LLMSpanExtractor`, and pydantic's `ValidationError`, a `ValueError`, from `VerbatimRAG` and
   `VerbatimTransform` (#91).
+- An error of a model extractor's model propagates, instead of giving its chunk no spans (#92).
+- `SemanticHighlightExtractor` runs its model on the device it is given, or the best available
+  one, where it ignored `device`, and the model no longer draws progress bars (#92).
+- The model extractors raise `ConfigurationError` instead of `ImportError` when torch,
+  transformers or a package the model's code needs is missing (code `missing_dependency`),
+  instead of `OSError` when a model can't be downloaded or read (code `model_not_loaded`), and
+  instead of `ValueError` for an invalid `output_mode` (#92).
+- The settings of the model extractors are in their `config`. The attributes `threshold`,
+  `min_span_chars`, `merge_gap_chars`, `max_length`, `doc_stride`, `output_mode`, `language`,
+  `min_span_tokens`, `merge_gap`, `max_tokens`, `device` and `model_path` are gone (#92).
 
 ### Deprecated
 - Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
@@ -76,6 +100,12 @@ All notable changes to this project will be documented in this file.
 - The `LLMSpanExtractor` arguments `extraction_mode`, `batch_size`, `span_match_mode`,
   `fuzzy_threshold`, `extraction_prompt` and `system_prompt`. Pass them in
   `config=LLMExtractConfig(...)` (#91).
+- `ModelSpanExtractor(model_path=...)` and `SemanticHighlightExtractor(model_name=...)`, and
+  both without a loaded model or with a model name, which load the model. Use `from_pretrained`
+  (#92).
+- The settings arguments of the model extractors. Pass them in `config=ModelExtractConfig(...)`
+  or `config=SemanticHighlightConfig(...)`. The `ModelSpanExtractor` arguments
+  `extraction_mode` and `max_display_spans` have no effect (#92).
 
 ### Fixed
 - `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans

@@ -87,7 +87,10 @@ def upload_model_to_hub(
 
     print(f"Model and tokenizer uploaded successfully to https://huggingface.co/{repo_id}")
     print("To use this model, you can initialize a ModelSpanExtractor with:")
-    print(f"extractor = ModelSpanExtractor(model_path='{repo_id}', threshold=0.5)")
+    print(
+        f"extractor = ModelSpanExtractor.from_pretrained('{repo_id}', "
+        "config=ModelExtractConfig(threshold=0.5))"
+    )
 
     return repo_id
 

@@ -75,7 +75,7 @@ rendering—no generative LLM API call is made:
 ```python
 from verbatim_rag.extractors import ModelSpanExtractor
 
-extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v2")
+extractor = ModelSpanExtractor.from_pretrained("KRLabsOrg/verbatim-rag-modern-bert-v2")
 rag = VerbatimRAG(index, extractor=extractor, template_mode="static")
 response = rag.query("Main findings?")
 ```
