@@ -1,0 +1,97 @@
+# Configuration file for `prek`, a git hook framework written in Rust.
+# See https://prek.j178.dev for more information.
+#:schema https://www.schemastore.org/prek.json
+
+# Keep the `rev` references below up to date with `prek update`.
+
+# api/, frontend/, examples/ and docs/ are not covered yet and will be introduced later
+exclude = '^(api|frontend|docs|examples)/'
+
+# Basic file hygiene: whitespace, EOF newlines, large files, YAML/TOML syntax, merge markers
+[[repos]]
+repo = "builtin"
+hooks = [
+    { id = "trailing-whitespace" },
+    { id = "end-of-file-fixer" },
+    { id = "check-added-large-files", exclude = '(^|/)uv\.lock$' },
+    { id = "check-yaml" },
+    { id = "check-toml" },
+    { id = "check-merge-conflict" }
+]
+
+# Python linting (with autofix) and formatting
+[[repos]]
+repo = "https://github.com/astral-sh/ruff-pre-commit"
+rev = "v0.17.3" # https://github.com/astral-sh/ruff-pre-commit/releases
+hooks = [
+  { id = "ruff-check", args = ["--fix"] },
+  { id = "ruff-format" },
+]
+
+# Local `ty check` runs with the project's ty.toml. Once the refactoring phases
+# are complete and the baseline is removed, replace this with the default
+# ty pre-commit hook below.
+#
+# [[repos]]
+# repo = "https://github.com/astral-sh/ty-pre-commit"
+# rev = "v0.0.94" # https://github.com/astral-sh/ty-pre-commit/releases
+# hooks = [
+#   { id = "ty" },
+# ]
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "ty-check", name = "ty check", language = "system", entry = "ty check", pass_filenames = false, types = ["python"] },
+]
+
+# Shell script linting - catches unquoted vars, undefined vars, deprecated syntax
+[[repos]]
+repo = "https://github.com/koalaman/shellcheck-precommit"
+rev = "v0.11.0" # https://github.com/koalaman/shellcheck-precommit/tags
+hooks = [
+  { id = "shellcheck", args = ["--severity=error"] },
+]
+
+# Secret detection - prevents committing API keys, passwords, tokens.
+# Run `detect-secrets scan > .secrets.baseline` before the first commit.
+[[repos]]
+repo = "https://github.com/Yelp/detect-secrets"
+rev = "v1.5.0" # https://github.com/Yelp/detect-secrets/releases
+hooks = [
+  { id = "detect-secrets", args = ["--baseline", ".secrets.baseline"] },
+]
+
+# GitHub Actions linting - catches syntax errors, invalid refs
+[[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.7.12" # https://github.com/rhysd/actionlint/releases
+hooks = [
+  { id = "actionlint" },
+]
+
+# GitHub Actions security audit - excessive permissions, injection risks
+[[repos]]
+repo = "https://github.com/zizmorcore/zizmor-pre-commit"
+rev = "v1.30.1" # https://github.com/zizmorcore/zizmor-pre-commit/releases
+hooks = [
+  { id = "zizmor", args = ["--persona=regular", "--min-severity=medium", "--min-confidence=medium"] },
+]
+
+# Keep uv.lock in sync with pyproject.toml and re-export requirements.txt
+[[repos]]
+repo = "https://github.com/astral-sh/uv-pre-commit"
+rev = "0.13.6" # https://github.com/astral-sh/uv-pre-commit/releases
+hooks = [
+  { id = "uv-lock" },
+  { id = "uv-export" },
+]
+
+# Slower checks run only on pre-push: tests, package build validation and dependency vulnerability audit
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "pytest", name = "pytest", language = "system", entry = "uv run --extra dev pytest tests/ -q", pass_filenames = false, types = ["python"], stages = ["pre-push"] },
+  { id = "package-build", name = "package build + twine check", language = "system", entry = "bash -c 'rm -rf dist packages/core/dist && uvx --from build pyproject-build packages/core && uvx --from build pyproject-build . && uvx twine check packages/core/dist/* dist/*'", pass_filenames = false, files = '(^|/)pyproject\.toml$', stages = ["pre-push"] },
+  # Note: `uv audit` will become stable soon; migrate from `pip-audit` once it does (https://astral.sh/blog/uv-audit)
+  { id = "pip-audit", name = "pip-audit", language = "system", entry = "uvx pip-audit ./packages/core", pass_filenames = false, files = '(^|/)(pyproject\.toml|uv\.lock)$', stages = ["pre-push"] },
+]

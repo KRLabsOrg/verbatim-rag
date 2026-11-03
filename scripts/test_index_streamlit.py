@@ -226,7 +226,7 @@ def main():
 
     # Clear reranked results when query changes
     query_key = "search_query_state"
-    prev_query = st.session_state.get(query_key, "")
+    prev_query = st.session_state.get(query_key, "")  # noqa: F841
 
     # Search interface
     st.header("Search")

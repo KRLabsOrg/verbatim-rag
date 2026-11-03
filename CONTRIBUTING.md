@@ -42,10 +42,62 @@ The core runtime depends on `openai`, `pydantic`, `rapidfuzz`, and `jinja2`.
 The optional model extra and full RAG package add substantially heavier ML,
 document-processing, and vector-store dependencies.
 
+### Git hooks (prek)
+
+Install the git hooks with [prek](https://prek.j178.dev/installation/#pypi).
+**Using the pre-commit hook is required for contributions**: it runs ruff,
+file hygiene checks, lock-file sync and security checks (`prek.toml`) before
+every commit, and CI runs the same hooks. `api/`, `frontend/` and `docs/` are
+currently excluded.
+
+```bash
+uv tool install prek
+uv tool install ruff   # also used directly for the manual checks below
+uv tool install ty     # the ty hook runs the locally installed `ty`
+
+# Security tooling
+uv tool install detect-secrets   # secret detection (baseline: .secrets.baseline)
+uv tool install zizmor           # GitHub Actions security audit
+brew install actionlint shellcheck   # GitHub Actions and shell script linting
+```
+
+`actionlint` and `shellcheck` are not on PyPI. On other platforms, follow the
+[actionlint installation guide](https://github.com/rhysd/actionlint/blob/main/docs/install.md)
+(e.g. `go install github.com/rhysd/actionlint/cmd/actionlint@latest` or the
+download script) and the
+[shellcheck installation guide](https://github.com/koalaman/shellcheck#installing)
+(e.g. `sudo apt install shellcheck`).
+
+If `detect-secrets` flags a false positive, review it and update the baseline
+with `detect-secrets scan --baseline .secrets.baseline`; never add a real secret
+to the baseline.
+
+```bash
+prek install                         # pre-commit hooks, run before every commit
+prek install --hook-type pre-push    # pytest, package build and pip-audit before push
+```
+
+Run the hooks manually on all files (this may modify files):
+
+```bash
+prek run --all-files
+```
+
+Keep the hook repository references (`rev`) in `prek.toml` up to date. Update
+them periodically, and whenever you touch the hook configuration:
+
+```bash
+prek update
+```
+
+Review the `prek.toml` diff, run `prek run --all-files`, and include the bump in
+your PR. Keep the locally installed tools current too (`uv tool upgrade --all`).
+
 ## Verification
 
 Run the checks that match the files you changed and list the exact commands in
-your pull request.
+your pull request. The prek hooks cover linting, formatting, tests, packaging
+and dependency auditing; to run the individual commands by hand:
 
 ```bash
 pytest tests/ -v
@@ -69,8 +121,8 @@ npm run build
 ```
 
 CI currently gates the network-free `verbatim-core` tests on Python 3.10–3.12,
-Ruff across the core, full-RAG and API Python sources, dependency auditing for
-the core package, and distribution builds. A green core test matrix does not by
+the prek pre-commit hooks (Ruff and file checks), dependency auditing for the
+core package, and distribution builds. A green core test matrix does not by
 itself validate model downloads, the API, or the frontend; include focused
 tests for those surfaces in the same PR.
 

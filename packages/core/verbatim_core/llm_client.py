@@ -1,5 +1,4 @@
-"""
-Centralized LLM client for all OpenAI interactions in the Verbatim RAG system.
+"""Centralized LLM client for all OpenAI interactions in the Verbatim RAG system.
 
 This module provides a unified interface for both synchronous and asynchronous
 LLM calls, with specialized methods for span extraction and template generation.
@@ -8,19 +7,22 @@ LLM calls, with specialized methods for span extraction and template generation.
 import json
 import logging
 import os
-from typing import Dict, List, Optional
+
+from verbatim_core.prompts import load_prompt, render_prompt
 
 logger = logging.getLogger(__name__)
+
+_MAX_PER_FACT_SPANS = 8
 
 try:
     import openai
 except ImportError:
-    raise ImportError("OpenAI package required: pip install openai")
+    msg = "OpenAI package required: pip install openai"
+    raise ImportError(msg) from None
 
 
 class LLMClient:
-    """
-    Centralized LLM interaction handler with async support.
+    """Centralized LLM interaction handler with async support.
 
     Provides a unified interface for all OpenAI API calls used throughout
     the Verbatim RAG system, including span extraction and template generation.
@@ -32,9 +34,8 @@ class LLMClient:
         temperature: float = 0.7,
         api_base: str = "https://api.openai.com/v1",
         api_key: str | None = None,
-    ):
-        """
-        Initialize the LLM client.
+    ) -> None:
+        """Initialize the LLM client.
 
         :param model: The OpenAI model to use
         :param temperature: Default temperature for completions
@@ -51,12 +52,11 @@ class LLMClient:
     def complete(
         self,
         prompt: str,
-        json_mode: bool = False,
-        temperature: Optional[float] = None,
+        json_mode: bool = False,  # noqa: FBT001, FBT002
+        temperature: float | None = None,
         system_prompt: str | None = None,
     ) -> str:
-        """
-        Synchronous text completion.
+        """Complete text synchronously.
 
         :param prompt: The prompt to send
         :param json_mode: Whether to request JSON output format
@@ -79,18 +79,18 @@ class LLMClient:
 
         response = self.client.chat.completions.create(**kwargs)
         if not response.choices or response.choices[0].message is None:
-            raise ValueError("LLM returned empty or filtered response")
+            msg = "LLM returned empty or filtered response"
+            raise ValueError(msg)
         return response.choices[0].message.content
 
     async def complete_async(
         self,
         prompt: str,
-        json_mode: bool = False,
-        temperature: Optional[float] = None,
+        json_mode: bool = False,  # noqa: FBT001, FBT002
+        temperature: float | None = None,
         system_prompt: str | None = None,
     ) -> str:
-        """
-        Asynchronous text completion.
+        """Asynchronous text completion.
 
         :param prompt: The prompt to send
         :param json_mode: Whether to request JSON output format
@@ -113,12 +113,12 @@ class LLMClient:
 
         response = await self.async_client.chat.completions.create(**kwargs)
         if not response.choices or response.choices[0].message is None:
-            raise ValueError("LLM returned empty or filtered response")
+            msg = "LLM returned empty or filtered response"
+            raise ValueError(msg)
         return response.choices[0].message.content
 
-    def extract_spans(self, question: str, documents: Dict[str, str]) -> Dict[str, List[str]]:
-        """
-        Specialized method for span extraction from documents.
+    def extract_spans(self, question: str, documents: dict[str, str]) -> dict[str, list[str]]:
+        """Specialized method for span extraction from documents.
 
         :param question: The user's question
         :param documents: Dictionary mapping doc IDs to document text
@@ -131,13 +131,14 @@ class LLMClient:
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("Span extraction failed: %s", e)
             # Return empty results for all documents on failure
-            return {doc_id: [] for doc_id in documents.keys()}
+            return {doc_id: [] for doc_id in documents}
 
     async def extract_spans_async(
-        self, question: str, documents: Dict[str, str]
-    ) -> Dict[str, List[str]]:
-        """
-        Async span extraction from documents.
+        self,
+        question: str,
+        documents: dict[str, str],
+    ) -> dict[str, list[str]]:
+        """Async span extraction from documents.
 
         :param question: The user's question
         :param documents: Dictionary mapping doc IDs to document text
@@ -149,17 +150,16 @@ class LLMClient:
             return json.loads(response)
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("Async span extraction failed: %s", e)
-            return {doc_id: [] for doc_id in documents.keys()}
+            return {doc_id: [] for doc_id in documents}
 
     def extract_structured(
         self,
         question: str,
         template: str,
-        placeholders: Dict[str, str],
-        documents: List[str],
-    ) -> Dict[str, List[Dict[str, any]]]:
-        """
-        Extract spans organized by template placeholders with document attribution.
+        placeholders: dict[str, str],
+        documents: list[str],
+    ) -> dict[str, list[dict[str, any]]]:
+        """Extract spans organized by template placeholders with document attribution.
 
         :param question: The user's question
         :param template: Template with placeholders like [METHODOLOGY]
@@ -168,24 +168,26 @@ class LLMClient:
         :return: Dict mapping placeholder names to lists of {text, doc} objects
         """
         prompt = self._build_structured_extraction_prompt(
-            question, template, placeholders, documents
+            question,
+            template,
+            placeholders,
+            documents,
         )
         try:
             response = self.complete(prompt, json_mode=True)
             return self._normalize_structured_response(json.loads(response), placeholders)
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("Structured extraction failed: %s", e)
-            return {name: [] for name in placeholders.keys()}
+            return {name: [] for name in placeholders}
 
     async def extract_structured_async(
         self,
         question: str,
         template: str,
-        placeholders: Dict[str, str],
-        documents: List[str],
-    ) -> Dict[str, List[Dict[str, any]]]:
-        """
-        Async version of structured extraction with document attribution.
+        placeholders: dict[str, str],
+        documents: list[str],
+    ) -> dict[str, list[dict[str, any]]]:
+        """Async version of structured extraction with document attribution.
 
         :param question: The user's question
         :param template: Template with placeholders like [METHODOLOGY]
@@ -194,25 +196,29 @@ class LLMClient:
         :return: Dict mapping placeholder names to lists of {text, doc} objects
         """
         prompt = self._build_structured_extraction_prompt(
-            question, template, placeholders, documents
+            question,
+            template,
+            placeholders,
+            documents,
         )
         try:
             response = await self.complete_async(prompt, json_mode=True)
             return self._normalize_structured_response(json.loads(response), placeholders)
         except (json.JSONDecodeError, KeyError) as e:
             logger.warning("Structured extraction failed: %s", e)
-            return {name: [] for name in placeholders.keys()}
+            return {name: [] for name in placeholders}
 
     def _normalize_structured_response(
-        self, response: Dict, placeholders: Dict[str, str]
-    ) -> Dict[str, List[Dict[str, any]]]:
-        """
-        Normalize LLM response to ensure consistent format.
+        self,
+        response: dict,
+        placeholders: dict[str, str],
+    ) -> dict[str, list[dict[str, any]]]:
+        """Normalize LLM response to ensure consistent format.
 
         Handles both old format (list of strings) and new format (list of {text, doc}).
         """
         result = {}
-        for name in placeholders.keys():
+        for name in placeholders:
             items = response.get(name, [])
             normalized = []
             for item in items:
@@ -229,12 +235,10 @@ class LLMClient:
         self,
         question: str,
         template: str,
-        placeholders: Dict[str, str],
-        documents: List[str],
+        placeholders: dict[str, str],
+        documents: list[str],
     ) -> str:
         """Build prompt for structured extraction with document attribution."""
-        from .prompts import load_prompt
-
         placeholder_spec = "\n".join(f"- {name}: {hint}" for name, hint in placeholders.items())
         docs_text = "\n\n---\n\n".join(f"[Document {i}]\n{doc}" for i, doc in enumerate(documents))
 
@@ -246,19 +250,18 @@ class LLMClient:
             docs_text=docs_text,
         )
 
-    def generate_template(
+    def generate_template(  # noqa: PLR0913, PLR0917
         self,
         question: str,
-        spans: List[str],
+        spans: list[str],
         citation_count: int,
-        use_per_fact: bool = True,
-        template_preview_chars: Optional[int] = 100,
-        preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        use_per_fact: bool = True,  # noqa: FBT001, FBT002
+        template_preview_chars: int | None = 100,
+        preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002
+        template_prompt: str | None = None,
+        system_prompt: str | None = None,
     ) -> str:
-        """
-        Generate a contextual template for the given question and spans.
+        """Generate a contextual template for the given question and spans.
 
         :param question: The user's question
         :param spans: List of spans that will fill the template
@@ -274,7 +277,7 @@ class LLMClient:
         :param system_prompt: System message for the template-generation call.
         :return: Generated template string
         """
-        if use_per_fact and len(spans) <= 8:
+        if use_per_fact and len(spans) <= _MAX_PER_FACT_SPANS:
             prompt = self._build_per_fact_template_prompt(
                 question,
                 spans,
@@ -295,25 +298,23 @@ class LLMClient:
 
         try:
             return self.complete(prompt, temperature=self.temperature, system_prompt=system_prompt)
-        except Exception as e:
-            logger.error("Template generation failed: %s", e)
+        except Exception:  # fall back to default template
+            logger.exception("Template generation failed")
             return self._fallback_template(citation_count > 0)
 
-    async def generate_template_async(
+    async def generate_template_async(  # noqa: PLR0913, PLR0917
         self,
         question: str,
-        spans: List[str],
+        spans: list[str],
         citation_count: int,
-        use_per_fact: bool = True,
-        template_preview_chars: Optional[int] = 100,
-        preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        use_per_fact: bool = True,  # noqa: FBT001, FBT002
+        template_preview_chars: int | None = 100,
+        preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002
+        template_prompt: str | None = None,
+        system_prompt: str | None = None,
     ) -> str:
-        """
-        Async template generation. See generate_template for parameter docs.
-        """
-        if use_per_fact and len(spans) <= 8:
+        """Async template generation. See generate_template for parameter docs."""
+        if use_per_fact and len(spans) <= _MAX_PER_FACT_SPANS:
             prompt = self._build_per_fact_template_prompt(
                 question,
                 spans,
@@ -334,33 +335,31 @@ class LLMClient:
 
         try:
             return await self.complete_async(
-                prompt, temperature=self.temperature, system_prompt=system_prompt
+                prompt,
+                temperature=self.temperature,
+                system_prompt=system_prompt,
             )
-        except Exception as e:
-            logger.error("Async template generation failed: %s", e)
+        except Exception:  # fall back to default template
+            logger.exception("Async template generation failed")
             return self._fallback_template(citation_count > 0)
 
-    def _build_extraction_prompt(self, question: str, documents: Dict[str, str]) -> str:
+    def _build_extraction_prompt(self, question: str, documents: dict[str, str]) -> str:
         """Build the prompt for batch span extraction."""
-        from .prompts import load_prompt
-
         return load_prompt(
             "extraction/default",
             question=question,
             documents=json.dumps(documents, indent=2),
         )
 
-    def _build_per_fact_template_prompt(
+    def _build_per_fact_template_prompt(  # noqa: PLR0913, PLR0917
         self,
         question: str,
-        spans: List[str],
+        spans: list[str],
         citation_count: int,
-        template_preview_chars: Optional[int] = 100,
-        preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
+        template_preview_chars: int | None = 100,
+        preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002
+        template_prompt: str | None = None,
     ) -> str:
-        from .prompts import load_prompt, render_prompt
-
         span_lines = []
         for i, span in enumerate(spans, start=1):
             text = span if preserve_span_newlines else span.replace("\n", " ")
@@ -371,27 +370,25 @@ class LLMClient:
             span_lines.append(f"{i}. {text}{suffix}")
         spans_block = "\n".join(span_lines)
 
-        ctx = dict(
-            question=question,
-            n_spans=len(spans),
-            spans_block=spans_block,
-            citation_count=citation_count,
-        )
+        ctx = {
+            "question": question,
+            "n_spans": len(spans),
+            "spans_block": spans_block,
+            "citation_count": citation_count,
+        }
         if template_prompt is not None:
             return render_prompt(template_prompt, **ctx)
         return load_prompt("template/per_fact", **ctx)
 
-    def _build_aggregate_template_prompt(
+    def _build_aggregate_template_prompt(  # noqa: PLR0913, PLR0917
         self,
         question: str,
-        spans: List[str],
+        spans: list[str],
         citation_count: int,
-        template_preview_chars: Optional[int] = 100,
-        preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
+        template_preview_chars: int | None = 100,
+        preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002
+        template_prompt: str | None = None,
     ) -> str:
-        from .prompts import load_prompt, render_prompt
-
         preview_chars = 50 if template_preview_chars is None else min(50, template_preview_chars)
         preview_spans = []
         for span in spans[:3]:
@@ -399,45 +396,53 @@ class LLMClient:
             preview_spans.append(text[:preview_chars] + "...")
         span_preview = " | ".join(preview_spans)
 
-        ctx = dict(
-            question=question,
-            n_spans=len(spans),
-            span_preview=span_preview,
-            citation_count=citation_count,
-        )
+        ctx = {
+            "question": question,
+            "n_spans": len(spans),
+            "span_preview": span_preview,
+            "citation_count": citation_count,
+        }
         if template_prompt is not None:
             return render_prompt(template_prompt, **ctx)
         return load_prompt("template/aggregate", **ctx)
 
-    def _fallback_template(self, has_citations: bool = False) -> str:
+    def _fallback_template(self, has_citations: bool = False) -> str:  # noqa: FBT001, FBT002
         """Return a simple fallback template when generation fails."""
-        from .prompts import load_prompt
-
         return load_prompt("template/fallback", has_citations=has_citations)
 
     # Batch span extraction API (for compatibility)
     def extract_relevant_spans_batch(
-        self, question: str, documents: Dict[str, str]
-    ) -> Dict[str, List[str]]:
+        self,
+        question: str,
+        documents: dict[str, str],
+    ) -> dict[str, list[str]]:
+        """Extract spans for a batch of documents."""
         return self.extract_spans(question, documents)
 
     async def extract_relevant_spans_batch_async(
-        self, question: str, documents: Dict[str, str]
-    ) -> Dict[str, List[str]]:
+        self,
+        question: str,
+        documents: dict[str, str],
+    ) -> dict[str, list[str]]:
+        """Extract spans for a batch of documents asynchronously."""
         return await self.extract_spans_async(question, documents)
 
     # Single-doc convenience
-    def extract_relevant_spans(self, question: str, document_text: str) -> List[str]:
+    def extract_relevant_spans(self, question: str, document_text: str) -> list[str]:
+        """Extract spans from a single document."""
         result = self.extract_relevant_spans_batch(question, {"doc": document_text})
         return result.get("doc", [])
 
-    async def extract_relevant_spans_async(self, question: str, document_text: str) -> List[str]:
+    async def extract_relevant_spans_async(self, question: str, document_text: str) -> list[str]:
+        """Extract spans from a single document asynchronously."""
         result = await self.extract_relevant_spans_batch_async(question, {"doc": document_text})
         return result.get("doc", [])
 
     # Template generation (simple compatibility methods)
     def simple_complete(self, prompt: str) -> str:
+        """Complete a prompt with default settings."""
         return self.complete(prompt)
 
     async def simple_complete_async(self, prompt: str) -> str:
+        """Complete a prompt asynchronously with default settings."""
         return await self.complete_async(prompt)

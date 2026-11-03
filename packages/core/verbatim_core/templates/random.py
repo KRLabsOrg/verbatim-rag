@@ -1,29 +1,26 @@
-"""
-Random template strategy for the Verbatim RAG system.
+"""Random template strategy for the Verbatim RAG system.
 
 Provides random template selection from a pool of diverse templates.
 Templates can be generated using LLM or manually curated.
 """
 
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar
 
 from verbatim_core.llm_client import LLMClient
-
-from .base import TemplateStrategy
-from .filler import TemplateFiller
+from verbatim_core.templates.base import TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 
 
 class RandomTemplate(TemplateStrategy):
-    """
-    Random template strategy that selects from a pool of templates.
+    """Random template strategy that selects from a pool of templates.
 
     This strategy maintains a collection of templates and randomly selects
     one for each use. Templates can be manually added or generated using
     an LLM for diversity.
     """
 
-    DEFAULT_TEMPLATES = [
+    DEFAULT_TEMPLATES: ClassVar[list[str]] = [
         """## Key Findings
 
 Based on the documents, here are the relevant facts:
@@ -63,12 +60,11 @@ The relevant information from the documents includes:
 
     def __init__(
         self,
-        templates: List[str] = None,
-        llm_client: Optional[LLMClient] = None,
+        templates: list[str] | None = None,
+        llm_client: LLMClient | None = None,
         citation_mode: str = "inline",
-    ):
-        """
-        Initialize random template strategy.
+    ) -> None:
+        """Initialize random template strategy.
 
         :param templates: Optional list of templates (uses defaults if None)
         :param llm_client: Optional LLM client for generating more templates
@@ -83,12 +79,12 @@ The relevant information from the documents includes:
             self.validate_template(template)
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set the citation mode and propagate it to the filler."""
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
-    def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
-        """
-        Randomly select a template from the pool.
+    def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
+        """Randomly select a template from the pool.
 
         :param question: User's question (not used for selection)
         :param spans: List of spans (not used for selection)
@@ -98,16 +94,15 @@ The relevant information from the documents includes:
         if not self.templates:
             return self._get_fallback_template()
 
-        return random.choice(self.templates)
+        return random.choice(self.templates)  # noqa: S311  # non-cryptographic template selection
 
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
-        """
-        Fill the template with actual span content.
+        """Fill the template with actual span content.
 
         :param template: Template string with placeholders
         :param display_spans: Spans to display with full text
@@ -116,17 +111,15 @@ The relevant information from the documents includes:
         """
         return self.filler.fill(template, display_spans, citation_spans)
 
-    def save_state(self) -> Dict[str, Any]:
-        """
-        Save the current template pool.
+    def save_state(self) -> dict[str, Any]:
+        """Save the current template pool.
 
         :return: Dictionary with template pool state
         """
         return {"type": "random", "templates": self.templates}
 
-    def load_state(self, state: Dict[str, Any]) -> None:
-        """
-        Load template pool from saved state.
+    def load_state(self, state: dict[str, Any]) -> None:
+        """Load template pool from saved state.
 
         :param state: Dictionary with template pool configuration
         """
@@ -136,13 +129,11 @@ The relevant information from the documents includes:
             for template in self.templates:
                 try:
                     self.validate_template(template)
-                except ValueError as e:
-                    print(f"Warning: Invalid template removed during load: {e}")
+                except ValueError:  # noqa: PERF203  # per-item validation; keep behavior
                     self.templates.remove(template)
 
     def add_template(self, template: str) -> None:
-        """
-        Add a new template to the pool.
+        """Add a new template to the pool.
 
         :param template: Template to add
         :raises ValueError: If template is invalid
@@ -152,8 +143,7 @@ The relevant information from the documents includes:
             self.templates.append(template)
 
     def remove_template(self, template: str) -> bool:
-        """
-        Remove a template from the pool.
+        """Remove a template from the pool.
 
         :param template: Template to remove
         :return: True if template was found and removed
@@ -168,22 +158,21 @@ The relevant information from the documents includes:
         self.templates.clear()
 
     def get_template_count(self) -> int:
-        """
-        Get the number of templates in the pool.
+        """Get the number of templates in the pool.
 
         :return: Number of templates
         """
         return len(self.templates)
 
     def generate_diverse_templates(self, count: int = 10) -> None:
-        """
-        Generate diverse templates using LLM and add to pool.
+        """Generate diverse templates using LLM and add to pool.
 
         :param count: Number of templates to generate
         :raises ValueError: If no LLM client is available
         """
         if not self.llm_client:
-            raise ValueError("LLM client required for template generation")
+            msg = "LLM client required for template generation"
+            raise ValueError(msg)
 
         prompt = f"""Create {count} diverse answer templates for a Q&A system using **Markdown formatting**. Each should:
 
@@ -214,13 +203,10 @@ Return only the templates, one per line. No numbering or explanations."""
                     if template not in self.templates:
                         self.templates.append(template)
                         added_count += 1
-                except ValueError:
+                except ValueError:  # noqa: PERF203  # per-item validation
                     continue  # Skip invalid templates
 
-            print(f"Generated and added {added_count} new templates to the pool")
-
-        except Exception as e:
-            print(f"Template generation failed: {e}")
+        except Exception:  # noqa: BLE001  # any LLM failure falls back to default templates
             # Add some fallback templates if generation fails
             fallback_templates = [
                 "Here's what the documents reveal:\n\n[DISPLAY_SPANS]",

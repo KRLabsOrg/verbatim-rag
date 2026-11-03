@@ -66,6 +66,58 @@ pip install -e packages/core/
 pip install -e .
 ```
 
+### Git hooks (prek)
+
+This repository uses [prek](https://prek.j178.dev/installation/#pypi), a
+fast pre-commit hook runner, to lint and format code (ruff), keep the
+lock files in sync, and run security checks (secret detection, shell script and
+GitHub Actions linting). The hooks are defined in `prek.toml`.
+
+```bash
+# Install prek, ruff and ty (the ty hook runs the locally installed `ty`)
+uv tool install prek
+uv tool install ruff
+uv tool install ty
+
+# Security tooling: secret detection and GitHub Actions security audit
+uv tool install detect-secrets
+uv tool install zizmor
+
+# GitHub Actions linting and shell script linting (not on PyPI), e.g. with Homebrew
+brew install actionlint shellcheck
+```
+
+On other platforms, see the
+[actionlint installation guide](https://github.com/rhysd/actionlint/blob/main/docs/install.md)
+(e.g. `go install github.com/rhysd/actionlint/cmd/actionlint@latest` or the
+download script) and the
+[shellcheck installation guide](https://github.com/koalaman/shellcheck#installing)
+(e.g. `sudo apt install shellcheck`).
+
+```bash
+
+# Install the git hooks (run before every commit)
+prek install
+
+# Also install the pre-push hooks (pytest, package build, pip-audit)
+prek install --hook-type pre-push
+```
+
+To run all hooks manually on every file:
+
+```bash
+prek run --all-files
+```
+
+Keep the hook repository references (`rev`) in `prek.toml` up to date:
+
+```bash
+prek update
+```
+
+Review the resulting `prek.toml` diff, then run `prek run --all-files` before
+committing it.
+
 ## Lightweight Core
 
 If you only need the reusable verbatim core without the full RAG pipeline (no torch, transformers, or Milvus):
@@ -115,13 +167,12 @@ processor = DocumentProcessor()
 document = processor.process_url(
     url="https://aclanthology.org/2025.bionlp-share.8.pdf",
     title="KR Labs at ArchEHR-QA 2025: A Verbatim Approach for Evidence-Based Question Answering",
-    metadata={"authors": ["Adam Kovacs", "Paul Schmitt", "Gabor Recski"]}
+    metadata={"authors": ["Adam Kovacs", "Paul Schmitt", "Gabor Recski"]},
 )
 
 # Create embedding provider and vector store
 sparse_provider = SpladeProvider(
-    model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
-    device="cpu"
+    model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill", device="cpu"
 )
 vector_store = LocalMilvusStore(
     db_path="./index.db",
@@ -131,10 +182,7 @@ vector_store = LocalMilvusStore(
 )
 
 # Create index with providers
-index = VerbatimIndex(
-    vector_store=vector_store,
-    sparse_provider=sparse_provider
-)
+index = VerbatimIndex(vector_store=vector_store, sparse_provider=sparse_provider)
 index.add_documents([document])
 
 # Then query the index
@@ -158,7 +206,7 @@ export OPENAI_API_KEY=your_api_key_here
 1. **Document Processing**: Documents are processed using docling for format conversion and chonkie for chunking
 2. **Document Indexing**: Documents are indexed using vector embeddings (both dense and sparse)
 3. **Template Management**: Response templates are created and stored for common question types
-4. **Query Processing**: 
+4. **Query Processing**:
    - Relevant documents are retrieved
    - Key passages are extracted verbatim using either LLM-based or fine-tuned span extractors
    - Responses are structured using templates
@@ -332,8 +380,7 @@ extractor = ModelSpanExtractor(
 )
 
 sparse_provider = SpladeProvider(
-    model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill",
-    device="cpu"
+    model_name="opensearch-project/opensearch-neural-sparse-encoding-doc-v2-distill", device="cpu"
 )
 vector_store = LocalMilvusStore(
     db_path="./index.db",
