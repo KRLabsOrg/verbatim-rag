@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
   line rejects the vector-less metadata collection `LocalMilvusStore` creates.
 
 ### Fixed
+- `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans
+  the answer shows, as the streaming path already did. They counted the retrieved chunks
+  instead, so with more chunks than shown spans, cited-only spans were marked as displayed,
+  and with fewer, shown spans were marked as references (#86). Structured mode is unchanged.
 - `LocalMilvusStore` no longer fails on Milvus Lite 3 and pymilvus 3. Its metadata collection
   (`<collection>_documents`) now has a placeholder vector field, as `CloudMilvusStore` already
   does, because the 3.x line rejects collections without a vector field (#69).
