@@ -11,16 +11,33 @@ import asyncio
 import json
 import logging
 from abc import ABC
-from typing import Any, Dict, List, Sequence
+from dataclasses import dataclass
+from typing import Any, Dict, List, Literal, Sequence, Tuple, Type, TypeVar
+
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
 from ._deprecation import deprecated, warn_deprecated
-from ._locate import find_fuzzy_match, locate
+from ._locate import locate
 from ._logging import content_logger
-from .errors import InvalidInputError
-from .llm_client import LLMClient
-from .types import Chunk, Extraction, ResultWarning, Usage
+from .errors import ConfigurationError, InvalidInputError, UpstreamError
+from .llm_client import Completion, LLMClient
+from .prompts import load_prompt, render_prompt
+from .types import Chunk, ExtractedSpan, Extraction, ResultWarning, Usage
 
 logger = logging.getLogger(__name__)
+
+
+class ExtractConfig(BaseModel):
+    """Settings of an extractor. Each extractor has its own subclass.
+
+    The constructor of an extractor takes its default config, and a config passed to `extract`
+    replaces it for that call.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+
+_ConfigT = TypeVar("_ConfigT", bound=ExtractConfig)
 
 
 class SpanExtractor(ABC):
@@ -40,7 +57,9 @@ class SpanExtractor(ABC):
         if not (_overrides(cls, "extract") or _overrides(cls, "extract_spans")):
             raise TypeError(f"{cls.__qualname__} must implement extract() or extract_spans()")
 
-    def extract(self, question: str, chunks: Sequence[Chunk], *, config: Any = None) -> Extraction:
+    def extract(
+        self, question: str, chunks: Sequence[Chunk], *, config: ExtractConfig | None = None
+    ) -> Extraction:
         """
         Extract the spans of the chunks that are relevant to the question.
 
@@ -54,7 +73,7 @@ class SpanExtractor(ABC):
         return _locate_span_texts(chunks, self.extract_spans(question, chunks))
 
     async def aextract(
-        self, question: str, chunks: Sequence[Chunk], *, config: Any = None
+        self, question: str, chunks: Sequence[Chunk], *, config: ExtractConfig | None = None
     ) -> Extraction:
         """Async version of `extract`."""
         if _overrides(type(self), "extract"):
@@ -93,6 +112,40 @@ class SpanExtractor(ABC):
 
 def _overrides(cls: type, name: str) -> bool:
     return getattr(cls, name) is not getattr(SpanExtractor, name)
+
+
+def _default_config(config: _ConfigT | None, config_class: Type[_ConfigT]) -> _ConfigT:
+    """The default config an extractor's constructor was given, or the default of its class."""
+    if config is None:
+        return config_class()
+    if not isinstance(config, config_class):
+        raise ConfigurationError(f"config must be a {config_class.__name__}.", code="invalid_value")
+    return config
+
+
+def _config_from_settings(config_class: Type[_ConfigT], settings: Dict[str, Any]) -> _ConfigT:
+    """The config that the deprecated setting arguments of an extractor's constructor describe."""
+    try:
+        return config_class(**settings)
+    except ValidationError as e:
+        names = ", ".join(str(error["loc"][0]) for error in e.errors())
+        raise ConfigurationError(
+            f"Invalid value for {names}. See {config_class.__name__} for the valid values.",
+            code="invalid_value",
+        ) from e
+
+
+def _call_config(
+    config: _ConfigT | None, default: _ConfigT, config_class: Type[_ConfigT]
+) -> _ConfigT:
+    """The config of one call: the one the call passed, else the extractor's default."""
+    if config is None:
+        return default
+    if not isinstance(config, config_class):
+        raise InvalidInputError(
+            f"config must be a {config_class.__name__}.", code="invalid_value", param="config"
+        )
+    return config
 
 
 def _check_unique_ids(chunks: Sequence[Chunk]) -> None:
@@ -140,31 +193,14 @@ def _extract_spans_implementation(cls: type) -> type:
 
 def _locate_span_texts(chunks: Sequence[Chunk], span_texts: Dict[str, List[str]]) -> Extraction:
     """Turn today's span texts, keyed by chunk text, into an extraction."""
-    spans = []
-    warnings = []
-    dropped = []
-    for position, chunk in enumerate(chunks):
-        for text in span_texts.get(chunk.text, []):
-            span = locate(text, chunk)
-            if span is None:
-                dropped.append(text)
-                warnings.append(
-                    ResultWarning(
-                        code="span_text_not_found",
-                        message=f"A span text for chunks[{position}] is not in the chunk.",
-                    )
-                )
-            elif span not in spans:
-                spans.append(span)
-
-    if dropped:
-        logger.warning(
-            "Dropped %d span texts that are not in their chunks",
-            len(dropped),
-            extra={"event": "fallback_used", "warning_code": "span_text_not_found"},
-        )
-        content_logger.debug("Dropped span texts: %r", dropped)
-
+    texts = [
+        (position, text)
+        for position, chunk in enumerate(chunks)
+        for text in span_texts.get(chunk.text, [])
+    ]
+    spans, warnings = _locate_texts(
+        chunks, texts, fuzzy_threshold=0.8, what="span text", code="span_text_not_found"
+    )
     # The extractor doesn't say which model it runs.
     usage = Usage(
         model_id=None,
@@ -172,6 +208,51 @@ def _locate_span_texts(chunks: Sequence[Chunk], span_texts: Dict[str, List[str]]
         units={"chunks": len(chunks), "characters": sum(len(chunk.text) for chunk in chunks)},
     )
     return Extraction(spans=spans, usage=[usage], warnings=warnings)
+
+
+def _locate_texts(
+    chunks: Sequence[Chunk],
+    texts: Sequence[Tuple[int, str]],
+    *,
+    fuzzy_threshold: float | None,
+    what: str,
+    code: str,
+) -> Tuple[List[ExtractedSpan], List[ResultWarning]]:
+    """Locate texts without offsets in their chunks. Identical spans collapse into one.
+
+    Empty texts are skipped: they point at nothing, so they are not missing from the chunk.
+
+    :param texts: Each text with the position of its chunk
+    :param what: What the texts are, for the messages, such as "quote"
+    :param code: The code of the warning for a text that can't be located
+    :return: The spans, and a warning for each text that can't be located
+    """
+    spans: List[ExtractedSpan] = []
+    warnings = []
+    dropped = []
+    for position, text in texts:
+        if not text.strip():
+            continue
+        span = locate(text, chunks[position], fuzzy_threshold=fuzzy_threshold)
+        if span is None:
+            dropped.append(text)
+            warnings.append(
+                ResultWarning(
+                    code=code, message=f"A {what} for chunks[{position}] is not in the chunk."
+                )
+            )
+        elif span not in spans:
+            spans.append(span)
+
+    if dropped:
+        logger.warning(
+            "Dropped %d %ss that are not in their chunks",
+            len(dropped),
+            what,
+            extra={"event": "fallback_used", "warning_code": code},
+        )
+        content_logger.debug("Dropped %ss: %r", what, dropped)
+    return spans, warnings
 
 
 def _chunks_from_results(search_results: List[Any]) -> List[Chunk]:
@@ -606,376 +687,397 @@ class SemanticHighlightExtractor(SpanExtractor):
         return regions
 
 
+class LLMExtractConfig(ExtractConfig):
+    """Settings of `LLMSpanExtractor`."""
+
+    # "batch" sends up to batch_size chunks in one LLM call, "individual" one chunk per call, and
+    # "auto" one batch when there are at most batch_size chunks and one chunk per call otherwise.
+    extraction_mode: Literal["batch", "individual", "auto"] = "auto"
+    batch_size: PositiveInt = 5
+    # "exact" locates a quote only where the chunk contains it, "fuzzy" also where it differs a
+    # little, for example in spacing or punctuation.
+    span_match_mode: Literal["exact", "fuzzy"] = "exact"
+    # How closely, from 0 to 1, a quote must match the chunk text to be located in fuzzy mode.
+    fuzzy_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+    # A Jinja2 prompt with the variables `question` and `documents`, instead of the bundled one.
+    extraction_prompt: str | None = None
+    system_prompt: str | None = None  # sent only with extraction_prompt
+
+
+# Marks the deprecated constructor arguments that the caller didn't pass.
+_UNSET: Any = object()
+
+
 class LLMSpanExtractor(SpanExtractor):
-    """Extract spans using an LLM with centralized client and batch processing."""
+    """Extract spans with an LLM that quotes the text of each chunk that answers the question.
+
+    Each quote is located in its chunk: the first exact occurrence, else in fuzzy match mode the
+    best fuzzy match, the earliest on a tie. A span's text is the chunk's text at the located
+    offsets, never the quote. A quote that can't be located is dropped and reported in the
+    result's warnings with the code `quote_not_found`. Every span has the score 1.0, "extracted
+    without a score".
+
+    A failed LLM call raises, and the whole extraction fails.
+    """
 
     def __init__(
         self,
         llm_client: LLMClient | None = None,
-        model: str = "gpt-4o-mini",
-        extraction_mode: str = "auto",
-        max_display_spans: int = 5,
-        batch_size: int = 5,
-        span_match_mode: str = "exact",
-        fuzzy_threshold: float = 0.8,
-        extraction_prompt: str | None = None,
-        system_prompt: str | None = None,
+        model: str = _UNSET,
+        extraction_mode: str = _UNSET,
+        max_display_spans: int = _UNSET,
+        batch_size: int = _UNSET,
+        span_match_mode: str = _UNSET,
+        fuzzy_threshold: float = _UNSET,
+        extraction_prompt: str | None = _UNSET,
+        system_prompt: str | None = _UNSET,
+        *,
+        config: LLMExtractConfig | None = None,
     ):
         """
-        Initialize the LLM span extractor.
+        :param llm_client: The client that makes the LLM calls
+        :param config: The settings of a call, unless the call passes its own
 
-        :param llm_client: LLM client for extraction (creates one if None)
-        :param model: The LLM model to use (if creating new client)
-        :param extraction_mode: "batch", "individual", or "auto"
-        :param max_display_spans: Maximum spans to prioritize for display
-        :param batch_size: Maximum documents to process in batch mode
-        :param span_match_mode: "exact" for substring match, "fuzzy" for fuzzy matching
-        :param fuzzy_threshold: Minimum score (0-1) for fuzzy span matching
-        :param extraction_prompt: Custom prompt template with {question} and {documents} placeholders
-        :param system_prompt: Optional system prompt to use with custom extraction_prompt
+        The other arguments are deprecated. Without ``llm_client`` the extractor builds an
+        ``LLMClient(model)``. The settings from ``extraction_mode`` to ``system_prompt`` belong in
+        ``config``, and ``max_display_spans`` is unused.
+        :raises ConfigurationError: If ``config`` is not an ``LLMExtractConfig``, is passed
+            together with the deprecated settings, or a deprecated setting has an invalid value
         """
-        if span_match_mode not in ("exact", "fuzzy"):
-            raise ValueError(f"span_match_mode must be 'exact' or 'fuzzy', got {span_match_mode!r}")
-        self.llm_client = llm_client or LLMClient(model)
-        self.extraction_mode = extraction_mode
-        self.max_display_spans = max_display_spans
-        self.batch_size = batch_size
-        self.span_match_mode = span_match_mode
-        self.fuzzy_threshold = fuzzy_threshold
-        self.extraction_prompt = extraction_prompt
-        self.system_prompt = system_prompt
+        settings = {
+            "extraction_mode": extraction_mode,
+            "batch_size": batch_size,
+            "span_match_mode": span_match_mode,
+            "fuzzy_threshold": fuzzy_threshold,
+            "extraction_prompt": extraction_prompt,
+            "system_prompt": system_prompt,
+        }
+        settings = {name: value for name, value in settings.items() if value is not _UNSET}
+        if settings and config is not None:
+            raise ConfigurationError(
+                "Pass the settings of LLMSpanExtractor either in config or as arguments, not both.",
+                code="invalid_value",
+            )
+        if settings:
+            warn_deprecated(
+                f"Passing {', '.join(settings)} to LLMSpanExtractor",
+                use="config=LLMExtractConfig(...)",
+            )
+            config = _config_from_settings(LLMExtractConfig, settings)
+        if max_display_spans is not _UNSET:
+            warn_deprecated(
+                "Passing max_display_spans to LLMSpanExtractor",
+                use="TransformConfig(max_display_spans=...)",
+            )
+        if llm_client is None:
+            warn_deprecated(
+                "LLMSpanExtractor without an llm_client", use="LLMSpanExtractor(LLMClient(model))"
+            )
+            llm_client = LLMClient("gpt-4o-mini" if model is _UNSET else model)
+        elif model is not _UNSET:
+            warn_deprecated("Passing model to LLMSpanExtractor", use="the model of the llm_client")
 
-    def _build_custom_prompt(self, question: str, documents: Dict[str, str]) -> str:
-        """Build a prompt from the custom extraction_prompt template.
+        self.llm_client = llm_client
+        self.config = _default_config(config, LLMExtractConfig)
 
-        Uses Jinja2 rendering (same as the prompt bank) so custom prompts
-        can use {{ variable }}, {% if %} conditionals, and literal braces
-        without escaping issues.
-
-        :param question: The user's question
-        :param documents: Dictionary mapping doc IDs to document text
-        :return: Formatted prompt string
+    def extract(
+        self, question: str, chunks: Sequence[Chunk], *, config: LLMExtractConfig | None = None
+    ) -> Extraction:
         """
-        from .prompts import render_prompt
+        Extract the spans of the chunks that are relevant to the question.
 
-        docs_formatted = "\n\n".join(f"[{doc_id}]\n{text}" for doc_id, text in documents.items())
-        return render_prompt(
-            self.extraction_prompt,
-            question=question,
-            documents=docs_formatted,
-        )
+        :param question: The query or question
+        :param chunks: Chunks with unique ids
+        :param config: Replaces the extractor's default config for this call
+        :return: The spans, with the usage and warnings of the call
+        :raises InvalidInputError: If two chunks share an id, or the config is of the wrong type
+        :raises UpstreamError: If an LLM call fails or its reply can't be read
+        :raises ConfigurationError: If the LLM service rejects the key, the model or the quota
+        """
+        config = _call_config(config, self.config, LLMExtractConfig)
+        _check_unique_ids(chunks)
+        calls = _plan_llm_calls(question, chunks, config)
+        logger.debug("Extracting spans from %d chunks in %d LLM calls", len(chunks), len(calls))
+        completions = [_complete(self.llm_client, call) for call in calls]
+        return _extraction_from_replies(chunks, calls, completions, config, self._model_id())
 
+    async def aextract(
+        self, question: str, chunks: Sequence[Chunk], *, config: LLMExtractConfig | None = None
+    ) -> Extraction:
+        """Async version of `extract`. It makes its LLM calls concurrently."""
+        config = _call_config(config, self.config, LLMExtractConfig)
+        _check_unique_ids(chunks)
+        calls = _plan_llm_calls(question, chunks, config)
+        logger.debug("Extracting spans from %d chunks in %d LLM calls", len(chunks), len(calls))
+        completions = await asyncio.gather(*(_acomplete(self.llm_client, call) for call in calls))
+        return _extraction_from_replies(chunks, calls, completions, config, self._model_id())
+
+    @deprecated("LLMSpanExtractor.extract_spans", use="extract()")
     def extract_spans(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
         """
-        Extract spans using LLM with mode selection.
+        Extract relevant spans from search results.
+
+        Unlike `extract`, it tolerates failed LLM calls. When a batch call fails, it retries the
+        chunks of the batch one by one, and a chunk whose call fails yields no spans.
 
         :param question: The query or question
         :param search_results: List of search results to extract from
         :return: Dictionary mapping result text to list of relevant spans
         """
-        if not search_results:
-            return {}
+        chunks = _chunks_from_results(search_results)
+        batched, groups = _call_groups(len(chunks), self.config)
+        spans = [
+            span
+            for group in groups
+            for span in self._extract_group(question, chunks, group, batched)
+        ]
+        return _span_texts_by_chunk_text(chunks, Extraction(spans=spans))
 
-        # Decide on processing mode
-        should_batch = self.extraction_mode == "batch" or (
-            self.extraction_mode == "auto" and len(search_results) <= self.batch_size
-        )
-
-        if should_batch:
-            return self._extract_spans_batch(question, search_results)
-        else:
-            return self._extract_spans_individual(question, search_results)
-
+    @deprecated("LLMSpanExtractor.extract_spans_async", use="aextract()")
     async def extract_spans_async(
         self, question: str, search_results: List[Any]
     ) -> Dict[str, List[str]]:
-        """
-        Async version of span extraction.
-
-        :param question: The query or question
-        :param search_results: List of search results to extract from
-        :return: Dictionary mapping result text to list of relevant spans
-        """
-        if not search_results:
-            return {}
-
-        should_batch = self.extraction_mode == "batch" or (
-            self.extraction_mode == "auto" and len(search_results) <= self.batch_size
+        """Async version of `extract_spans`."""
+        chunks = _chunks_from_results(search_results)
+        batched, groups = _call_groups(len(chunks), self.config)
+        group_spans = await asyncio.gather(
+            *(self._aextract_group(question, chunks, group, batched) for group in groups)
         )
+        spans = [span for spans in group_spans for span in spans]
+        return _span_texts_by_chunk_text(chunks, Extraction(spans=spans))
 
-        if should_batch:
-            return await self._extract_spans_batch_async(question, search_results)
+    def _extract_group(
+        self, question: str, chunks: List[Chunk], group: range, batched: bool
+    ) -> List[ExtractedSpan]:
+        """The spans of the chunks one LLM call covers, retried one by one if a batch call fails."""
+        if batched:
+            try:
+                batch = chunks[group.start : group.stop]
+                return self.extract(question, batch, config=self._batch_config).spans
+            except UpstreamError as error:
+                _log_retry(group, error)
+        spans = []
+        for position in group:
+            try:
+                config = self._individual_config
+                spans += self.extract(question, [chunks[position]], config=config).spans
+            except UpstreamError as error:
+                _log_failed_chunk(position, error)
+        return spans
+
+    async def _aextract_group(
+        self, question: str, chunks: List[Chunk], group: range, batched: bool
+    ) -> List[ExtractedSpan]:
+        """Async version of `_extract_group`."""
+        if batched:
+            try:
+                extraction = await self.aextract(
+                    question, chunks[group.start : group.stop], config=self._batch_config
+                )
+                return extraction.spans
+            except UpstreamError as error:
+                _log_retry(group, error)
+        spans = []
+        for position in group:
+            try:
+                extraction = await self.aextract(
+                    question, [chunks[position]], config=self._individual_config
+                )
+                spans += extraction.spans
+            except UpstreamError as error:
+                _log_failed_chunk(position, error)
+        return spans
+
+    @property
+    def _batch_config(self) -> LLMExtractConfig:
+        return self.config.model_copy(update={"extraction_mode": "batch"})
+
+    @property
+    def _individual_config(self) -> LLMExtractConfig:
+        return self.config.model_copy(update={"extraction_mode": "individual"})
+
+    def _model_id(self) -> str | None:
+        return getattr(self.llm_client, "model", None)
+
+
+@dataclass(frozen=True)
+class _LLMCall:
+    """One LLM call of an extraction: the chunks it covers and the prompt that sends them."""
+
+    positions: range  # the positions of its chunks in the input
+    keys: Tuple[str, ...]  # the key of each of its chunks in the prompt and in the reply
+    prompt: str
+    system_prompt: str | None
+
+
+def _call_groups(chunk_count: int, config: LLMExtractConfig) -> Tuple[bool, List[range]]:
+    """Whether the chunks go to the LLM in batches, and the positions of the chunks of each call."""
+    batched = config.extraction_mode == "batch" or (
+        config.extraction_mode == "auto" and chunk_count <= config.batch_size
+    )
+    size = config.batch_size if batched else 1
+    groups = [range(start, min(start + size, chunk_count)) for start in range(0, chunk_count, size)]
+    return batched, groups
+
+
+def _plan_llm_calls(
+    question: str, chunks: Sequence[Chunk], config: LLMExtractConfig
+) -> List[_LLMCall]:
+    batched, groups = _call_groups(len(chunks), config)
+    calls = []
+    for group in groups:
+        if batched:
+            keys = tuple(f"doc_{i}" for i in range(len(group)))
         else:
-            return await self._extract_spans_individual_async(question, search_results)
+            # As before 0.3.0: a single chunk is "doc", or "doc_0" in a custom prompt.
+            keys = ("doc_0",) if config.extraction_prompt else ("doc",)
+        documents = {key: chunks[position].text for key, position in zip(keys, group)}
+        calls.append(
+            _LLMCall(
+                positions=group,
+                keys=keys,
+                prompt=_extraction_prompt(question, documents, config),
+                system_prompt=config.system_prompt if config.extraction_prompt else None,
+            )
+        )
+    return calls
 
-    def _extract_spans_batch(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Extract spans from multiple documents using batch processing.
 
-        Iterates in chunks of batch_size so all documents are processed.
-        """
-        logger.info("Extracting spans (batch mode)...")
+def _complete(client: LLMClient, call: _LLMCall) -> Completion:
+    if _replaces(client, "complete", "completion"):
+        text = client.complete(call.prompt, json_mode=True, system_prompt=call.system_prompt)
+        return Completion(text=text)
+    return client.completion(call.prompt, json_mode=True, system_prompt=call.system_prompt)
 
-        all_verified: Dict[str, List[str]] = {}
 
-        for batch_start in range(0, len(search_results), self.batch_size):
-            batch = search_results[batch_start : batch_start + self.batch_size]
+async def _acomplete(client: LLMClient, call: _LLMCall) -> Completion:
+    if _replaces(client, "complete_async", "completion_async"):
+        text = await client.complete_async(
+            call.prompt, json_mode=True, system_prompt=call.system_prompt
+        )
+        return Completion(text=text)
+    return await client.completion_async(
+        call.prompt, json_mode=True, system_prompt=call.system_prompt
+    )
 
-            # Build document mapping for this chunk
-            documents_text = {}
-            for i, result in enumerate(batch):
-                documents_text[f"doc_{i}"] = getattr(result, "text", "")
 
-            try:
-                if self.extraction_prompt:
-                    # Custom prompt path
-                    prompt = self._build_custom_prompt(question, documents_text)
-                    response = self.llm_client.complete(
-                        prompt, json_mode=True, system_prompt=self.system_prompt
-                    )
-                    extracted_data = json.loads(response)
-                else:
-                    # Use LLMClient for extraction
-                    extracted_data = self.llm_client.extract_spans(question, documents_text)
+def _replaces(client: Any, old: str, new: str) -> bool:
+    """Whether a client replaces LLMClient's old method but not the new one.
 
-                # Map back to original search results and verify spans
-                for i, result in enumerate(batch):
-                    doc_key = f"doc_{i}"
-                    result_text = getattr(result, "text", "")
-                    if doc_key in extracted_data:
-                        verified = self._verify_spans(extracted_data[doc_key], result_text)
-                        all_verified[result_text] = verified
-                    else:
-                        all_verified[result_text] = []
+    Clients written before 0.3.0 replace `complete`, for example to call another provider. They
+    are called that way, and their usage has no model version or tokens.
+    """
+    client_class = type(client)
+    if not hasattr(client_class, new):
+        return True
+    if getattr(client_class, new) is not getattr(LLMClient, new):
+        return False
+    return getattr(client_class, old) is not getattr(LLMClient, old)
 
-            except Exception as e:
-                logger.warning(
-                    "Batch extraction failed for chunk starting at %d, "
-                    "falling back to individual: %s",
-                    batch_start,
-                    e,
-                )
-                # Fall back to individual for this chunk
-                for result in batch:
-                    result_text = getattr(result, "text", "")
-                    try:
-                        if self.extraction_prompt:
-                            single_docs = {"doc_0": result_text}
-                            prompt = self._build_custom_prompt(question, single_docs)
-                            response = self.llm_client.complete(
-                                prompt, json_mode=True, system_prompt=self.system_prompt
-                            )
-                            extracted = json.loads(response).get("doc_0", [])
-                        else:
-                            extracted = self.llm_client.extract_relevant_spans(
-                                question, result_text
-                            )
-                        all_verified[result_text] = self._verify_spans(extracted, result_text)
-                    except Exception as inner_e:
-                        logger.error("Individual fallback extraction failed: %s", inner_e)
-                        all_verified[result_text] = []
 
-        return all_verified
+def _extraction_prompt(question: str, documents: Dict[str, str], config: LLMExtractConfig) -> str:
+    if config.extraction_prompt:
+        formatted = "\n\n".join(f"[{key}]\n{text}" for key, text in documents.items())
+        return render_prompt(config.extraction_prompt, question=question, documents=formatted)
+    return load_prompt(
+        "extraction/default", question=question, documents=json.dumps(documents, indent=2)
+    )
 
-    async def _extract_spans_batch_async(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Async batch extraction.
 
-        Iterates in chunks of batch_size so all documents are processed.
-        """
-        logger.info("Extracting spans (async batch mode)...")
+def _extraction_from_replies(
+    chunks: Sequence[Chunk],
+    calls: List[_LLMCall],
+    completions: Sequence[Completion],
+    config: LLMExtractConfig,
+    model_id: str | None,
+) -> Extraction:
+    quotes = []
+    for call, completion in zip(calls, completions):
+        quotes_by_key = _parse_reply(completion.text, call.keys)
+        quotes += [
+            (position, quote)
+            for key, position in zip(call.keys, call.positions)
+            for quote in quotes_by_key[key]
+        ]
+    fuzzy_threshold = config.fuzzy_threshold if config.span_match_mode == "fuzzy" else None
+    spans, warnings = _locate_texts(
+        chunks, quotes, fuzzy_threshold=fuzzy_threshold, what="quote", code="quote_not_found"
+    )
+    return Extraction(
+        spans=spans, usage=_llm_usage(chunks, calls, completions, model_id), warnings=warnings
+    )
 
-        all_verified: Dict[str, List[str]] = {}
 
-        for batch_start in range(0, len(search_results), self.batch_size):
-            batch = search_results[batch_start : batch_start + self.batch_size]
+def _parse_reply(text: str, keys: Sequence[str]) -> Dict[str, List[str]]:
+    """The quotes in an LLM reply, a JSON object that maps chunk keys to lists of quotes.
 
-            documents_text = {}
-            for i, result in enumerate(batch):
-                documents_text[f"doc_{i}"] = getattr(result, "text", "")
+    A chunk the reply leaves out has no quotes.
+    """
+    try:
+        reply = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise _invalid_reply() from e
+    if not isinstance(reply, dict):
+        raise _invalid_reply()
+    quotes = {key: reply.get(key, []) for key in keys}
+    for key_quotes in quotes.values():
+        if not isinstance(key_quotes, list) or not all(isinstance(q, str) for q in key_quotes):
+            raise _invalid_reply()
+    return quotes
 
-            try:
-                if self.extraction_prompt:
-                    prompt = self._build_custom_prompt(question, documents_text)
-                    response = await self.llm_client.complete_async(
-                        prompt, json_mode=True, system_prompt=self.system_prompt
-                    )
-                    extracted_data = json.loads(response)
-                else:
-                    extracted_data = await self.llm_client.extract_spans_async(
-                        question, documents_text
-                    )
 
-                for i, result in enumerate(batch):
-                    doc_key = f"doc_{i}"
-                    result_text = getattr(result, "text", "")
-                    if doc_key in extracted_data:
-                        verified = self._verify_spans(extracted_data[doc_key], result_text)
-                        all_verified[result_text] = verified
-                    else:
-                        all_verified[result_text] = []
+def _invalid_reply() -> UpstreamError:
+    return UpstreamError(
+        "The LLM sent a reply that is not a JSON object of quote lists. Retry, and check that a "
+        "custom extraction prompt asks for that format.",
+        code="invalid_reply",
+        service="llm",
+        retryable=True,
+    )
 
-            except Exception as e:
-                logger.warning(
-                    "Async batch extraction failed for chunk starting at %d, "
-                    "falling back to individual: %s",
-                    batch_start,
-                    e,
-                )
-                for result in batch:
-                    result_text = getattr(result, "text", "")
-                    try:
-                        if self.extraction_prompt:
-                            single_docs = {"doc_0": result_text}
-                            prompt = self._build_custom_prompt(question, single_docs)
-                            response = await self.llm_client.complete_async(
-                                prompt, json_mode=True, system_prompt=self.system_prompt
-                            )
-                            extracted = json.loads(response).get("doc_0", [])
-                        else:
-                            extracted = await self.llm_client.extract_relevant_spans_async(
-                                question, result_text
-                            )
-                        all_verified[result_text] = self._verify_spans(extracted, result_text)
-                    except Exception as inner_e:
-                        logger.error("Async individual fallback extraction failed: %s", inner_e)
-                        all_verified[result_text] = []
 
-        return all_verified
+def _llm_usage(
+    chunks: Sequence[Chunk],
+    calls: List[_LLMCall],
+    completions: Sequence[Completion],
+    model_id: str | None,
+) -> List[Usage]:
+    """One usage entry per model version the LLM service named, normally one."""
+    calls_by_version: Dict[str | None, List[Tuple[_LLMCall, Completion]]] = {}
+    for call, completion in zip(calls, completions):
+        calls_by_version.setdefault(completion.model, []).append((call, completion))
 
-    def _extract_spans_individual(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Extract spans from documents individually (one at a time).
+    usage = []
+    for version, version_calls in calls_by_version.items() or [(None, [])]:
+        texts = [chunks[position].text for call, _ in version_calls for position in call.positions]
+        units = {
+            "chunks": len(texts),
+            "characters": sum(len(text) for text in texts),
+            "llm_calls": len(version_calls),
+        }
+        for unit in ("input_tokens", "output_tokens"):
+            counts = [getattr(completion, unit) for _, completion in version_calls]
+            # Counted only when every call reported them.
+            if counts and None not in counts:
+                units[unit] = sum(counts)
+        usage.append(Usage(model_id=model_id, model_version=version, units=units))
+    return usage
 
-        :param question: The query or question
-        :param search_results: List of search results to process
-        :return: Dictionary mapping result text to list of relevant spans
-        """
-        logger.info("Extracting spans (individual mode)...")
-        all_spans = {}
 
-        for result in search_results:
-            result_text = getattr(result, "text", "")
-            try:
-                if self.extraction_prompt:
-                    single_docs = {"doc_0": result_text}
-                    prompt = self._build_custom_prompt(question, single_docs)
-                    response = self.llm_client.complete(
-                        prompt, json_mode=True, system_prompt=self.system_prompt
-                    )
-                    extracted_spans = json.loads(response).get("doc_0", [])
-                else:
-                    extracted_spans = self.llm_client.extract_relevant_spans(question, result_text)
-                verified = self._verify_spans(extracted_spans, result_text)
-                all_spans[result_text] = verified
-            except Exception as e:
-                logger.error("Individual extraction failed for document: %s", e)
-                all_spans[result_text] = []
+def _log_retry(group: range, error: UpstreamError) -> None:
+    logger.info(
+        "Retrying chunks[%d:%d] one by one after a failed LLM call (%s)",
+        group.start,
+        group.stop,
+        error.code,
+    )
 
-        return all_spans
 
-    async def _extract_spans_individual_async(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        """
-        Async individual extraction using concurrent asyncio.gather.
-        """
-        import asyncio
-
-        logger.info("Extracting spans (async individual mode)...")
-
-        async def _extract_one(result: Any) -> tuple[str, List[str]]:
-            result_text = getattr(result, "text", "")
-            try:
-                if self.extraction_prompt:
-                    single_docs = {"doc_0": result_text}
-                    prompt = self._build_custom_prompt(question, single_docs)
-                    response = await self.llm_client.complete_async(
-                        prompt, json_mode=True, system_prompt=self.system_prompt
-                    )
-                    extracted = json.loads(response).get("doc_0", [])
-                else:
-                    extracted = await self.llm_client.extract_relevant_spans_async(
-                        question, result_text
-                    )
-                return result_text, self._verify_spans(extracted, result_text)
-            except Exception as e:
-                logger.error("Async individual extraction failed for document: %s", e)
-                return result_text, []
-
-        results = await asyncio.gather(*[_extract_one(r) for r in search_results])
-        return dict(results)
-
-    def _verify_spans(self, spans: List[str], document_text: str) -> List[str]:
-        """
-        Verify that extracted spans actually exist in the document text.
-
-        When span_match_mode is "fuzzy", uses rapidfuzz to locate spans that
-        may not match exactly (e.g. due to encoding issues, OCR artifacts,
-        or minor differences in whitespace/punctuation). In fuzzy mode, the
-        returned spans are the actual text from the document, not the LLM's
-        version, ensuring correct character offsets for highlighting.
-
-        :param spans: List of spans to verify
-        :param document_text: Original document text
-        :return: List of verified spans that exist in the document
-        """
-        if self.span_match_mode == "fuzzy":
-            return self._verify_spans_fuzzy(spans, document_text)
-
-        verified = []
-        for span in spans:
-            if span.strip() and span.strip() in document_text:
-                verified.append(span.strip())
-            else:
-                logger.warning("Span not found verbatim in document: '%s...'", span[:100])
-        return verified
-
-    def _verify_spans_fuzzy(self, spans: List[str], document_text: str) -> List[str]:
-        """
-        Verify spans using fuzzy matching against the document text.
-
-        Returns the actual matched text from the document (not the LLM's
-        version), so that downstream highlight offsets are always correct.
-
-        :param spans: List of spans to verify
-        :param document_text: Original document text
-        :return: List of verified spans from the document text
-        """
-        verified = []
-        for span in spans:
-            span = span.strip()
-            if not span:
-                continue
-
-            # Try exact match first (fast path)
-            if span in document_text:
-                verified.append(span)
-                continue
-
-            # Fall back to fuzzy matching
-            score, matched_text = self._find_fuzzy_span_match(span, document_text)
-            if score >= self.fuzzy_threshold and matched_text:
-                verified.append(matched_text)
-            else:
-                logger.warning(
-                    "Span not found in document (best fuzzy score: %.2f): '%s...'",
-                    score,
-                    span[:100],
-                )
-        return verified
-
-    @staticmethod
-    def _find_fuzzy_span_match(span: str, document_text: str) -> tuple[float, str]:
-        """Locate a fuzzy span in the document and return document text on token boundaries."""
-        match = find_fuzzy_match(span, document_text)
-        if match is None:
-            return 0.0, ""
-        score, start, end = match
-        return score, document_text[start:end]
+def _log_failed_chunk(position: int, error: UpstreamError) -> None:
+    logger.warning(
+        "No spans for chunks[%d]: its LLM call failed (%s)",
+        position,
+        error.code,
+        exc_info=True,
+        extra={"event": "item_failed", "error_code": error.code},
+    )

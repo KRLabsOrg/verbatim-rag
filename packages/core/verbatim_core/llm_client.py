@@ -8,14 +8,141 @@ LLM calls, with specialized methods for span extraction and template generation.
 import json
 import logging
 import os
+from dataclasses import dataclass
 from typing import Dict, List, Optional
+
+from .errors import ConfigurationError, UpstreamError, VerbatimError
 
 logger = logging.getLogger(__name__)
 
 try:
     import openai
+    from openai import (
+        APIConnectionError,
+        APIError,
+        APIStatusError,
+        APITimeoutError,
+        AuthenticationError,
+        NotFoundError,
+        PermissionDeniedError,
+        RateLimitError,
+    )
 except ImportError:
     raise ImportError("OpenAI package required: pip install openai")
+
+
+@dataclass(frozen=True)
+class Completion:
+    """The text of an LLM reply, with what the provider reported about the call."""
+
+    text: str
+    model: str | None = None  # the model name the provider returned
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+def _translate_error(error: APIError) -> VerbatimError:
+    """The library's error for an error of the OpenAI client.
+
+    The message leaves out the provider's message, which can quote the API key.
+    """
+    if isinstance(error, APITimeoutError):
+        return UpstreamError(
+            "The LLM service did not answer in time. Retry later.",
+            code="timeout",
+            service="llm",
+            retryable=True,
+        )
+    if isinstance(error, APIConnectionError):
+        return UpstreamError(
+            "Could not connect to the LLM service. Check the base URL of the LLM client.",
+            code="connection_failed",
+            service="llm",
+            retryable=True,
+        )
+    if isinstance(error, AuthenticationError):
+        return ConfigurationError(
+            "The LLM service rejected the API key. Give the LLM client a valid key.",
+            code="authentication_failed",
+        )
+    if isinstance(error, PermissionDeniedError):
+        return ConfigurationError(
+            "The API key may not use this model. Use a key with access to it, or another model.",
+            code="permission_denied",
+        )
+    if isinstance(error, NotFoundError):
+        return ConfigurationError(
+            "The LLM service doesn't know the model. Check the model name and the base URL of "
+            "the LLM client.",
+            code="model_not_found",
+        )
+    if isinstance(error, RateLimitError) and error.code == "insufficient_quota":
+        return ConfigurationError(
+            "The account of the API key has no quota left. Add quota or use another key.",
+            code="quota_exceeded",
+        )
+    if isinstance(error, RateLimitError):
+        return UpstreamError(
+            "The LLM service is limiting the rate of requests. Retry later.",
+            code="rate_limited",
+            service="llm",
+            retryable=True,
+            retry_after=_retry_after(error),
+        )
+    if isinstance(error, APIStatusError) and error.status_code >= 500:
+        return UpstreamError(
+            f"The LLM service failed with status {error.status_code}. Retry later.",
+            code="server_error",
+            service="llm",
+            retryable=True,
+        )
+    if isinstance(error, APIStatusError):
+        return UpstreamError(
+            f"The LLM service rejected the request with status {error.status_code}. Check that "
+            "the model supports JSON replies and that the input fits its context window.",
+            code="request_rejected",
+            service="llm",
+        )
+    return UpstreamError(
+        "The LLM service sent a reply that can't be read. Retry, and check that the base URL of "
+        "the LLM client points at an OpenAI-compatible service.",
+        code="invalid_reply",
+        service="llm",
+        retryable=True,
+    )
+
+
+def _retry_after(error: APIStatusError) -> float | None:
+    try:
+        return float(error.response.headers["retry-after"])
+    except (KeyError, ValueError):
+        return None
+
+
+def _completion(response) -> Completion:
+    """The completion in a chat completion response."""
+    if not response.choices or response.choices[0].message is None:
+        raise UpstreamError(
+            "The LLM service sent an empty reply. A content filter may have removed it. Retry, "
+            "or check the content filter of the LLM service.",
+            code="empty_reply",
+            service="llm",
+        )
+    text = response.choices[0].message.content
+    if text is None:
+        raise UpstreamError(
+            "The LLM service sent a reply without text. A content filter may have removed it. "
+            "Retry, or check the content filter of the LLM service.",
+            code="empty_reply",
+            service="llm",
+        )
+    usage = getattr(response, "usage", None)
+    return Completion(
+        text=text,
+        model=getattr(response, "model", None),
+        input_tokens=getattr(usage, "prompt_tokens", None),
+        output_tokens=getattr(usage, "completion_tokens", None),
+    )
 
 
 class LLMClient:
@@ -63,24 +190,12 @@ class LLMClient:
         :param temperature: Override default temperature
         :param system_prompt: Optional system message to prepend
         :return: The completion text
+        :raises UpstreamError: If the call fails or the reply is empty
+        :raises ConfigurationError: If the service rejects the key, the model or the quota
         """
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        kwargs = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature if temperature is not None else self.temperature,
-        }
-
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        response = self.client.chat.completions.create(**kwargs)
-        if not response.choices or response.choices[0].message is None:
-            raise ValueError("LLM returned empty or filtered response")
-        return response.choices[0].message.content
+        return self.completion(
+            prompt, json_mode=json_mode, temperature=temperature, system_prompt=system_prompt
+        ).text
 
     async def complete_async(
         self,
@@ -90,31 +205,68 @@ class LLMClient:
         system_prompt: str | None = None,
     ) -> str:
         """
-        Asynchronous text completion.
-
-        :param prompt: The prompt to send
-        :param json_mode: Whether to request JSON output format
-        :param temperature: Override default temperature
-        :param system_prompt: Optional system message to prepend
-        :return: The completion text
+        Asynchronous text completion. See `complete`.
         """
+        completion = await self.completion_async(
+            prompt, json_mode=json_mode, temperature=temperature, system_prompt=system_prompt
+        )
+        return completion.text
+
+    def completion(
+        self,
+        prompt: str,
+        *,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        system_prompt: str | None = None,
+    ) -> Completion:
+        """
+        Like `complete`, and also returns the model name and the token counts the provider sent.
+        """
+        request = self._request(prompt, json_mode, temperature, system_prompt)
+        try:
+            response = self.client.chat.completions.create(**request)
+        except APIError as e:
+            raise _translate_error(e) from e
+        return _completion(response)
+
+    async def completion_async(
+        self,
+        prompt: str,
+        *,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        system_prompt: str | None = None,
+    ) -> Completion:
+        """
+        Asynchronous version of `completion`.
+        """
+        request = self._request(prompt, json_mode, temperature, system_prompt)
+        try:
+            response = await self.async_client.chat.completions.create(**request)
+        except APIError as e:
+            raise _translate_error(e) from e
+        return _completion(response)
+
+    def _request(
+        self,
+        prompt: str,
+        json_mode: bool,
+        temperature: Optional[float],
+        system_prompt: str | None,
+    ) -> dict:
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        kwargs = {
+        request = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
         }
-
         if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        response = await self.async_client.chat.completions.create(**kwargs)
-        if not response.choices or response.choices[0].message is None:
-            raise ValueError("LLM returned empty or filtered response")
-        return response.choices[0].message.content
+            request["response_format"] = {"type": "json_object"}
+        return request
 
     def extract_spans(self, question: str, documents: Dict[str, str]) -> Dict[str, List[str]]:
         """

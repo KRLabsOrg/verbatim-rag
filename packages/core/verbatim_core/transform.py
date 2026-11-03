@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List
 
 # Reuse existing components from verbatim_rag without importing vector/index types
-from .extractors import LLMSpanExtractor, SpanExtractor
+from .extractors import LLMExtractConfig, LLMSpanExtractor, SpanExtractor
 from .llm_client import LLMClient
 from .providers import RAGProvider
 from .response_builder import ResponseBuilder
@@ -69,13 +69,14 @@ class VerbatimTransform:
     ):
         self.llm_client = llm_client or LLMClient()
         self.extractor = extractor or LLMSpanExtractor(
-            llm_client=self.llm_client,
-            extraction_mode=extraction_mode,
-            max_display_spans=max_display_spans,
-            span_match_mode=span_match_mode,
-            fuzzy_threshold=fuzzy_threshold,
-            extraction_prompt=extraction_prompt,
-            system_prompt=system_prompt,
+            self.llm_client,
+            config=LLMExtractConfig(
+                extraction_mode=extraction_mode,
+                span_match_mode=span_match_mode,
+                fuzzy_threshold=fuzzy_threshold,
+                extraction_prompt=extraction_prompt,
+                system_prompt=system_prompt,
+            ),
         )
         self.template_manager = template_manager or TemplateManager(
             llm_client=self.llm_client, default_mode=template_mode

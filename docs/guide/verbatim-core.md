@@ -35,28 +35,45 @@ Context items can be:
 
 ## LLMSpanExtractor
 
-Extracts verbatim spans from documents using an LLM. All extracted spans are verified to exist in the original text.
+Extracts verbatim spans from chunks using an LLM. The LLM quotes the text of each chunk that answers the question, and each quote is located in its chunk. A span's text is always the chunk's own text at the span's offsets.
 
 ```python
-from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core import Chunk
+from verbatim_core.extractors import LLMExtractConfig, LLMSpanExtractor
 from verbatim_core.llm_client import LLMClient
 
-client = LLMClient(model="gpt-4o-mini")
 extractor = LLMSpanExtractor(
-    llm_client=client,
-    extraction_mode="auto",  # batch for small inputs, individual for large
-    batch_size=5,
-    span_match_mode="fuzzy",     # "exact" or "fuzzy"
-    fuzzy_threshold=0.8,
+    LLMClient(model="gpt-4o-mini"),
+    config=LLMExtractConfig(
+        extraction_mode="auto",  # batch for small inputs, individual for large
+        batch_size=5,
+        span_match_mode="fuzzy",  # "exact" or "fuzzy"
+        fuzzy_threshold=0.8,
+    ),
 )
 
-spans = extractor.extract_spans("What is X?", search_results)
-# Returns: {"doc text": ["verbatim span 1", "verbatim span 2"], ...}
+extraction = extractor.extract(
+    "What methodology was used?",
+    [
+        Chunk(id="methods", text="We used a mixed-methods approach combining surveys and interviews."),
+        Chunk(id="sample", text="The sample size was 500 participants across 3 hospitals."),
+    ],
+)
+for span in extraction.spans:
+    print(span.chunk_id, span.start, span.end, span.text)
 ```
+
+`extract` returns an `Extraction`: the spans with their chunk ids, offsets and scores, the usage of the call (the model, the chunks and characters, the LLM calls and, where the LLM service reports them, the tokens) and its warnings. `aextract` is the async version and makes its LLM calls concurrently. A `config` passed to `extract` replaces the extractor's default config for that call.
+
+Every span has the score 1.0: the LLM extracts without a score.
+
+A quote that can't be located in its chunk is dropped and reported in `extraction.warnings` with the code `quote_not_found`. A failed LLM call raises, and the whole extraction fails: an `UpstreamError` for a timeout, a connection error, a rate limit, a server error or a reply that can't be read, and a `ConfigurationError` when the LLM service rejects the API key, the model or the account's quota.
+
+`extract_spans`, which returns the span texts keyed by chunk text, is deprecated. Unlike `extract`, it tolerates failed LLM calls: a chunk whose call fails yields no spans.
 
 ## Fuzzy Span Matching
 
-By default, extracted spans must match the source document exactly (substring match). For documents with OCR artifacts, encoding issues (e.g. corrupted umlauts), or minor formatting differences, enable fuzzy matching:
+By default, a quote must match its chunk exactly. For documents with OCR artifacts, encoding issues (e.g. corrupted umlauts), or minor formatting differences, enable fuzzy matching:
 
 ```python
 vt = VerbatimTransform(
@@ -69,18 +86,17 @@ Or directly on the extractor:
 
 ```python
 extractor = LLMSpanExtractor(
-    llm_client=client,
-    span_match_mode="fuzzy",
-    fuzzy_threshold=0.8,
+    client,
+    config=LLMExtractConfig(span_match_mode="fuzzy", fuzzy_threshold=0.8),
 )
 ```
 
 In fuzzy mode:
 
-- Exact matches are tried first (fast path)
-- If no exact match, `rapidfuzz` finds the best fuzzy alignment in the document
-- The returned span is the **actual text from the document** (not the LLM's version), ensuring correct character offsets for highlighting
-- Spans below the threshold are rejected with a warning
+- The first exact occurrence of a quote is tried first
+- If there is none, `rapidfuzz` finds the best fuzzy alignment in the chunk, the earliest on a tie
+- The span is the **chunk's own text** at that alignment, not the LLM's version
+- Quotes below the threshold are dropped and reported in the warnings
 
 This is particularly useful for medical documents, scanned PDFs, or any text that may have been through lossy format conversions.
 
@@ -98,19 +114,18 @@ Documents:
 
 Return a JSON object mapping doc IDs to span arrays."""
 
-extractor = LLMSpanExtractor(
-    llm_client=client,
-    extraction_prompt=custom_prompt,
-)
+extractor = LLMSpanExtractor(client, config=LLMExtractConfig(extraction_prompt=custom_prompt))
 ```
 
-You can also pass an optional `system_prompt` to set the LLM's persona:
+You can also pass an optional `system_prompt` to set the LLM's persona. It is sent only with a custom extraction prompt:
 
 ```python
 extractor = LLMSpanExtractor(
-    llm_client=client,
-    extraction_prompt=custom_prompt,
-    system_prompt="You are a medical expert extracting clinical information.",
+    client,
+    config=LLMExtractConfig(
+        extraction_prompt=custom_prompt,
+        system_prompt="You are a medical expert extracting clinical information.",
+    ),
 )
 ```
 

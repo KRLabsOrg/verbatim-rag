@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 from verbatim_core.templates import TemplateManager
 
-from verbatim_rag.extractors import LLMSpanExtractor, SpanExtractor
+from verbatim_rag.extractors import LLMExtractConfig, LLMSpanExtractor, SpanExtractor
 from verbatim_rag.index import VerbatimIndex
 from verbatim_rag.ingestion import schema_to_document
 from verbatim_rag.llm_client import LLMClient
@@ -93,9 +93,7 @@ class VerbatimRAG:
 
         # Initialize components with clean dependency injection
         self.extractor = extractor or LLMSpanExtractor(
-            llm_client=self.llm_client,
-            extraction_mode=extraction_mode,
-            max_display_spans=max_display_spans,
+            self.llm_client, config=LLMExtractConfig(extraction_mode=extraction_mode)
         )
 
         self.template_manager = template_manager or TemplateManager(
