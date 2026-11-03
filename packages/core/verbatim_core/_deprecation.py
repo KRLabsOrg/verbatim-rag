@@ -28,6 +28,9 @@ def deprecated(name: str, *, use: str):
     return _deprecated(_message(name, use), category=VerbatimDeprecationWarning)
 
 
-def warn_deprecated_argument(name: str, *, use: str, stacklevel: int = 3) -> None:
-    """Warn about a deprecated argument, from inside the function that takes it."""
+def warn_deprecated(name: str, *, use: str, stacklevel: int = 3) -> None:
+    """Warn about a deprecated way of calling a function, such as passing a deprecated argument.
+
+    Called from inside that function. The default stacklevel points at its caller.
+    """
     warnings.warn(_message(name, use), VerbatimDeprecationWarning, stacklevel=stacklevel)

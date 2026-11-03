@@ -72,7 +72,7 @@ class Usage(BaseModel):
     # Older pydantic 2 releases reserve the "model_" prefix for their own methods.
     model_config = ConfigDict(frozen=True, protected_namespaces=())
 
-    model_id: str | None  # None for work without a model
+    model_id: str | None  # None for work without a model, or with a model the code doesn't name
     model_version: str | None
     units: dict[str, NonNegativeInt]  # for example {"chunks": 12, "input_tokens": 3410}
 

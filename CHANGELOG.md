@@ -18,6 +18,25 @@ All notable changes to this project will be documented in this file.
   `VerbatimError`, `InvalidInputError` (also a `ValueError`), `ConfigurationError` and
   `UpstreamError`. Both `verbatim_core` and `verbatim_rag` export `VerbatimDeprecationWarning`.
   verbatim-core now lists `typing_extensions>=4.5.0` as a direct dependency.
+- `SpanExtractor.extract(question, chunks)` and `aextract`, which return an `Extraction`: spans
+  with their chunk ids and offsets, plus the usage and warnings of the call (#90). A new
+  extractor implements only `extract` and gets `extract_spans` from the base class. An extractor
+  that implements only `extract_spans` gets `extract` and `aextract`: each span text is located
+  in its chunk (the first exact occurrence, else the best fuzzy match), and texts that can't be
+  located are dropped and reported in the result's warnings with the code `span_text_not_found`.
+- The `verbatim_core.content` logger. Log records that hold customer text, such as questions,
+  chunks and span texts, go only to this logger and only at DEBUG. Leave it at INFO to keep
+  customer text out of your logs whatever level the other `verbatim_core` loggers have.
+
+### Changed
+- A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
+  `TypeError` when it is defined, not when it is instantiated (#90).
+
+### Deprecated
+- Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
+  when they are called on it. Implement `extract` instead (#90).
+- `extract_spans` and `extract_spans_async` where an extractor inherits them from
+  `SpanExtractor`. Use `extract` and `aextract` (#90).
 
 ### Fixed
 - `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans
