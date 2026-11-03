@@ -15,13 +15,17 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
-from rapidfuzz.fuzz import partial_ratio_alignment
-
 from .llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
-_FUZZY_TOKEN_RE = re.compile(r"\w+|[^\w\s]", re.UNICODE)
+_FUZZY_TOKEN_RE = re.compile(r"\w+[\u0300-\u036f]*|[^\w\s]", re.UNICODE)
+_FUZZY_SOURCE_ARTIFACT_RE = re.compile(
+    r"</?[A-Za-z][^>]*>"  # HTML tags
+    r"|\[(?:\d+(?:\s*[,;–-]\s*\d+)*)\]"  # numeric citation markers
+    r"|\*\*|__|~~|`+"  # Markdown emphasis/code delimiters
+    r"|[\u200b-\u200f\u2060\ufeff]"  # zero-width formatting characters
+)
 
 
 @dataclass(frozen=True)
@@ -836,38 +840,100 @@ class LLMSpanExtractor(SpanExtractor):
 
     @classmethod
     def _find_fuzzy_span_match(cls, span: str, document_text: str) -> tuple[float, str]:
-        """
-        Locate a fuzzy span in the document and return document text on token boundaries.
+        """Align every span token with source tokens in order.
 
-        RapidFuzz alignment offsets are character-level and can land in the
-        middle of words. Matching normalized token text keeps OCR/punctuation
-        tolerance while mapping the final slice back to original token offsets.
+        Known source-side formatting artifacts may be ignored for alignment,
+        but lexical tokens and meaningful punctuation must match exactly.
+        The returned text is sliced from the original source.
         """
         normalized_span = cls._normalize_for_fuzzy_span_match(span)
-        normalized_document = cls._normalize_for_fuzzy_span_match(document_text)
+        normalized_document = cls._normalize_for_fuzzy_span_match(
+            document_text, ignore_source_artifacts=True
+        )
 
-        if not normalized_span.text or not normalized_document.text:
+        span_tokens = [
+            normalized_span.text[start:end]
+            for start, end in normalized_span.normalized_token_offsets
+        ]
+        document_tokens = [
+            normalized_document.text[start:end]
+            for start, end in normalized_document.normalized_token_offsets
+        ]
+
+        if not span_tokens or len(span_tokens) > len(document_tokens):
             return 0.0, ""
 
-        result = partial_ratio_alignment(normalized_span.text, normalized_document.text)
-        score = result.score / 100.0
-        matched_text = cls._slice_original_text_from_normalized_offsets(
-            document_text,
-            normalized_document,
-            result.dest_start,
-            result.dest_end,
+        span_length = len(span_tokens)
+        artifact_ranges = [
+            (match.start(), match.end())
+            for match in _FUZZY_SOURCE_ARTIFACT_RE.finditer(document_text)
+        ]
+        candidates = []
+
+        for start in range(len(document_tokens) - span_length + 1):
+            end = start + span_length
+            if document_tokens[start:end] != span_tokens:
+                continue
+
+            original_start = normalized_document.original_token_offsets[start][0]
+            original_end = normalized_document.original_token_offsets[end - 1][1]
+
+            # Preserve source artifacts immediately following the aligned span.
+            extended = True
+            while extended:
+                extended = False
+                for artifact_start, artifact_end in artifact_ranges:
+                    if artifact_start < original_end:
+                        continue
+                    if document_text[original_end:artifact_start].strip():
+                        continue
+                    original_end = artifact_end
+                    extended = True
+
+            matched_text = document_text[original_start:original_end]
+            artifact_count = sum(
+                1
+                for artifact_start, artifact_end in artifact_ranges
+                if artifact_start < original_end and artifact_end > original_start
+            )
+            score = max(0.0, 1.0 - 0.05 * artifact_count / max(1, span_length))
+            candidates.append((score, original_start, matched_text))
+
+        if not candidates:
+            return 0.0, ""
+
+        score, _, matched_text = max(
+            candidates, key=lambda candidate: (candidate[0], -candidate[1])
         )
         return score, matched_text
 
     @staticmethod
-    def _normalize_for_fuzzy_span_match(text: str) -> _NormalizedTokenText:
+    def _normalize_for_fuzzy_span_match(
+        text: str, *, ignore_source_artifacts: bool = False
+    ) -> _NormalizedTokenText:
         parts: List[str] = []
         original_token_offsets: List[tuple[int, int]] = []
         normalized_token_offsets: List[tuple[int, int]] = []
         normalized_pos = 0
+        artifact_ranges = (
+            [
+                (artifact.start(), artifact.end())
+                for artifact in _FUZZY_SOURCE_ARTIFACT_RE.finditer(text)
+            ]
+            if ignore_source_artifacts
+            else []
+        )
 
         for match in _FUZZY_TOKEN_RE.finditer(text):
-            token = unicodedata.normalize("NFKC", match.group(0)).casefold()
+            if any(
+                artifact_start < match.end() and artifact_end > match.start()
+                for artifact_start, artifact_end in artifact_ranges
+            ):
+                continue
+
+            token = unicodedata.normalize(
+                "NFC", unicodedata.normalize("NFKC", match.group(0)).casefold()
+            )
             if not token:
                 continue
 
