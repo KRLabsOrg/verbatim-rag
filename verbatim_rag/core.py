@@ -249,6 +249,8 @@ class VerbatimRAG:
         # Step 2: Check mode and extract accordingly
         if self.template_manager.current_mode == "structured":
             answer, all_relevant_spans = self._process_structured(question, search_results)
+            # Structured mode keeps its count until structured answers are redesigned (#74)
+            display_span_count = len(all_relevant_spans)
         else:
             # Standard extraction flow
             print("Extracting relevant spans...")
@@ -256,6 +258,7 @@ class VerbatimRAG:
 
             print("Processing spans...")
             display_spans, citation_spans = self._rank_and_split_spans(all_relevant_spans)
+            display_span_count = len(display_spans)
 
             print("Generating response...")
             answer = self.template_manager.process(question, display_spans, citation_spans)
@@ -268,7 +271,7 @@ class VerbatimRAG:
             answer=answer,
             search_results=search_results,
             relevant_spans=all_relevant_spans,
-            display_span_count=len(all_relevant_spans),
+            display_span_count=display_span_count,
         )
 
         if return_search_results:
@@ -345,6 +348,8 @@ class VerbatimRAG:
             answer, all_relevant_spans = await self._process_structured_async(
                 question, search_results
             )
+            # Structured mode keeps its count until structured answers are redesigned (#74)
+            display_span_count = len(all_relevant_spans)
         else:
             # Standard extraction flow
             print("Extracting relevant spans (async)...")
@@ -352,6 +357,7 @@ class VerbatimRAG:
 
             print("Processing spans...")
             display_spans, citation_spans = self._rank_and_split_spans(all_relevant_spans)
+            display_span_count = len(display_spans)
 
             print("Generating response (async)...")
             answer = await self.template_manager.process_async(
@@ -366,7 +372,7 @@ class VerbatimRAG:
             answer=answer,
             search_results=search_results,
             relevant_spans=all_relevant_spans,
-            display_span_count=len(all_relevant_spans),
+            display_span_count=display_span_count,
         )
 
     async def _process_structured_async(
