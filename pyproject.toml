@@ -65,6 +65,8 @@ dev = [
 docs = [
     "mkdocs-material>=9.0",
     "mkdocstrings[python]>=0.24",
+    # 12.2 changed Highlight.__init__ (requires md); mkdocstrings 1.0.6 breaks on it
+    "pymdown-extensions<12.2",
 ]
 all = [
     "verbatim-rag[dev,docs]",
