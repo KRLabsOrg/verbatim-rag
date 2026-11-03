@@ -23,6 +23,9 @@ ignore = [
     "E501", # line-too-long(permanent) (https://docs.astral.sh/ruff/rules/line-too-long/)
     "C901", # complex-structure(deferred) (https://docs.astral.sh/ruff/rules/complex-structure/)
     "CPY001", # missing-copyright-notice(deferred) (https://docs.astral.sh/ruff/rules/missing-copyright-notice/)
+    "COM812", # missing-trailing-comma(permanent) (conflicts with ruff format) (https://docs.astral.sh/ruff/rules/missing-trailing-comma/)
+    "D203", # incorrect-blank-line-before-class(permanent) (incompatible with D211) (https://docs.astral.sh/ruff/rules/incorrect-blank-line-before-class/)
+    "D213", # multi-line-summary-second-line(permanent) (incompatible with D212) (https://docs.astral.sh/ruff/rules/multi-line-summary-second-line/)
 ]
 
 [lint.per-file-ignores]
