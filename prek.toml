@@ -5,7 +5,7 @@
 # Keep the `rev` references below up to date with `prek update`.
 
 # api/, frontend/, examples/ and docs/ are not covered yet and will be introduced later
-exclude = '^(api|frontend|docs|examples)/'
+exclude = '^(frontend|docs|examples)/'
 
 # Basic file hygiene: whitespace, EOF newlines, large files, YAML/TOML syntax, merge markers
 [[repos]]
