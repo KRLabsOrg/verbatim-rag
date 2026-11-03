@@ -34,6 +34,10 @@ ignore = [
     "PLC0415", # import-outside-top-level (optional/lazy dependencies)
     "ARG002", # unused-method-argument (template interface signatures)
 ]
+## print statements are used to produce output as a part of a CLI here.
+"verbatim_core/cli.py" = [
+    "T201", # print
+]
 
 [lint.flake8-tidy-imports]
 ban-relative-imports = "all"
