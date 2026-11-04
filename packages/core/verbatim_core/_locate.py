@@ -68,6 +68,9 @@ def find_fuzzy_match(quote: str, text: str) -> tuple[float, int, int] | None:
         return None
 
     result = partial_ratio_alignment(normalized_quote.text, normalized_text.text)
+    # RapidFuzz returns None only below a score cutoff, and there is none here.
+    if result is None:
+        return None
     offsets = _original_offsets(normalized_text, result.dest_start, result.dest_end)
     if offsets is None:
         return None

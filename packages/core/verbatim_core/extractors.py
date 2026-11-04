@@ -12,11 +12,11 @@ import logging
 import re
 import time
 from abc import ABC
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
+from typing_extensions import override
 
 from verbatim_core._checks import _call_config, _check_unique_ids, _config_from_settings, _default_config
 from verbatim_core._deprecation import _UNSET, deprecated, warn_deprecated
@@ -27,6 +27,10 @@ from verbatim_core.errors import ConfigurationError, InvalidInputError, Upstream
 from verbatim_core.llm_client import Completion, LLMClient, client_completion, client_completion_async
 from verbatim_core.prompts import load_prompt, render_prompt
 from verbatim_core.types import Chunk, ExtractedSpan, Extraction, ResultWarning, Usage
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from types import ModuleType
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +48,12 @@ class ExtractConfig(BaseModel):
 _ConfigT = TypeVar("_ConfigT", bound=ExtractConfig)
 
 
-class SpanExtractor(ABC):
+class SpanExtractor(ABC, Generic[_ConfigT]):
     """Base class for span extractors.
 
     A subclass implements `extract`, and `aextract` when it has a native async path. Otherwise
-    `aextract` runs `extract` in a worker thread.
+    `aextract` runs `extract` in a worker thread. The type argument is the subclass's config
+    class, as in `SpanExtractor[LLMExtractConfig]`.
 
     A subclass written against the old interface implements only `extract_spans`. It gets
     `extract` and `aextract` from this class, which locate each span text in its chunk and warn
@@ -56,13 +61,14 @@ class SpanExtractor(ABC):
     and reported in the result's warnings with the code `span_text_not_found`.
     """
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        """Check that the subclass implements `extract` or `extract_spans`."""
         super().__init_subclass__(**kwargs)
         if not (_overrides(cls, "extract") or _overrides(cls, "extract_spans")):
             msg = f"{cls.__qualname__} must implement extract() or extract_spans()"
             raise TypeError(msg)
 
-    def extract(self, question: str, chunks: Sequence[Chunk], *, config: ExtractConfig | None = None) -> Extraction:
+    def extract(self, question: str, chunks: Sequence[Chunk], *, config: _ConfigT | None = None) -> Extraction:
         """Extract the spans of the chunks that are relevant to the question.
 
         :param question: The query or question
@@ -72,20 +78,18 @@ class SpanExtractor(ABC):
         :raises InvalidInputError: If two chunks share an id
         """
         _check_old_interface_call(type(self), chunks, config)
-        return _locate_span_texts(chunks, self.extract_spans(question, chunks))
+        return _locate_span_texts(chunks, self.extract_spans(question, _as_search_results(chunks)))
 
-    async def aextract(
-        self, question: str, chunks: Sequence[Chunk], *, config: ExtractConfig | None = None
-    ) -> Extraction:
+    async def aextract(self, question: str, chunks: Sequence[Chunk], *, config: _ConfigT | None = None) -> Extraction:
         """Async version of `extract`."""
         if _overrides(type(self), "extract"):
             return await asyncio.to_thread(self.extract, question, chunks, config=config)
 
         _check_old_interface_call(type(self), chunks, config)
         if _overrides(type(self), "extract_spans_async"):
-            span_texts = await self.extract_spans_async(question, chunks)
+            span_texts = await self.extract_spans_async(question, _as_search_results(chunks))
         else:
-            span_texts = await asyncio.to_thread(self.extract_spans, question, chunks)
+            span_texts = await asyncio.to_thread(self.extract_spans, question, _as_search_results(chunks))
         return _locate_span_texts(chunks, span_texts)
 
     @deprecated("SpanExtractor.extract_spans", use="extract()")
@@ -113,7 +117,16 @@ def _overrides(cls: type, name: str) -> bool:
     return getattr(cls, name) is not getattr(SpanExtractor, name)
 
 
-def _check_old_interface_call(cls: type, chunks: Sequence[Chunk], config: Any) -> None:
+def _as_search_results(chunks: Sequence[Chunk]) -> list[Any]:
+    """Return the chunks as the search results of `extract_spans`, unchanged.
+
+    `extract_spans` types its search results as a list, and has always got the chunks as the
+    caller passed them.
+    """
+    return cast("list[Any]", chunks)
+
+
+def _check_old_interface_call(cls: type, chunks: Sequence[Chunk], config: ExtractConfig | None) -> None:
     """Check a call of the extract_spans implementation of an extractor, and warn about it."""
     implementation = _extract_spans_implementation(cls)
     _check_unique_ids(chunks)
@@ -132,7 +145,7 @@ def _check_old_interface_call(cls: type, chunks: Sequence[Chunk], config: Any) -
 
 
 def _extract_spans_implementation(cls: type) -> type:
-    """The class that implements extract_spans for `cls`, which may be `cls` or a parent."""
+    """Return the class that implements extract_spans for `cls`, which may be `cls` or a parent."""
     for parent in cls.__mro__:
         if parent is SpanExtractor:
             break
@@ -219,7 +232,7 @@ class ModelExtractConfig(ExtractConfig):
     doc_stride: NonNegativeInt = 256  # tokens shared by neighbouring windows
 
 
-class ModelSpanExtractor(SpanExtractor):
+class ModelSpanExtractor(SpanExtractor[ModelExtractConfig]):
     """Extract spans with a Verbatim-RAG ModernBERT model.
 
     Supports two model formats:
@@ -238,9 +251,9 @@ class ModelSpanExtractor(SpanExtractor):
     _FORMAT_HIGHLIGHTER = "highlighter"
     _FORMAT_QA_MODEL = "qa_model"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917  # deprecated positional settings, kept for compatibility
         self,
-        model: Any = None,
+        model: Any = None,  # noqa: ANN401  # an untyped torch model, possibly from remote code
         device: str | None = _UNSET,
         threshold: float = _UNSET,
         extraction_mode: str = _UNSET,
@@ -251,12 +264,14 @@ class ModelSpanExtractor(SpanExtractor):
         doc_stride: int = _UNSET,
         *,
         config: ModelExtractConfig | None = None,
-        tokenizer: Any = None,
+        tokenizer: Any = None,  # noqa: ANN401  # an untyped transformers tokenizer
         model_id: str | None = None,
         model_version: str | None = None,
         model_path: str = _UNSET,
-    ):
-        """:param model: A loaded highlighter model, or a loaded v1 sentence model
+    ) -> None:
+        """Build an extractor from a loaded model.
+
+        :param model: A loaded highlighter model, or a loaded v1 sentence model
         :param config: The settings of a call, unless the call passes its own
         :param tokenizer: The tokenizer of a v1 sentence model
         :param model_id: The model's name or path, for the usage of a call
@@ -355,11 +370,13 @@ class ModelSpanExtractor(SpanExtractor):
 
     @staticmethod
     def _detect_format(model_id: str) -> str:
-        """Return ``"highlighter"`` if the model exposes a ``.process()`` API
-        via ``trust_remote_code``, else ``"qa_model"`` (legacy).
+        """Return the format of a model: ``"highlighter"`` or ``"qa_model"`` (legacy).
+
+        The format is ``"highlighter"`` if the model exposes a ``.process()`` API via
+        ``trust_remote_code``, else ``"qa_model"``.
         """
         try:
-            from transformers import AutoConfig
+            from transformers import AutoConfig  # noqa: PLC0415  # optional, heavy dependency
 
             config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
             auto_map = getattr(config, "auto_map", None) or {}
@@ -367,10 +384,11 @@ class ModelSpanExtractor(SpanExtractor):
             if target and "Highlighter" in target:
                 return ModelSpanExtractor._FORMAT_HIGHLIGHTER
         # The config's remote code may raise anything. The legacy loader then reports the problem.
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001  # remote code we don't control
             logger.warning("Highlighter detection failed for %s: %s", model_id, exc)
         return ModelSpanExtractor._FORMAT_QA_MODEL
 
+    @override
     def extract(
         self, question: str, chunks: Sequence[Chunk], *, config: ModelExtractConfig | None = None
     ) -> Extraction:
@@ -431,8 +449,8 @@ class ModelSpanExtractor(SpanExtractor):
         return spans, [_truncated(position, len(probabilities), len(sentences), "sentences")]
 
     def _sentence_probabilities(self, question: str, sentences: list[str]) -> list[float]:
-        """The probability of each sentence that fits the model's input, in order."""
-        import torch
+        """Return the probability of each sentence that fits the model's input, in order."""
+        import torch  # noqa: PLC0415  # optional, heavy dependency
 
         dataset_module = self._qa_dataset
         document = dataset_module.Document(
@@ -479,7 +497,7 @@ class SemanticHighlightConfig(ExtractConfig):
     merge_gap: NonNegativeInt = 2  # spans at most this many tokens apart are merged
 
 
-class SemanticHighlightExtractor(SpanExtractor):
+class SemanticHighlightExtractor(SpanExtractor[SemanticHighlightConfig]):
     """Extract spans using Zilliz semantic highlighting model.
 
     This extractor uses a pre-trained model (zilliz/semantic-highlight-bilingual-v1)
@@ -498,9 +516,9 @@ class SemanticHighlightExtractor(SpanExtractor):
 
     DEFAULT_MODEL = "zilliz/semantic-highlight-bilingual-v1"
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917  # deprecated positional settings, kept for compatibility
         self,
-        model: Any = None,
+        model: Any = None,  # noqa: ANN401  # an untyped torch model from remote code
         device: str | None = _UNSET,
         threshold: float = _UNSET,
         output_mode: str = _UNSET,
@@ -513,8 +531,10 @@ class SemanticHighlightExtractor(SpanExtractor):
         model_id: str | None = None,
         model_version: str | None = None,
         model_name: str = _UNSET,
-    ):
-        """:param model: The loaded semantic highlight model
+    ) -> None:
+        """Build an extractor from a loaded model.
+
+        :param model: The loaded semantic highlight model
         :param config: The settings of a call, unless the call passes its own
         :param model_id: The model's name or path, for the usage of a call
         :param model_version: The exact version of the model's weights, for the usage of a call
@@ -556,7 +576,9 @@ class SemanticHighlightExtractor(SpanExtractor):
             )
             vars(self).update(vars(loaded))
             return
-        if device is not _UNSET or max_tokens is not _UNSET:
+        # Through _passed: after the model_name check above, ty narrows _UNSET to a str, and would
+        # take `max_tokens is not _UNSET` for always true.
+        if _passed(device) or _passed(max_tokens):
             msg = (
                 "SemanticHighlightExtractor got a loaded model with device or max_tokens. Pass "
                 "them to from_pretrained instead."
@@ -600,6 +622,7 @@ class SemanticHighlightExtractor(SpanExtractor):
             model_version=resolved_version or model_version,
         )
 
+    @override
     def extract(
         self,
         question: str,
@@ -636,7 +659,7 @@ class SemanticHighlightExtractor(SpanExtractor):
     def _sentences(
         self, question: str, chunk: Chunk, position: int, config: SemanticHighlightConfig
     ) -> tuple[list[ExtractedSpan], list[ResultWarning]]:
-        """The sentences the model highlights, scored with their probability."""
+        """Return the sentences the model highlights, scored with their probability."""
         result = self.model.process(
             question=question,
             context=chunk.text,
@@ -715,7 +738,7 @@ def _config_with_old_settings(
     config: _ConfigT | None,
     settings: dict[str, Any],
 ) -> _ConfigT:
-    """The default config of an extractor, built from its deprecated setting arguments if passed."""
+    """Return the default config of an extractor, built from its deprecated setting arguments if passed."""
     settings = {name: value for name, value in settings.items() if value is not _UNSET}
     if settings and config is not None:
         msg = f"Pass the settings of {extractor.__name__} either in config or as arguments, not both."
@@ -740,7 +763,12 @@ _UNUSED_ARGUMENTS = {
 }
 
 
-def _warn_unused(extractor: type, **arguments: Any) -> None:
+def _passed(argument: object) -> bool:
+    """Return whether the caller passed a deprecated argument, whose default is `_UNSET`."""
+    return argument is not _UNSET
+
+
+def _warn_unused(extractor: type, **arguments: object) -> None:
     for name, value in arguments.items():
         if value is not _UNSET:
             warn_deprecated(
@@ -752,8 +780,8 @@ def _warn_unused(extractor: type, **arguments: Any) -> None:
 
 def _import_model_packages(needed_by: str) -> tuple[Any, Any]:
     try:
-        import torch
-        import transformers
+        import torch  # noqa: PLC0415  # optional, heavy dependency
+        import transformers  # noqa: PLC0415  # optional, heavy dependency
     except ImportError as e:
         msg = f"{needed_by} needs torch and transformers. Install them with pip install 'verbatim-core[model]'."
         raise ConfigurationError(
@@ -763,14 +791,14 @@ def _import_model_packages(needed_by: str) -> tuple[Any, Any]:
     return torch, transformers
 
 
-def _import_qa_dataset() -> Any:
+def _import_qa_dataset() -> ModuleType:
     _import_model_packages("The v1 sentence model")
-    from verbatim_core.extractor_models import dataset
+    from verbatim_core.extractor_models import dataset  # noqa: PLC0415  # needs torch
 
     return dataset
 
 
-def _best_device(torch: Any) -> str:
+def _best_device(torch: ModuleType) -> str:
     if torch.cuda.is_available():
         return "cuda"
     if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
@@ -784,15 +812,15 @@ def _load_model_span_model(model_id: str, device: str | None) -> tuple[Any, Any,
     device = device or _best_device(torch)
     started = time.perf_counter()
     with _load_errors_translated(model_id):
-        if ModelSpanExtractor._detect_format(model_id) == ModelSpanExtractor._FORMAT_HIGHLIGHTER:
+        if ModelSpanExtractor._detect_format(model_id) == ModelSpanExtractor._FORMAT_HIGHLIGHTER:  # noqa: SLF001  # the loader of ModelSpanExtractor
             model = transformers.AutoModel.from_pretrained(model_id, trust_remote_code=True)
             # The highlighter loads its tokenizer on first use. Loading it now keeps the download
             # out of the first extraction.
             if hasattr(model, "_get_tokenizer"):
-                model._get_tokenizer()
+                model._get_tokenizer()  # noqa: SLF001  # the highlighter has no public way to load it
             tokenizer = None  # the highlighter holds its tokenizer itself
         else:
-            from verbatim_core.extractor_models.model import QAModel
+            from verbatim_core.extractor_models.model import QAModel  # noqa: PLC0415  # needs torch
 
             model = QAModel.from_pretrained(model_id)
             tokenizer = _load_qa_tokenizer(transformers, model_id, model)
@@ -802,7 +830,7 @@ def _load_model_span_model(model_id: str, device: str | None) -> tuple[Any, Any,
     return model, tokenizer, _commit(model)
 
 
-def _load_qa_tokenizer(transformers: Any, model_id: str, model: Any) -> Any:
+def _load_qa_tokenizer(transformers: ModuleType, model_id: str, model: Any) -> Any:  # noqa: ANN401  # untyped transformers objects
     try:
         return transformers.AutoTokenizer.from_pretrained(model_id)
     except (OSError, ValueError) as e:
@@ -824,9 +852,9 @@ def _load_semantic_highlight_model(model_id: str, device: str | None, max_tokens
     return model, _commit(model)
 
 
-def _commit(model: Any) -> str | None:
-    """The Hugging Face commit the model was loaded from. None for a local path."""
-    return getattr(getattr(model, "config", None), "_commit_hash", None)
+def _commit(model: object) -> str | None:
+    """Return the Hugging Face commit the model was loaded from. None for a local path."""
+    return cast("str | None", getattr(getattr(model, "config", None), "_commit_hash", None))
 
 
 def _model_span(chunk: Chunk, start: int, end: int, probability: float) -> ExtractedSpan:
@@ -849,7 +877,7 @@ def _model_usage(model_id: str | None, model_version: str | None, chunks: Sequen
 
 
 def _sentence_offsets(text: str) -> list[tuple[int, int]]:
-    """The offsets of the sentences of a text, without their surrounding whitespace."""
+    """Return the offsets of the sentences of a text, without their surrounding whitespace."""
     offsets = []
     start = 0
     for boundary in [*re.finditer(r"(?<=[.!?])\s+", text), None]:
@@ -863,8 +891,8 @@ def _sentence_offsets(text: str) -> list[tuple[int, int]]:
     return offsets
 
 
-def _token_regions(probabilities: Any, config: SemanticHighlightConfig) -> list[tuple[int, int]]:
-    """Runs of tokens above the threshold, of at least min_span_tokens, merged across gaps."""
+def _token_regions(probabilities: Any, config: SemanticHighlightConfig) -> list[tuple[int, int]]:  # noqa: ANN401  # the model's untyped array
+    """Find the runs of tokens above the threshold, of at least min_span_tokens, merged across gaps."""
     regions = []
     region_start = None
     for i, probability in enumerate([*probabilities, 0.0]):
@@ -884,13 +912,14 @@ def _token_regions(probabilities: Any, config: SemanticHighlightConfig) -> list[
     return merged
 
 
-_PUNCTUATION = r"[\s.,;:!?\-–—]*"
+_PUNCTUATION = r"[\s.,;:!?\-\u2013\u2014]*"  # \u2013 and \u2014 are the en and em dash
 
 
 def _trim_punctuation(text: str, start: int, end: int) -> tuple[int, int]:
     """Offsets without the whitespace and punctuation at either end of text[start:end]."""
-    start += re.match(_PUNCTUATION, text[start:end]).end()
-    end = start + re.search(_PUNCTUATION + "$", text[start:end]).start()
+    # The pattern matches the empty string, so both searches always find a match.
+    start += cast("re.Match[str]", re.match(_PUNCTUATION, text[start:end])).end()
+    end = start + cast("re.Match[str]", re.search(_PUNCTUATION + "$", text[start:end])).start()
     return start, end
 
 
@@ -934,7 +963,7 @@ class LLMExtractConfig(ExtractConfig):
     system_prompt: str | None = None  # sent only with extraction_prompt
 
 
-class LLMSpanExtractor(SpanExtractor):
+class LLMSpanExtractor(SpanExtractor[LLMExtractConfig]):
     """Extract spans with an LLM that quotes the text of each chunk that answers the question.
 
     Each quote is located in its chunk: the first exact occurrence, else in fuzzy match mode the
@@ -946,7 +975,7 @@ class LLMSpanExtractor(SpanExtractor):
     A failed LLM call raises, and the whole extraction fails.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917  # deprecated positional settings, kept for compatibility
         self,
         llm_client: LLMClient | None = None,
         model: str = _UNSET,
@@ -959,8 +988,10 @@ class LLMSpanExtractor(SpanExtractor):
         system_prompt: str | None = _UNSET,
         *,
         config: LLMExtractConfig | None = None,
-    ):
-        """:param llm_client: The client that makes the LLM calls
+    ) -> None:
+        """Build an extractor over an LLM client.
+
+        :param llm_client: The client that makes the LLM calls
         :param config: The settings of a call, unless the call passes its own
 
         The other arguments are deprecated. Without ``llm_client`` the extractor builds an
@@ -987,6 +1018,7 @@ class LLMSpanExtractor(SpanExtractor):
 
         self.llm_client = llm_client
 
+    @override
     def extract(self, question: str, chunks: Sequence[Chunk], *, config: LLMExtractConfig | None = None) -> Extraction:
         """Extract the spans of the chunks that are relevant to the question.
 
@@ -1005,6 +1037,7 @@ class LLMSpanExtractor(SpanExtractor):
         completions = [_complete(self.llm_client, call) for call in calls]
         return _extraction_from_replies(chunks, calls, completions, config, self._model_id())
 
+    @override
     async def aextract(
         self, question: str, chunks: Sequence[Chunk], *, config: LLMExtractConfig | None = None
     ) -> Extraction:
@@ -1029,7 +1062,7 @@ class LLMSpanExtractor(SpanExtractor):
         """
         chunks = _chunks_from_results(search_results)
         batched, groups = _call_groups(len(chunks), self.config)
-        spans = [span for group in groups for span in self._extract_group(question, chunks, group, batched)]
+        spans = [span for group in groups for span in self._extract_group(question, chunks, group, batched=batched)]
         return _span_texts_by_chunk_text(chunks, Extraction(spans=spans))
 
     @deprecated("LLMSpanExtractor.extract_spans_async", use="aextract()")
@@ -1038,44 +1071,45 @@ class LLMSpanExtractor(SpanExtractor):
         chunks = _chunks_from_results(search_results)
         batched, groups = _call_groups(len(chunks), self.config)
         group_spans = await asyncio.gather(
-            *(self._aextract_group(question, chunks, group, batched) for group in groups)
+            *(self._aextract_group(question, chunks, group, batched=batched) for group in groups)
         )
         spans = [span for spans in group_spans for span in spans]
         return _span_texts_by_chunk_text(chunks, Extraction(spans=spans))
 
-    def _extract_group(self, question: str, chunks: list[Chunk], group: range, batched: bool) -> list[ExtractedSpan]:
-        """The spans of the chunks one LLM call covers, retried one by one if a batch call fails."""
+    def _extract_group(self, question: str, chunks: list[Chunk], group: range, *, batched: bool) -> list[ExtractedSpan]:
+        """Extract the spans of the chunks one LLM call covers, retrying them one by one if a batch call fails."""
         if batched:
             try:
                 batch = chunks[group.start : group.stop]
                 return self.extract(question, batch, config=self._batch_config).spans
             except UpstreamError as error:
                 _log_retry(group, error)
-        spans = []
+        spans: list[ExtractedSpan] = []
         for position in group:
             try:
                 config = self._individual_config
                 spans += self.extract(question, [chunks[position]], config=config).spans
-            except UpstreamError as error:
+            except UpstreamError as error:  # noqa: PERF203  # a failed chunk is logged, the others still run
                 _log_failed_chunk(position, error)
         return spans
 
     async def _aextract_group(
-        self, question: str, chunks: list[Chunk], group: range, batched: bool
+        self, question: str, chunks: list[Chunk], group: range, *, batched: bool
     ) -> list[ExtractedSpan]:
         """Async version of `_extract_group`."""
         if batched:
             try:
                 extraction = await self.aextract(question, chunks[group.start : group.stop], config=self._batch_config)
-                return extraction.spans
             except UpstreamError as error:
                 _log_retry(group, error)
-        spans = []
+            else:
+                return extraction.spans
+        spans: list[ExtractedSpan] = []
         for position in group:
             try:
                 extraction = await self.aextract(question, [chunks[position]], config=self._individual_config)
                 spans += extraction.spans
-            except UpstreamError as error:
+            except UpstreamError as error:  # noqa: PERF203  # a failed chunk is logged, the others still run
                 _log_failed_chunk(position, error)
         return spans
 
@@ -1088,7 +1122,7 @@ class LLMSpanExtractor(SpanExtractor):
         return self.config.model_copy(update={"extraction_mode": "individual"})
 
     def _model_id(self) -> str | None:
-        return getattr(self.llm_client, "model", None)
+        return cast("str | None", getattr(self.llm_client, "model", None))
 
 
 @dataclass(frozen=True)
@@ -1119,14 +1153,14 @@ def _plan_llm_calls(question: str, chunks: Sequence[Chunk], config: LLMExtractCo
             keys = tuple(f"doc_{i}" for i in range(len(group)))
         else:
             # As before 0.3.0: a single chunk is "doc", or "doc_0" in a custom prompt.
-            keys = ("doc_0",) if config.extraction_prompt else ("doc",)
+            keys = ("doc_0",) if _has_extraction_prompt(config) else ("doc",)
         documents = {key: chunks[position].text for key, position in zip(keys, group, strict=False)}
         calls.append(
             _LLMCall(
                 positions=group,
                 keys=keys,
                 prompt=_extraction_prompt(question, documents, config),
-                system_prompt=config.system_prompt if config.extraction_prompt else None,
+                system_prompt=config.system_prompt if _has_extraction_prompt(config) else None,
             )
         )
     return calls
@@ -1140,10 +1174,16 @@ async def _acomplete(client: LLMClient, call: _LLMCall) -> Completion:
     return await client_completion_async(client, call.prompt, json_mode=True, system_prompt=call.system_prompt)
 
 
+def _has_extraction_prompt(config: LLMExtractConfig) -> bool:
+    """Return whether the config has a custom extraction prompt. An empty one counts as none."""
+    return config.extraction_prompt is not None and config.extraction_prompt != ""
+
+
 def _extraction_prompt(question: str, documents: dict[str, str], config: LLMExtractConfig) -> str:
-    if config.extraction_prompt:
+    prompt = config.extraction_prompt
+    if prompt is not None and prompt != "":
         formatted = "\n\n".join(f"[{key}]\n{text}" for key, text in documents.items())
-        return render_prompt(config.extraction_prompt, question=question, documents=formatted)
+        return render_prompt(prompt, question=question, documents=formatted)
     return load_prompt("extraction/default", question=question, documents=json.dumps(documents, indent=2))
 
 
@@ -1170,7 +1210,7 @@ def _extraction_from_replies(
 
 
 def _parse_reply(text: str, keys: Sequence[str]) -> dict[str, list[str]]:
-    """The quotes in an LLM reply, a JSON object that maps chunk keys to lists of quotes.
+    """Return the quotes in an LLM reply, a JSON object that maps chunk keys to lists of quotes.
 
     A chunk the reply leaves out has no quotes.
     """
@@ -1184,7 +1224,7 @@ def _parse_reply(text: str, keys: Sequence[str]) -> dict[str, list[str]]:
     for key_quotes in quotes.values():
         if not isinstance(key_quotes, list) or not all(isinstance(q, str) for q in key_quotes):
             raise _invalid_reply()
-    return quotes
+    return cast("dict[str, list[str]]", quotes)
 
 
 def _invalid_reply() -> UpstreamError:
@@ -1239,6 +1279,6 @@ def _log_failed_chunk(position: int, error: UpstreamError) -> None:
         "No spans for chunks[%d]: its LLM call failed (%s)",
         position,
         error.code,
-        exc_info=True,
+        exc_info=True,  # noqa: LOG014  # called from the caller's except block, which sets the exception
         extra={"event": "item_failed", "error_code": error.code},
     )

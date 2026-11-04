@@ -6,11 +6,12 @@ Templates can be generated using LLM or manually curated.
 
 import hashlib
 import logging
-from typing import Any
+from typing import Any, ClassVar
+
+from typing_extensions import override
 
 from verbatim_core.errors import UpstreamError
 from verbatim_core.llm_client import LLMClient
-
 from verbatim_core.templates.base import TemplateResult, TemplateStrategy
 from verbatim_core.templates.filler import TemplateFiller
 
@@ -25,7 +26,7 @@ class RandomTemplate(TemplateStrategy):
     an LLM for diversity.
     """
 
-    DEFAULT_TEMPLATES = [
+    DEFAULT_TEMPLATES: ClassVar[list[str]] = [
         """## Key Findings
 
 Based on the documents, here are the relevant facts:
@@ -68,13 +69,13 @@ The relevant information from the documents includes:
         templates: list[str] | None = None,
         llm_client: LLMClient | None = None,
         citation_mode: str = "inline",
-    ):
+    ) -> None:
         """Initialize random template strategy.
 
         :param templates: Optional list of templates (uses defaults if None)
         :param llm_client: Optional LLM client for generating more templates
         """
-        self.templates = templates or self.DEFAULT_TEMPLATES.copy()
+        self.templates: list[str] = templates or self.DEFAULT_TEMPLATES.copy()
         self.llm_client = llm_client
         self.citation_mode = citation_mode
         self.filler = TemplateFiller(citation_mode=citation_mode)
@@ -84,6 +85,12 @@ The relevant information from the documents includes:
             self.validate_template(template)
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set how the filled templates render citations.
+
+        Args:
+            citation_mode: "inline" or "hidden".
+
+        """
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
@@ -97,6 +104,7 @@ The relevant information from the documents includes:
         """
         return self._choose(question, seed=None)
 
+    @override
     def generate_result(
         self, question: str, spans: list[str], citation_count: int = 0, *, seed: int | None = None
     ) -> TemplateResult:
@@ -225,7 +233,7 @@ Return only the templates, one per line. No numbering or explanations."""
                     if template not in self.templates:
                         self.templates.append(template)
                         added_count += 1
-                except ValueError:
+                except ValueError:  # noqa: PERF203  # per-item validation
                     continue  # Skip invalid templates
 
             logger.info("Generated and added %d new templates to the pool", added_count)

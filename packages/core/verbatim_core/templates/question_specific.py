@@ -60,8 +60,8 @@ Based on the available documents:
         device: str = _UNSET,
         citation_mode: str = "inline",
         *,
-        embedder: Any = None,
-    ):
+        embedder: Any = None,  # noqa: ANN401  # duck-typed embedder with encode(texts), such as a SentenceTransformer
+    ) -> None:
         """Initialize question-specific template strategy.
 
         :param templates: List of template definitions, each with 'template' and 'examples' keys
@@ -90,7 +90,7 @@ Based on the available documents:
         self.citation_mode = citation_mode
         self.filler = TemplateFiller(citation_mode=citation_mode)
         self._embedder = embedder
-        self._example_embeddings = None  # Will store stacked embeddings for efficient matching
+        self._example_embeddings: dict[str, Any] | None = None  # Will store stacked embeddings for efficient matching
 
         if self.templates:
             self._validate_and_embed_templates()
@@ -120,11 +120,17 @@ Based on the available documents:
         return strategy
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set how the filled templates render citations.
+
+        Args:
+            citation_mode: "inline" or "hidden".
+
+        """
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
-    def _get_embedder(self):
-        """The embedder. Without one, it is loaded by name, as before 0.3.0."""
+    def _get_embedder(self) -> Any:  # noqa: ANN401  # optional dependency type (SentenceTransformer)
+        """Return the embedder. Without one, it is loaded by name, as before 0.3.0."""
         if self._embedder is None:
             if self.model_name is None:
                 msg = (
@@ -145,7 +151,7 @@ Based on the available documents:
             self._embedder = _load_embedder(self.model_name, self.device)
         return self._embedder
 
-    def _validate_and_embed_templates(self):
+    def _validate_and_embed_templates(self) -> None:
         """Validate template format and precompute example embeddings."""
         if not self.templates:
             return
@@ -316,7 +322,7 @@ Based on the available documents:
         logger.debug("Removed template at index %d (total: %d)", index, len(self.templates))
 
 
-def _load_embedder(model_name: str, device: str | None) -> Any:
+def _load_embedder(model_name: str, device: str | None) -> Any:  # noqa: ANN401  # optional dependency type (SentenceTransformer)
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError as e:
@@ -336,6 +342,6 @@ def _load_embedder(model_name: str, device: str | None) -> Any:
 
 
 def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
-    """The cosine similarity of two vectors, and 0 if either is zero."""
+    """Return the cosine similarity of two vectors, and 0 if either is zero."""
     norms = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
     return sum(x * y for x, y in zip(a, b, strict=False)) / norms if norms else 0.0

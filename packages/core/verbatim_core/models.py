@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from verbatim_core.types import ResultWarning
+from verbatim_core.types import ResultWarning  # noqa: TC001  # pydantic resolves the annotation at runtime
 
 
 class Highlight(BaseModel):

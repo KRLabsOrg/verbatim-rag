@@ -1,25 +1,31 @@
-"""Answering context items, the input of VerbatimTransform, verbatim_enhance and the CLI, with a
-Transformer, as a QueryResponse.
+"""Answering context items with a Transformer, as a QueryResponse.
+
+Context items are the input of VerbatimTransform, verbatim_enhance and the CLI.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from verbatim_core.errors import InvalidInputError
 from verbatim_core.extractors import LLMSpanExtractor
-from verbatim_core.llm_client import LLMClient
-from verbatim_core.models import QueryResponse
 from verbatim_core.response_builder import ResponseBuilder
 from verbatim_core.templates import TemplateManager
 from verbatim_core.transformer import TransformConfig, Transformer
 from verbatim_core.types import Chunk
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from verbatim_core.llm_client import LLMClient
+    from verbatim_core.models import QueryResponse
+
 
 def _chunks_from_context(context: Iterable[Any]) -> list[Chunk]:
-    """Chunks with positional ids (ctx_0, ctx_1, ...) from context items: dicts with "content" or
-    "text", and optionally "title", "source" and "metadata", or objects with a text attribute.
+    """Build chunks with positional ids (ctx_0, ctx_1, ...) from context items.
+
+    The items are dicts with "content" or "text", and optionally "title", "source" and
+    "metadata", or objects with a text attribute.
 
     :raises InvalidInputError: If an item has another shape
     """
@@ -62,9 +68,10 @@ def _chunks_from_context(context: Iterable[Any]) -> list[Chunk]:
     return chunks
 
 
-def _check_metadata(metadata: Any, param: str) -> None:
-    """The metadata of a context item: a dict with string keys, whose title and source, which the
-    response shows, are strings.
+def _check_metadata(metadata: object, param: str) -> None:
+    """Check that the metadata of a context item is a dict with string keys.
+
+    Its title and source, which the response shows, must be strings.
     """
     if not isinstance(metadata, dict) or not all(isinstance(key, str) for key in metadata):
         msg = f"The metadata of {param} must be a dict with string keys."
@@ -84,8 +91,9 @@ def _check_metadata(metadata: Any, param: str) -> None:
 
 
 def _default_transformer(llm_client: LLMClient, max_display_spans: int) -> Transformer:
-    """The transformer VerbatimTransform builds without arguments: LLM extraction and contextual
-    templates.
+    """Return the transformer that VerbatimTransform builds without arguments.
+
+    It extracts the spans with the LLM and writes the answers with contextual templates.
     """
     return Transformer(
         LLMSpanExtractor(llm_client),

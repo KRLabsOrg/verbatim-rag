@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-import logging
 import time
-from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
 from verbatim_core.errors import ConfigurationError
 
+if TYPE_CHECKING:
+    import logging
+    from collections.abc import Generator
+
 
 @contextmanager
-def _load_errors_translated(model_id: str) -> Iterator[None]:
-    """Turn a missing package, a failed download or a missing model file into a
-    ConfigurationError.
-    """
+def _load_errors_translated(model_id: str) -> Generator[None, None, None]:
+    """Turn a missing package, a failed download or a missing model file into a ConfigurationError."""
     try:
         yield
     except ImportError as e:

@@ -5,6 +5,7 @@ search results and constructs a complete QueryResponse with proper highlighting
 and citation numbering.
 """
 
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -27,7 +28,7 @@ class ResponseBuilder:
     object with proper document highlighting and citation tracking.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the response builder."""
 
     def build_response(
@@ -183,8 +184,6 @@ class ResponseBuilder:
         answer = answer.replace("\\n", "\n")
 
         # Clean up multiple spaces
-        import re
-
         answer = re.sub(r" {2,}", " ", answer)
 
         # Clean up multiple newlines (but preserve paragraph breaks)
@@ -196,9 +195,10 @@ class ResponseBuilder:
 def _documents_and_citations(
     answer_citations: Sequence[AnswerCitation], chunks: Sequence[Chunk]
 ) -> tuple[list[DocumentWithHighlights], list[Citation]]:
-    """The chunks as the documents of a response, each cited span highlighted at its offsets, and
-    the citations of the response. A citation that overlaps one before it in its chunk gets
-    neither.
+    """Return the chunks as the documents of a response, and the citations of the response.
+
+    Each cited span is highlighted at its offsets. A citation that overlaps one before it in its
+    chunk gets neither a highlight nor a citation.
 
     :raises InvalidInputError: If two chunks share an id, or a citation points outside them
     """

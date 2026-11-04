@@ -5,7 +5,7 @@ template structure and extracts spans organized by placeholder.
 """
 
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 from verbatim_core._deprecation import deprecated
 from verbatim_core.templates.base import TemplateStrategy
@@ -26,10 +26,10 @@ class StructuredTemplate(TemplateStrategy):
     """
 
     PLACEHOLDER_PATTERN = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
-    SYSTEM_PLACEHOLDERS = {"DISPLAY_SPANS", "RELEVANT_SENTENCES", "CITATION_REFS"}
+    SYSTEM_PLACEHOLDERS: ClassVar[set[str]] = {"DISPLAY_SPANS", "RELEVANT_SENTENCES", "CITATION_REFS"}
 
     # Standard mappings from placeholder names to extraction hints
-    STANDARD_MAPPINGS: dict[str, str] = {
+    STANDARD_MAPPINGS: ClassVar[dict[str, str]] = {
         "METHODOLOGY": "methodology or methods used",
         "METHOD": "method used",
         "APPROACH": "approach taken",
@@ -52,11 +52,21 @@ class StructuredTemplate(TemplateStrategy):
 
     def __init__(
         self,
-        rag_system=None,
+        rag_system: Any = None,  # noqa: ANN401  # duck-typed RAG system; avoids circular import
         template: str | None = None,
         placeholder_mappings: dict[str, str] | None = None,
         citation_mode: str = "inline",
-    ):
+    ) -> None:
+        """Initialize the structured template strategy.
+
+        Args:
+            rag_system: The RAG system that structured mode calls back into, such as a VerbatimRAG.
+            template: Template with semantic placeholders like [METHODOLOGY] and [RESULTS].
+            placeholder_mappings: Custom extraction hints by placeholder name, added to the
+                standard ones.
+            citation_mode: "inline" or "hidden".
+
+        """
         self.rag_system = rag_system
         self.template = template
         self.custom_mappings = placeholder_mappings or {}
@@ -64,14 +74,38 @@ class StructuredTemplate(TemplateStrategy):
 
     # ------------------------------------------------------------------ helpers
     @deprecated("StructuredTemplate.set_rag_system", use="VerbatimRAG.query_async")
-    def set_rag_system(self, rag_system) -> None:
+    def set_rag_system(self, rag_system: Any) -> None:  # noqa: ANN401  # duck-typed RAG system
+        """Set the RAG system that structured mode calls back into.
+
+        Args:
+            rag_system: RAG system instance.
+
+        """
         self.rag_system = rag_system
 
     def set_template(self, template: str) -> None:
+        """Validate a template and use it.
+
+        Args:
+            template: Template with semantic or standard placeholders.
+
+        Raises:
+            ValueError: If the template is empty or has no placeholder.
+
+        """
         self.validate_template(template)
         self.template = template
 
     def validate_template(self, template: str) -> None:
+        """Validate that a template has a semantic or a standard placeholder.
+
+        Args:
+            template: Template to validate.
+
+        Raises:
+            ValueError: If the template is empty or has no placeholder.
+
+        """
         if not template or not template.strip():
             msg = "Template cannot be empty"
             raise ValueError(msg)
@@ -119,10 +153,30 @@ class StructuredTemplate(TemplateStrategy):
         return hints
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set how the filled templates render citations.
+
+        Args:
+            citation_mode: "inline" or "hidden".
+
+        """
         self.citation_mode = citation_mode
 
     # ---------------------------------------------------------------- TemplateStrategy interface
     def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
+        """Return the structured template, whatever the question and the spans.
+
+        Args:
+            question: The user's question (not used).
+            spans: List of spans (not used).
+            citation_count: Number of citation spans (not used).
+
+        Returns:
+            The template set on the strategy.
+
+        Raises:
+            ValueError: If no template is set.
+
+        """
         if not self.template:
             msg = "Structured template not set"
             raise ValueError(msg)
@@ -134,10 +188,22 @@ class StructuredTemplate(TemplateStrategy):
         display_spans: list[dict[str, Any]],
         citation_spans: list[dict[str, Any]],
     ) -> str:
+        """Return the template unchanged: structured mode fills it with `fill_with_spans`.
+
+        Args:
+            template: Template string with placeholders.
+            display_spans: Spans to display with full text (not used).
+            citation_spans: Spans for citation reference only (not used).
+
+        Returns:
+            The template.
+
+        """
         # Standard fill not used for structured mode
         return template
 
     def save_state(self) -> dict[str, Any]:
+        """Return the template, the custom placeholder mappings and the citation mode to save."""
         return {
             "type": "structured",
             "template": self.template,
@@ -146,6 +212,12 @@ class StructuredTemplate(TemplateStrategy):
         }
 
     def load_state(self, state: dict[str, Any]) -> None:
+        """Restore the settings of a saved state.
+
+        Args:
+            state: A state that `save_state` returned.
+
+        """
         self.template = state.get("template", self.template)
         self.custom_mappings = state.get("placeholder_mappings", {})
         if "citation_mode" in state:

@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
 from verbatim_core.errors import ConfigurationError, InvalidInputError
-from verbatim_core.types import Chunk
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from verbatim_core.types import Chunk
 
 _ConfigT = TypeVar("_ConfigT", bound=BaseModel)
 
 
 def _default_config(config: _ConfigT | None, config_class: type[_ConfigT]) -> _ConfigT:
-    """The default config a constructor was given, or the default of its class."""
+    """Return the default config a constructor was given, or the default of its class."""
     if config is None:
         return config_class()
     if not isinstance(config, config_class):
@@ -24,7 +27,7 @@ def _default_config(config: _ConfigT | None, config_class: type[_ConfigT]) -> _C
 
 
 def _call_config(config: _ConfigT | None, default: _ConfigT, config_class: type[_ConfigT]) -> _ConfigT:
-    """The config of one call: the one the call passed, else the default."""
+    """Return the config of one call: the one the call passed, else the default."""
     if config is None:
         return default
     if not isinstance(config, config_class):
@@ -34,8 +37,10 @@ def _call_config(config: _ConfigT | None, default: _ConfigT, config_class: type[
 
 
 def _config_from_settings(config_class: type[_ConfigT], settings: dict[str, Any]) -> _ConfigT:
-    """The config that settings describe, such as the deprecated setting arguments of a
-    constructor or a deprecated setter.
+    """Build the config that the settings describe.
+
+    The settings are, for example, the deprecated setting arguments of a constructor or a
+    deprecated setter.
     """
     try:
         return config_class(**settings)

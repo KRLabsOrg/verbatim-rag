@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import AsyncIterator, Iterator, Sequence
-from typing import Literal, Union
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,12 +12,16 @@ from verbatim_core._checks import _call_config, _default_config
 from verbatim_core._deprecation import warn_contextual_without_client
 from verbatim_core._transform_config import TransformConfig
 from verbatim_core.errors import ConfigurationError, InvalidInputError
-from verbatim_core.extractors import SpanExtractor
 from verbatim_core.response_builder import ResponseBuilder
-from verbatim_core.templates import TemplateManager
-from verbatim_core.templates.base import TemplateResult, TemplateStrategy
 from verbatim_core.templates.filler import TemplateFiller
 from verbatim_core.types import Answer, AnswerCitation, Chunk, ExtractedSpan, Extraction
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator, Sequence
+
+    from verbatim_core.extractors import SpanExtractor
+    from verbatim_core.templates import TemplateManager
+    from verbatim_core.templates.base import TemplateResult, TemplateStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +49,7 @@ class AnswerEvent(BaseModel):
     answer: Answer
 
 
-TransformEvent = Union[SpansEvent, AnswerEvent]
+TransformEvent = SpansEvent | AnswerEvent
 
 
 class Transformer:
@@ -59,12 +62,14 @@ class Transformer:
 
     def __init__(
         self,
-        extractor: SpanExtractor,
+        extractor: SpanExtractor[Any],
         templates: TemplateManager,
         *,
         config: TransformConfig | None = None,
-    ):
-        """:param extractor: Extracts the spans of the chunks
+    ) -> None:
+        """Build a transformer from an extractor and the templates of the answers.
+
+        :param extractor: Extracts the spans of the chunks
         :param templates: The templates the answers are written with
         :param config: The settings of a call, unless the call passes its own. Without it, the
             templates' settings are the default.
@@ -100,7 +105,8 @@ class Transformer:
         """
         config, strategy = self._call_settings(config)
         *_, answer_event = self._events(question, chunks, config, strategy)
-        return answer_event.answer
+        # The last event is always the answer.
+        return cast("AnswerEvent", answer_event).answer
 
     async def atransform(
         self, question: str, chunks: Sequence[Chunk], *, config: TransformConfig | None = None
@@ -108,7 +114,7 @@ class Transformer:
         """Async version of `transform`."""
         config, strategy = self._call_settings(config)
         events = [event async for event in self._aevents(question, chunks, config, strategy)]
-        return events[-1].answer
+        return cast("AnswerEvent", events[-1]).answer
 
     def stream(
         self, question: str, chunks: Sequence[Chunk], *, config: TransformConfig | None = None
@@ -129,7 +135,7 @@ class Transformer:
         return self._aevents(question, chunks, config, strategy)
 
     def _call_settings(self, config: TransformConfig | None) -> tuple[TransformConfig, TemplateStrategy]:
-        """The config and the template strategy of one call."""
+        """Return the config and the template strategy of one call."""
         call_config = _call_config(config, self.config, TransformConfig)
         if call_config.template_mode == "structured":
             if config is None:
@@ -142,7 +148,8 @@ class Transformer:
             # Only contextual mode needs a client. Until the deprecation window ends, it falls
             # back to static templates.
             warn_contextual_without_client()
-            strategy = self.templates.strategy("static")
+            # Static mode needs no client, so it always has a strategy.
+            strategy = cast("TemplateStrategy", self.templates.strategy("static"))
         return call_config, strategy
 
     def _events(
@@ -177,7 +184,7 @@ class Transformer:
 
 
 def _split(spans: list[ExtractedSpan], config: TransformConfig) -> tuple[list[ExtractedSpan], list[ExtractedSpan]]:
-    """The spans the answer shows, and the spans it cites for reference only."""
+    """Split the spans into the ones the answer shows and the ones it cites for reference only."""
     return spans[: config.max_display_spans], spans[config.max_display_spans :]
 
 
@@ -222,7 +229,7 @@ _PER_SPAN_PLACEHOLDER = re.compile(r"\[(?:SPAN|FACT)_(\d+)\]")
 
 
 def _shown_numbers(template: str, display_count: int) -> set[int]:
-    """The numbers of the spans whose text a filled template shows.
+    """Return the numbers of the spans whose text a filled template shows.
 
     A template with per-span placeholders shows the displayed spans it names; otherwise one with
     an aggregate placeholder shows all of them, as `TemplateFiller` fills it.
