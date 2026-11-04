@@ -8,10 +8,11 @@ import logging
 import re
 from typing import AsyncIterator, Dict, Iterator, List, Literal, Sequence, Set, Tuple, Union
 
-from pydantic import BaseModel, ConfigDict, NonNegativeInt, field_validator
+from pydantic import BaseModel, ConfigDict
 
 from ._checks import _call_config, _default_config
-from ._deprecation import warn_deprecated
+from ._deprecation import warn_contextual_without_client
+from ._transform_config import TransformConfig
 from .errors import ConfigurationError, InvalidInputError
 from .extractors import SpanExtractor
 from .response_builder import ResponseBuilder
@@ -26,31 +27,6 @@ _STRUCTURED_MODE_UNSUPPORTED = (
     "The Transformer doesn't support structured template mode. Use VerbatimRAG for structured "
     "answers, or another template mode."
 )
-
-
-class TransformConfig(BaseModel):
-    """Settings of a `Transformer` call."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
-
-    # The first spans are shown in the answer, the rest are cited for reference only.
-    max_display_spans: NonNegativeInt = 5
-    # The Transformer rejects "structured": structured answers stay in VerbatimRAG (ADR 0004).
-    template_mode: Literal["static", "contextual", "random", "question_specific", "structured"] = (
-        "static"
-    )
-    citation_mode: Literal["inline", "hidden"] = "inline"  # citation markers in the text, or none
-    citation_format: str = "[{number}]"  # the marker, with {number} and {span_id}
-    seed: int | None = None  # random template mode chooses by the question and this seed
-
-    @field_validator("citation_format")
-    @classmethod
-    def validate_citation_format(cls, citation_format: str) -> str:
-        try:
-            citation_format.format(number=1, span_id="1")
-        except (KeyError, IndexError, ValueError) as e:
-            raise ValueError("citation_format may use only {number} and {span_id}") from e
-        return citation_format
 
 
 class SpansEvent(BaseModel):
@@ -92,15 +68,25 @@ class Transformer:
         """
         :param extractor: Extracts the spans of the chunks
         :param templates: The templates the answers are written with
-        :param config: The settings of a call, unless the call passes its own
+        :param config: The settings of a call, unless the call passes its own. Without it, the
+            templates' settings are the default.
         :raises ConfigurationError: If the config is not a TransformConfig, or asks for structured
             template mode
         """
         self.extractor = extractor
         self.templates = templates
-        self.config = _default_config(config, TransformConfig)
-        if self.config.template_mode == "structured":
+        self._config = None if config is None else _default_config(config, TransformConfig)
+        # Templates in structured mode raise at the call: VerbatimRAG answers structured
+        # questions itself with the same templates (ADR 0004).
+        if self._config is not None and self._config.template_mode == "structured":
             raise ConfigurationError(_STRUCTURED_MODE_UNSUPPORTED, code="invalid_value")
+        if templates.strategy(self.config.template_mode) is None:
+            warn_contextual_without_client()
+
+    @property
+    def config(self) -> TransformConfig:
+        """The settings of a call that passes none: the config given, else the templates'."""
+        return self._config if self._config is not None else self.templates.config
 
     def transform(
         self, question: str, chunks: Sequence[Chunk], *, config: TransformConfig | None = None
@@ -152,23 +138,22 @@ class Transformer:
         self, config: TransformConfig | None
     ) -> Tuple[TransformConfig, TemplateStrategy]:
         """The config and the template strategy of one call."""
-        config = _call_config(config, self.config, TransformConfig)
-        if config.template_mode == "structured":
+        call_config = _call_config(config, self.config, TransformConfig)
+        if call_config.template_mode == "structured":
+            if config is None:
+                # The templates' settings, switched to structured mode after construction
+                raise ConfigurationError(_STRUCTURED_MODE_UNSUPPORTED, code="invalid_value")
             raise InvalidInputError(
                 _STRUCTURED_MODE_UNSUPPORTED, code="invalid_value", param="config.template_mode"
             )
 
-        strategy = self.templates.strategy(config.template_mode)
+        strategy = self.templates.strategy(call_config.template_mode)
         if strategy is None:
             # Only contextual mode needs a client. Until the deprecation window ends, it falls
             # back to static templates.
-            warn_deprecated(
-                "Contextual template mode without an LLM client",
-                use="TemplateManager(llm_client=...)",
-                stacklevel=4,
-            )
+            warn_contextual_without_client()
             strategy = self.templates.strategy("static")
-        return config, strategy
+        return call_config, strategy
 
     def _events(
         self,

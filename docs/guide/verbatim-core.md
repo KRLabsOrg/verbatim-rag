@@ -211,6 +211,8 @@ All built-in prompts (`LLMClient` extraction, template generation, fallback) loa
 
 Controls how extracted spans are formatted into responses.
 
+A `TemplateManager` holds the templates of each mode. Its constructor arguments, such as `default_mode`, describe its `config`, a `TransformConfig`. A `Transformer` built without a `config` uses the template manager's as its default. To choose the template mode, citation mode or citation format, pass a `TransformConfig` to the `Transformer` or to one call. The setters `set_mode`, `set_citation_mode` and `set_citation_format` are deprecated: they change the manager's config, which every transformer using it without its own config shares.
+
 ### Static Templates
 
 Fast, deterministic -- no LLM calls. Static mode is the recommended choice for pipeline and tool-chain use cases where output is consumed by downstream tools or agents.
@@ -234,6 +236,33 @@ from verbatim_core.llm_client import LLMClient
 client = LLMClient()
 tm = TemplateManager(llm_client=client, default_mode="contextual")
 ```
+
+### Random Templates
+
+Chooses a template from a pool by the question, so the same question always gets the same template. A `seed` in the `TransformConfig` changes the choice:
+
+```python
+from verbatim_core import TransformConfig
+
+transformer.transform(question, chunks, config=TransformConfig(template_mode="random", seed=7))
+```
+
+### Question-Specific Templates
+
+Pairs each template with example questions and chooses the template whose example is closest to the question. An embedding model compares them: pass any loaded model with an `encode(texts)` method, such as a `SentenceTransformer`, as `embedder`:
+
+```python
+from sentence_transformers import SentenceTransformer
+
+templates = [
+    {"template": "## Methods\n\n[RELEVANT_SENTENCES]", "examples": ["What methods were used?"]},
+    {"template": "## Results\n\n[RELEVANT_SENTENCES]", "examples": ["What did they find?"]},
+]
+tm = TemplateManager()
+tm.use_question_specific_mode(templates, embedder=SentenceTransformer("all-MiniLM-L6-v2"))
+```
+
+`QuestionSpecificTemplate.from_pretrained(model_name, templates=templates)` loads the model and builds the templates in one step. The examples are embedded when the templates are built, and each question when it is answered, so no call loads a model.
 
 ### Template Placeholders
 

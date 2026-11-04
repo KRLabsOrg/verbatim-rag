@@ -8,6 +8,7 @@ template structure and extracts spans organized by placeholder.
 import re
 from typing import Any, Dict, List, Optional
 
+from .._deprecation import deprecated
 from .base import TemplateStrategy
 
 
@@ -64,6 +65,7 @@ class StructuredTemplate(TemplateStrategy):
         self.citation_mode = citation_mode
 
     # ------------------------------------------------------------------ helpers
+    @deprecated("StructuredTemplate.set_rag_system", use="VerbatimRAG.query_async")
     def set_rag_system(self, rag_system) -> None:
         self.rag_system = rag_system
 
@@ -240,6 +242,7 @@ class StructuredTemplate(TemplateStrategy):
         return "\n\n".join(texts)
 
     # ---------------------------------------------------------------- async fill (deprecated, use RAG.query)
+    @deprecated("StructuredTemplate.fill_async", use="VerbatimRAG.query_async")
     async def fill_async(
         self,
         question: str,

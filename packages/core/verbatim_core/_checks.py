@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Dict, Sequence, Type, TypeVar
+from typing import Any, Dict, Sequence, Type, TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .errors import ConfigurationError, InvalidInputError
 from .types import Chunk
@@ -32,6 +32,19 @@ def _call_config(
             f"config must be a {config_class.__name__}.", code="invalid_value", param="config"
         )
     return config
+
+
+def _config_from_settings(config_class: Type[_ConfigT], settings: Dict[str, Any]) -> _ConfigT:
+    """The config that settings describe, such as the deprecated setting arguments of a
+    constructor or a deprecated setter."""
+    try:
+        return config_class(**settings)
+    except ValidationError as e:
+        names = ", ".join(str(error["loc"][0]) for error in e.errors())
+        raise ConfigurationError(
+            f"Invalid value for {names}. See {config_class.__name__} for the valid values.",
+            code="invalid_value",
+        ) from e
 
 
 def _check_unique_ids(chunks: Sequence[Chunk]) -> None:

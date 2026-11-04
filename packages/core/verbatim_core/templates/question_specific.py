@@ -7,12 +7,20 @@ selects the best-matching template for each query.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+import math
+import time
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .._deprecation import _UNSET, warn_deprecated
+from .._loading import _load_errors_translated, _log_model_loaded
+from ..errors import ConfigurationError
 from .base import TemplateStrategy
 from .filler import TemplateFiller
 
 logger = logging.getLogger(__name__)
+
+# The embedder loaded by name when the templates were given none, as before 0.3.0.
+_DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
 
 
 class QuestionSpecificTemplate(TemplateStrategy):
@@ -34,7 +42,7 @@ class QuestionSpecificTemplate(TemplateStrategy):
                 "examples": ["What were the results?", "What did they find?"]
             }
         ]
-        strategy = QuestionSpecificTemplate(templates)
+        strategy = QuestionSpecificTemplate.from_pretrained("all-MiniLM-L6-v2", templates=templates)
     """
 
     DEFAULT_TEMPLATE = """## Response
@@ -49,45 +57,92 @@ Based on the available documents:
     def __init__(
         self,
         templates: Optional[List[Dict[str, Any]]] = None,
-        model_name: str = "all-MiniLM-L6-v2",
-        device: str = "cpu",
+        model_name: str = _UNSET,
+        device: str = _UNSET,
         citation_mode: str = "inline",
+        *,
+        embedder: Any = None,
     ):
         """
         Initialize question-specific template strategy.
 
         :param templates: List of template definitions, each with 'template' and 'examples' keys
-        :param model_name: SentenceTransformer model name for embedding
-        :param device: Device to run model on ("cpu" or "cuda")
+        :param model_name: Deprecated. Load the embedder with `from_pretrained(model_name)`.
+        :param device: Deprecated, with `model_name`.
+        :param embedder: A loaded embedding model with an `encode(texts)` method, such as a
+            SentenceTransformer. It embeds the template examples here and each question.
         """
+        # Loading the embedder by name warns once: here if the caller named the model, else when
+        # it is loaded.
+        self._warn_on_load = model_name is _UNSET and device is _UNSET
+        if not self._warn_on_load:
+            warn_deprecated(
+                "QuestionSpecificTemplate(model_name=..., device=...)",
+                use="QuestionSpecificTemplate.from_pretrained(model_name, device)",
+            )
+
         self.templates = templates or []
-        self.model_name = model_name
-        self.device = device
+        # The name of the model that embeds, saved and loaded by. None for an embedder given
+        # without a name.
+        if model_name is not _UNSET:
+            self.model_name = model_name
+        else:
+            self.model_name = None if embedder is not None else _DEFAULT_MODEL_NAME
+        self.device = "cpu" if device is _UNSET else device
         self.citation_mode = citation_mode
         self.filler = TemplateFiller(citation_mode=citation_mode)
-        self._embedder = None
+        self._embedder = embedder
         self._example_embeddings = None  # Will store stacked embeddings for efficient matching
 
         if self.templates:
             self._validate_and_embed_templates()
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_name: str,
+        device: str | None = None,
+        *,
+        templates: Optional[List[Dict[str, Any]]] = None,
+        citation_mode: str = "inline",
+    ) -> "QuestionSpecificTemplate":
+        """
+        Load a sentence-transformers embedding model and build the templates with it.
+
+        :param model_name: A sentence-transformers model id, or the path of a local model
+        :param device: The device to run the model on. None lets sentence-transformers choose.
+        :param templates: List of template definitions, each with 'template' and 'examples' keys
+        :param citation_mode: "inline" or "hidden"
+        :raises ConfigurationError: If sentence-transformers is not installed, or the model can't
+            be loaded
+        """
+        embedder = _load_embedder(model_name, device)
+        strategy = cls(templates, citation_mode=citation_mode, embedder=embedder)
+        strategy.model_name = model_name
+        strategy.device = str(embedder.device)
+        return strategy
 
     def set_citation_mode(self, citation_mode: str) -> None:
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
     def _get_embedder(self):
-        """Lazy load the embedding model."""
+        """The embedder. Without one, it is loaded by name, as before 0.3.0."""
         if self._embedder is None:
-            try:
-                from sentence_transformers import SentenceTransformer
-
-                self._embedder = SentenceTransformer(self.model_name, device=self.device)
-                logger.info(f"Loaded embedding model: {self.model_name}")
-            except ImportError:
-                raise ImportError(
-                    "sentence-transformers required for question-specific templates. "
-                    "Install with: pip install sentence-transformers"
+            if self.model_name is None:
+                raise ConfigurationError(
+                    "The question-specific templates don't name the model that embedded their "
+                    "examples. Pass that model as embedder, for example with "
+                    "TemplateManager.use_question_specific_mode(embedder=...) before load.",
+                    code="missing_embedder",
                 )
+            if self._warn_on_load:
+                warn_deprecated(
+                    "QuestionSpecificTemplate without an embedder",
+                    use="QuestionSpecificTemplate.from_pretrained(model_name)",
+                    stacklevel=None,
+                )
+            self._embedder = _load_embedder(self.model_name, self.device)
         return self._embedder
 
     def _validate_and_embed_templates(self):
@@ -122,7 +177,7 @@ Based on the available documents:
             "template_indices": template_indices,  # which template each embedding belongs to
         }
 
-        logger.info(f"Validated and embedded {len(all_examples)} example questions")
+        logger.debug("Validated and embedded %d example questions", len(all_examples))
 
     def set_question_templates(self, templates: List[Dict[str, Any]]) -> None:
         """
@@ -150,21 +205,18 @@ Based on the available documents:
         embedder = self._get_embedder()
         question_embedding = embedder.encode([question])[0]  # Shape: (embedding_dim,)
 
-        import numpy as np
+        similarities = [
+            _cosine(example_embedding, question_embedding)
+            for example_embedding in self._example_embeddings["embeddings"]
+        ]
 
-        # Compute similarities to all examples at once using numpy
-        similarities = np.dot(self._example_embeddings["embeddings"], question_embedding) / (
-            np.linalg.norm(self._example_embeddings["embeddings"], axis=1)
-            * np.linalg.norm(question_embedding)
-        )
-
-        # Find the best similarity
-        best_example_idx = np.argmax(similarities)
+        # Find the best similarity, the first on a tie
+        best_example_idx = max(range(len(similarities)), key=similarities.__getitem__)
         best_similarity = float(similarities[best_example_idx])
         best_template_idx = self._example_embeddings["template_indices"][best_example_idx]
 
         logger.debug(
-            f"Question matched template {best_template_idx} (similarity: {best_similarity:.3f})"
+            "Question matched template %d (similarity: %.3f)", best_template_idx, best_similarity
         )
 
         return best_template_idx, best_similarity
@@ -183,7 +235,7 @@ Based on the available documents:
         if template_idx >= 0 and template_idx < len(self.templates):
             return self.templates[template_idx]["template"]
 
-        logger.info("Using default template (no templates configured)")
+        logger.debug("Using default template (no templates configured)")
         return self.DEFAULT_TEMPLATE
 
     def fill(
@@ -223,14 +275,14 @@ Based on the available documents:
         """
         if "templates" in state:
             self.templates = state["templates"]
-        if "model_name" in state:
+        # An embedder given replaces the saved model.
+        if self._embedder is None and "model_name" in state:
             self.model_name = state["model_name"]
-        if "device" in state:
+        if self._embedder is None and "device" in state:
             self.device = state["device"]
 
-        # Clear cached embeddings and revalidate
+        # Embed the loaded examples, with the embedder given, else the saved model
         self._example_embeddings = None
-        self._embedder = None
         if self.templates:
             self._validate_and_embed_templates()
 
@@ -251,7 +303,7 @@ Based on the available documents:
         # Revalidate and re-embed all templates
         self._example_embeddings = None
         self._validate_and_embed_templates()
-        logger.info(f"Added template (total: {len(self.templates)})")
+        logger.debug("Added template (total: %d)", len(self.templates))
 
     def remove_template(self, index: int) -> None:
         """
@@ -267,4 +319,27 @@ Based on the available documents:
         self._example_embeddings = None
         if self.templates:
             self._validate_and_embed_templates()
-        logger.info(f"Removed template at index {index} (total: {len(self.templates)})")
+        logger.debug("Removed template at index %d (total: %d)", index, len(self.templates))
+
+
+def _load_embedder(model_name: str, device: str | None) -> Any:
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as e:
+        raise ConfigurationError(
+            "Question-specific templates need sentence-transformers. Install it with "
+            "pip install sentence-transformers.",
+            code="missing_dependency",
+        ) from e
+
+    started = time.perf_counter()
+    with _load_errors_translated(model_name):
+        embedder = SentenceTransformer(model_name, device=device)
+    _log_model_loaded(logger, model_name, str(embedder.device), started)
+    return embedder
+
+
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    """The cosine similarity of two vectors, and 0 if either is zero."""
+    norms = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
+    return sum(x * y for x, y in zip(a, b)) / norms if norms else 0.0

@@ -96,8 +96,8 @@ class ContextualTemplate(TemplateStrategy):
             self._cache_template(cache_key, template)
             return template
 
-        except Exception as e:
-            print(f"Contextual template generation failed: {e}")
+        except UpstreamError as e:
+            _log_fallback(e.code)
             return self._get_fallback_template(citation_count > 0)
 
     async def generate_async(self, question: str, spans: List[str], citation_count: int = 0) -> str:
@@ -117,8 +117,8 @@ class ContextualTemplate(TemplateStrategy):
             self._cache_template(cache_key, template)
             return template
 
-        except Exception as e:
-            print(f"Async contextual template generation failed: {e}")
+        except UpstreamError as e:
+            _log_fallback(e.code)
             return self._get_fallback_template(citation_count > 0)
 
     def generate_result(
@@ -203,11 +203,7 @@ class ContextualTemplate(TemplateStrategy):
     def _fallback_result(
         self, citation_count: int, error_code: str, usage: Usage | None = None
     ) -> TemplateResult:
-        logger.warning(
-            "Using the fallback template, because the LLM wrote no template (%s)",
-            error_code,
-            extra={"event": "fallback_used", "warning_code": "template_fallback"},
-        )
+        _log_fallback(error_code)
         warning = ResultWarning(
             code="template_fallback",
             message="The LLM could not write a template, so the answer uses the fallback template.",
@@ -246,9 +242,11 @@ class ContextualTemplate(TemplateStrategy):
         if "preserve_span_newlines" in state:
             self.preserve_span_newlines = state["preserve_span_newlines"]
         if "model" in state or "temperature" in state:
-            print(
-                f"Note: LLM client config in saved state (model: {state.get('model')}, "
-                f"temp: {state.get('temperature')}) - client must be updated separately"
+            logger.debug(
+                "The saved state names the model %s and temperature %s. Set them on the LLM "
+                "client, which the saved state doesn't change.",
+                state.get("model"),
+                state.get("temperature"),
             )
 
     def set_per_fact_mode(self, use_per_fact: bool) -> None:
@@ -303,3 +301,11 @@ Based on the available documents:
         template += "\n\n---\n*These excerpts are taken verbatim from the source documents to ensure accuracy.*"
 
         return template
+
+
+def _log_fallback(error_code: str | None) -> None:
+    logger.warning(
+        "Using the fallback template, because the LLM wrote no template (%s)",
+        error_code,
+        extra={"event": "fallback_used", "warning_code": "template_fallback"},
+    )

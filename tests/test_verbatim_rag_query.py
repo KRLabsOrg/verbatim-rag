@@ -73,3 +73,16 @@ class TestDisplayCitations:
         response = rag.query("What is listed?")
 
         assert [c.type for c in response.structured_answer.citations] == streamed_types
+
+
+def test_structured_mode_can_call_back_into_it_without_a_deprecation_warning(recwarn):
+    templates = TemplateManager(default_mode="static")
+
+    rag = verbatim_rag.VerbatimRAG(
+        InMemoryIndex(), extractor=FixedSpanExtractor(), template_manager=templates
+    )
+
+    assert templates.strategies["structured"].rag_system is rag
+    assert not [
+        w for w in recwarn if issubclass(w.category, verbatim_rag.VerbatimDeprecationWarning)
+    ]
