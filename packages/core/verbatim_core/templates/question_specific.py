@@ -1,5 +1,4 @@
-"""
-Question-specific template strategy for the Verbatim RAG system.
+"""Question-specific template strategy for the Verbatim RAG system.
 
 Provides template matching based on example questions using semantic similarity.
 Users define templates paired with example questions, and the system automatically
@@ -9,13 +8,14 @@ selects the best-matching template for each query.
 import logging
 import math
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
-from .._deprecation import _UNSET, warn_deprecated
-from .._loading import _load_errors_translated, _log_model_loaded
-from ..errors import ConfigurationError
-from .base import TemplateStrategy
-from .filler import TemplateFiller
+from verbatim_core._deprecation import _UNSET, warn_deprecated
+from verbatim_core._loading import _load_errors_translated, _log_model_loaded
+from verbatim_core.errors import ConfigurationError
+from verbatim_core.templates.base import TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,7 @@ _DEFAULT_MODEL_NAME = "all-MiniLM-L6-v2"
 
 
 class QuestionSpecificTemplate(TemplateStrategy):
-    """
-    Question-specific template strategy using semantic similarity matching.
+    """Question-specific template strategy using semantic similarity matching.
 
     Maintains a list of (template, example_questions) pairs. When a query arrives,
     computes similarity to all examples and selects the template from the
@@ -56,15 +55,14 @@ Based on the available documents:
 
     def __init__(
         self,
-        templates: Optional[List[Dict[str, Any]]] = None,
+        templates: list[dict[str, Any]] | None = None,
         model_name: str = _UNSET,
         device: str = _UNSET,
         citation_mode: str = "inline",
         *,
         embedder: Any = None,
     ):
-        """
-        Initialize question-specific template strategy.
+        """Initialize question-specific template strategy.
 
         :param templates: List of template definitions, each with 'template' and 'examples' keys
         :param model_name: Deprecated. Load the embedder with `from_pretrained(model_name)`.
@@ -103,11 +101,10 @@ Based on the available documents:
         model_name: str,
         device: str | None = None,
         *,
-        templates: Optional[List[Dict[str, Any]]] = None,
+        templates: list[dict[str, Any]] | None = None,
         citation_mode: str = "inline",
     ) -> "QuestionSpecificTemplate":
-        """
-        Load a sentence-transformers embedding model and build the templates with it.
+        """Load a sentence-transformers embedding model and build the templates with it.
 
         :param model_name: A sentence-transformers model id, or the path of a local model
         :param device: The device to run the model on. None lets sentence-transformers choose.
@@ -130,10 +127,13 @@ Based on the available documents:
         """The embedder. Without one, it is loaded by name, as before 0.3.0."""
         if self._embedder is None:
             if self.model_name is None:
-                raise ConfigurationError(
+                msg = (
                     "The question-specific templates don't name the model that embedded their "
                     "examples. Pass that model as embedder, for example with "
-                    "TemplateManager.use_question_specific_mode(embedder=...) before load.",
+                    "TemplateManager.use_question_specific_mode(embedder=...) before load."
+                )
+                raise ConfigurationError(
+                    msg,
                     code="missing_embedder",
                 )
             if self._warn_on_load:
@@ -158,9 +158,11 @@ Based on the available documents:
 
         for idx, config in enumerate(self.templates):
             if "template" not in config:
-                raise ValueError(f"Template config {idx} missing 'template' key")
+                msg = f"Template config {idx} missing 'template' key"
+                raise ValueError(msg)
             if "examples" not in config or not config["examples"]:
-                raise ValueError(f"Template config {idx} missing or empty 'examples'")
+                msg = f"Template config {idx} missing or empty 'examples'"
+                raise ValueError(msg)
 
             # Validate template has required placeholders
             self.validate_template(config["template"])
@@ -179,9 +181,8 @@ Based on the available documents:
 
         logger.debug("Validated and embedded %d example questions", len(all_examples))
 
-    def set_question_templates(self, templates: List[Dict[str, Any]]) -> None:
-        """
-        Set templates with example questions.
+    def set_question_templates(self, templates: list[dict[str, Any]]) -> None:
+        """Set templates with example questions.
 
         :param templates: List of template configs, each with:
                           - "template": Template string with [RELEVANT_SENTENCES]
@@ -192,9 +193,8 @@ Based on the available documents:
         self._example_embeddings = None
         self._validate_and_embed_templates()
 
-    def _find_best_match(self, question: str) -> Tuple[int, float]:
-        """
-        Find the best matching template for a question.
+    def _find_best_match(self, question: str) -> tuple[int, float]:
+        """Find the best matching template for a question.
 
         :param question: User's question
         :return: Tuple of (template_index, best_similarity_score)
@@ -215,22 +215,19 @@ Based on the available documents:
         best_similarity = float(similarities[best_example_idx])
         best_template_idx = self._example_embeddings["template_indices"][best_example_idx]
 
-        logger.debug(
-            "Question matched template %d (similarity: %.3f)", best_template_idx, best_similarity
-        )
+        logger.debug("Question matched template %d (similarity: %.3f)", best_template_idx, best_similarity)
 
         return best_template_idx, best_similarity
 
-    def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
-        """
-        Generate template by finding best match for the question.
+    def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
+        """Generate template by finding best match for the question.
 
         :param question: User's question
         :param spans: List of spans (not used for matching)
         :param citation_count: Number of citation spans (not used for matching)
         :return: Best matching template or default template
         """
-        template_idx, similarity = self._find_best_match(question)
+        template_idx, _similarity = self._find_best_match(question)
 
         if template_idx >= 0 and template_idx < len(self.templates):
             return self.templates[template_idx]["template"]
@@ -241,11 +238,10 @@ Based on the available documents:
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
-        """
-        Fill the template with actual span content.
+        """Fill the template with actual span content.
 
         :param template: Template string with placeholders
         :param display_spans: Spans to display with full text
@@ -254,9 +250,8 @@ Based on the available documents:
         """
         return self.filler.fill(template, display_spans, citation_spans)
 
-    def save_state(self) -> Dict[str, Any]:
-        """
-        Save the current template configuration.
+    def save_state(self) -> dict[str, Any]:
+        """Save the current template configuration.
 
         :return: Dictionary with template state
         """
@@ -267,9 +262,8 @@ Based on the available documents:
             "device": self.device,
         }
 
-    def load_state(self, state: Dict[str, Any]) -> None:
-        """
-        Load template configuration from saved state.
+    def load_state(self, state: dict[str, Any]) -> None:
+        """Load template configuration from saved state.
 
         :param state: Dictionary with template configuration
         """
@@ -286,9 +280,8 @@ Based on the available documents:
         if self.templates:
             self._validate_and_embed_templates()
 
-    def add_template(self, template: str, examples: List[str]) -> None:
-        """
-        Add a new template to the list.
+    def add_template(self, template: str, examples: list[str]) -> None:
+        """Add a new template to the list.
 
         :param template: Template string with [RELEVANT_SENTENCES]
         :param examples: List of example questions for this template
@@ -296,7 +289,8 @@ Based on the available documents:
         """
         self.validate_template(template)
         if not examples:
-            raise ValueError("At least one example question is required")
+            msg = "At least one example question is required"
+            raise ValueError(msg)
 
         self.templates.append({"template": template, "examples": examples})
 
@@ -306,14 +300,14 @@ Based on the available documents:
         logger.debug("Added template (total: %d)", len(self.templates))
 
     def remove_template(self, index: int) -> None:
-        """
-        Remove a template by index.
+        """Remove a template by index.
 
         :param index: Index of template to remove
         :raises IndexError: If index is out of range
         """
         if index < 0 or index >= len(self.templates):
-            raise IndexError(f"Template index {index} out of range [0, {len(self.templates) - 1}]")
+            msg = f"Template index {index} out of range [0, {len(self.templates) - 1}]"
+            raise IndexError(msg)
 
         self.templates.pop(index)
         self._example_embeddings = None
@@ -326,9 +320,11 @@ def _load_embedder(model_name: str, device: str | None) -> Any:
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError as e:
+        msg = (
+            "Question-specific templates need sentence-transformers. Install it with pip install sentence-transformers."
+        )
         raise ConfigurationError(
-            "Question-specific templates need sentence-transformers. Install it with "
-            "pip install sentence-transformers.",
+            msg,
             code="missing_dependency",
         ) from e
 
@@ -342,4 +338,4 @@ def _load_embedder(model_name: str, device: str | None) -> Any:
 def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
     """The cosine similarity of two vectors, and 0 if either is zero."""
     norms = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
-    return sum(x * y for x, y in zip(a, b)) / norms if norms else 0.0
+    return sum(x * y for x, y in zip(a, b, strict=False)) / norms if norms else 0.0

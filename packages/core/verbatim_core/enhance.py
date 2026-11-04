@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
-from typing import Any, Callable, Dict, Iterable, Mapping
+from typing import Any
 
-from ._context import _default_transformer, _query_response
-from .llm_client import LLMClient
+from verbatim_core._context import _default_transformer, _query_response
+from verbatim_core.llm_client import LLMClient
 
 
 def _to_context_dicts(obj: Any) -> list[dict]:
@@ -52,7 +53,7 @@ def verbatim_enhance(
         def wrapper(*args, **kwargs):
             result = fn(*args, **kwargs)
             question = kwargs.get("question") or (args[0] if args else "")
-            context: Iterable[Dict[str, Any]] = []
+            context: Iterable[dict[str, Any]] = []
 
             if isinstance(result, dict):
                 context = result.get("context") or result.get("sources") or []

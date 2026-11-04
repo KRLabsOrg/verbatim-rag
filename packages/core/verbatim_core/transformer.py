@@ -1,25 +1,24 @@
-"""
-The Transformer: a question and chunks in, a cited answer built from the chunks' own text out.
-"""
+"""The Transformer: a question and chunks in, a cited answer built from the chunks' own text out."""
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import AsyncIterator, Dict, Iterator, List, Literal, Sequence, Set, Tuple, Union
+from collections.abc import AsyncIterator, Iterator, Sequence
+from typing import Literal, Union
 
 from pydantic import BaseModel, ConfigDict
 
-from ._checks import _call_config, _default_config
-from ._deprecation import warn_contextual_without_client
-from ._transform_config import TransformConfig
-from .errors import ConfigurationError, InvalidInputError
-from .extractors import SpanExtractor
-from .response_builder import ResponseBuilder
-from .templates import TemplateManager
-from .templates.base import TemplateResult, TemplateStrategy
-from .templates.filler import TemplateFiller
-from .types import Answer, AnswerCitation, Chunk, ExtractedSpan, Extraction
+from verbatim_core._checks import _call_config, _default_config
+from verbatim_core._deprecation import warn_contextual_without_client
+from verbatim_core._transform_config import TransformConfig
+from verbatim_core.errors import ConfigurationError, InvalidInputError
+from verbatim_core.extractors import SpanExtractor
+from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates import TemplateManager
+from verbatim_core.templates.base import TemplateResult, TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
+from verbatim_core.types import Answer, AnswerCitation, Chunk, ExtractedSpan, Extraction
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ class SpansEvent(BaseModel):
     model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 
     type: Literal["spans"] = "spans"
-    spans: List[ExtractedSpan]
+    spans: list[ExtractedSpan]
 
 
 class AnswerEvent(BaseModel):
@@ -65,8 +64,7 @@ class Transformer:
         *,
         config: TransformConfig | None = None,
     ):
-        """
-        :param extractor: Extracts the spans of the chunks
+        """:param extractor: Extracts the spans of the chunks
         :param templates: The templates the answers are written with
         :param config: The settings of a call, unless the call passes its own. Without it, the
             templates' settings are the default.
@@ -88,11 +86,8 @@ class Transformer:
         """The settings of a call that passes none: the config given, else the templates'."""
         return self._config if self._config is not None else self.templates.config
 
-    def transform(
-        self, question: str, chunks: Sequence[Chunk], *, config: TransformConfig | None = None
-    ) -> Answer:
-        """
-        Write a cited answer to the question from the chunks.
+    def transform(self, question: str, chunks: Sequence[Chunk], *, config: TransformConfig | None = None) -> Answer:
+        """Write a cited answer to the question from the chunks.
 
         :param question: The question
         :param chunks: Chunks with unique ids
@@ -118,8 +113,7 @@ class Transformer:
     def stream(
         self, question: str, chunks: Sequence[Chunk], *, config: TransformConfig | None = None
     ) -> Iterator[TransformEvent]:
-        """
-        Write the answer of `transform` as events: the spans, then the answer.
+        """Write the answer of `transform` as events: the spans, then the answer.
 
         :raises InvalidInputError: When called, if the config is of the wrong type or asks for
             structured template mode. The other errors of `transform` come from the iteration.
@@ -134,18 +128,14 @@ class Transformer:
         config, strategy = self._call_settings(config)
         return self._aevents(question, chunks, config, strategy)
 
-    def _call_settings(
-        self, config: TransformConfig | None
-    ) -> Tuple[TransformConfig, TemplateStrategy]:
+    def _call_settings(self, config: TransformConfig | None) -> tuple[TransformConfig, TemplateStrategy]:
         """The config and the template strategy of one call."""
         call_config = _call_config(config, self.config, TransformConfig)
         if call_config.template_mode == "structured":
             if config is None:
                 # The templates' settings, switched to structured mode after construction
                 raise ConfigurationError(_STRUCTURED_MODE_UNSUPPORTED, code="invalid_value")
-            raise InvalidInputError(
-                _STRUCTURED_MODE_UNSUPPORTED, code="invalid_value", param="config.template_mode"
-            )
+            raise InvalidInputError(_STRUCTURED_MODE_UNSUPPORTED, code="invalid_value", param="config.template_mode")
 
         strategy = self.templates.strategy(call_config.template_mode)
         if strategy is None:
@@ -166,9 +156,7 @@ class Transformer:
         extraction = self.extractor.extract(question, chunks)
         yield SpansEvent(spans=extraction.spans)
         display, references = _split(extraction.spans, config)
-        template = strategy.generate_result(
-            question, _texts(display + references), len(references), seed=config.seed
-        )
+        template = strategy.generate_result(question, _texts(display + references), len(references), seed=config.seed)
         yield AnswerEvent(answer=_answer(extraction, template, display, references, config))
 
     async def _aevents(
@@ -188,31 +176,27 @@ class Transformer:
         yield AnswerEvent(answer=_answer(extraction, template, display, references, config))
 
 
-def _split(
-    spans: List[ExtractedSpan], config: TransformConfig
-) -> Tuple[List[ExtractedSpan], List[ExtractedSpan]]:
+def _split(spans: list[ExtractedSpan], config: TransformConfig) -> tuple[list[ExtractedSpan], list[ExtractedSpan]]:
     """The spans the answer shows, and the spans it cites for reference only."""
     return spans[: config.max_display_spans], spans[config.max_display_spans :]
 
 
-def _texts(spans: List[ExtractedSpan]) -> List[str]:
+def _texts(spans: list[ExtractedSpan]) -> list[str]:
     return [span.text for span in spans]
 
 
-def _span_data(spans: List[ExtractedSpan]) -> List[Dict[str, str]]:
+def _span_data(spans: list[ExtractedSpan]) -> list[dict[str, str]]:
     return [{"text": span.text} for span in spans]
 
 
 def _answer(
     extraction: Extraction,
     template: TemplateResult,
-    display: List[ExtractedSpan],
-    references: List[ExtractedSpan],
+    display: list[ExtractedSpan],
+    references: list[ExtractedSpan],
     config: TransformConfig,
 ) -> Answer:
-    filler = TemplateFiller(
-        citation_mode=config.citation_mode, citation_format=config.citation_format
-    )
+    filler = TemplateFiller(citation_mode=config.citation_mode, citation_format=config.citation_format)
     text = filler.fill(template.text, _span_data(display), _span_data(references))
     shown = _shown_numbers(template.text, len(display))
     citations = [
@@ -237,7 +221,7 @@ def _answer(
 _PER_SPAN_PLACEHOLDER = re.compile(r"\[(?:SPAN|FACT)_(\d+)\]")
 
 
-def _shown_numbers(template: str, display_count: int) -> Set[int]:
+def _shown_numbers(template: str, display_count: int) -> set[int]:
     """The numbers of the spans whose text a filled template shows.
 
     A template with per-span placeholders shows the displayed spans it names; otherwise one with

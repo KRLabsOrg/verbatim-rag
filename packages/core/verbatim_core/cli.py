@@ -3,13 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Any, Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
-from ._context import _default_transformer, _query_response
-from .llm_client import LLMClient
+from verbatim_core._context import _default_transformer, _query_response
+from verbatim_core.llm_client import LLMClient
 
 
-def _iter_records(fp) -> Iterable[Dict[str, Any]]:
+def _iter_records(fp) -> Iterable[dict[str, Any]]:
     """Yield JSON objects from a file path or stdin. Supports JSONL or JSON array."""
     try:
         data = fp.read()
@@ -36,20 +37,19 @@ def _iter_records(fp) -> Iterable[Dict[str, Any]]:
             print(f"Malformed JSON input: {e}", file=sys.stderr)
             return
         if isinstance(obj, list):
-            for item in obj:
-                yield item
+            yield from obj
         else:
             yield obj
 
 
-def main(argv: List[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Verbatim enhance JSON(L) records")
     p.add_argument("--input", "-i", help="Input file (JSON or JSONL). Defaults to stdin.")
     p.add_argument("--output", "-o", help="Output file (JSONL). Defaults to stdout.")
     p.add_argument("--max-spans", type=int, default=5, help="Max display spans")
     args = p.parse_args(argv)
 
-    fin = open(args.input, "r", encoding="utf-8") if args.input else sys.stdin
+    fin = open(args.input, encoding="utf-8") if args.input else sys.stdin
     fout = open(args.output, "w", encoding="utf-8") if args.output else sys.stdout
 
     transformer = _default_transformer(LLMClient(), args.max_spans)

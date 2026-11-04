@@ -1,5 +1,4 @@
-"""
-Contextual template strategy for the Verbatim RAG system.
+"""Contextual template strategy for the Verbatim RAG system.
 
 Provides LLM-powered template generation that creates contextually appropriate
 templates based on the question and available spans. Supports both per-span
@@ -7,22 +6,21 @@ and aggregate placeholders.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from verbatim_core._logging import content_logger
 from verbatim_core.errors import UpstreamError
 from verbatim_core.llm_client import Completion, LLMClient, _replaces
 from verbatim_core.types import ResultWarning, Usage
 
-from .base import TemplateResult, TemplateStrategy
-from .filler import TemplateFiller
+from verbatim_core.templates.base import TemplateResult, TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 
 logger = logging.getLogger(__name__)
 
 
 class ContextualTemplate(TemplateStrategy):
-    """
-    Contextual template strategy using LLM generation.
+    """Contextual template strategy using LLM generation.
 
     This strategy generates templates dynamically based on the question,
     available spans, and citation count.
@@ -34,13 +32,12 @@ class ContextualTemplate(TemplateStrategy):
         use_per_fact: bool = True,
         citation_mode: str = "inline",
         citation_format: str = "[{number}]",
-        template_preview_chars: Optional[int] = 100,
+        template_preview_chars: int | None = 100,
         preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
-        system_prompt: Optional[str] = None,
+        template_prompt: str | None = None,
+        system_prompt: str | None = None,
     ):
-        """
-        :param llm_client: LLM client for template generation.
+        """:param llm_client: LLM client for template generation.
         :param use_per_fact: Whether to prefer per-span placeholders (≤8 spans).
         :param citation_mode: "inline" or "hidden".
         :param citation_format: Marker format string; see TemplateFiller.
@@ -68,7 +65,7 @@ class ContextualTemplate(TemplateStrategy):
         self.system_prompt = system_prompt
         self.filler = TemplateFiller(citation_mode=citation_mode, citation_format=citation_format)
 
-        self._template_cache: Dict[str, str] = {}
+        self._template_cache: dict[str, str] = {}
         self._max_cache_size = 100
 
     def set_citation_mode(self, citation_mode: str) -> None:
@@ -79,7 +76,7 @@ class ContextualTemplate(TemplateStrategy):
         self.citation_format = citation_format
         self.filler.citation_format = citation_format
 
-    def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
+    def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
         if not spans:
             return self._get_fallback_template(citation_count > 0)
 
@@ -88,9 +85,7 @@ class ContextualTemplate(TemplateStrategy):
             return self._template_cache[cache_key]
 
         try:
-            template = self.llm_client.generate_template(
-                **self._template_request(question, spans, citation_count)
-            )
+            template = self.llm_client.generate_template(**self._template_request(question, spans, citation_count))
 
             template = self._post_process_template(template, citation_count)
             self._cache_template(cache_key, template)
@@ -100,7 +95,7 @@ class ContextualTemplate(TemplateStrategy):
             _log_fallback(e.code)
             return self._get_fallback_template(citation_count > 0)
 
-    async def generate_async(self, question: str, spans: List[str], citation_count: int = 0) -> str:
+    async def generate_async(self, question: str, spans: list[str], citation_count: int = 0) -> str:
         if not spans:
             return self._get_fallback_template(citation_count > 0)
 
@@ -122,10 +117,9 @@ class ContextualTemplate(TemplateStrategy):
             return self._get_fallback_template(citation_count > 0)
 
     def generate_result(
-        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+        self, question: str, spans: list[str], citation_count: int = 0, *, seed: int | None = None
     ) -> TemplateResult:
-        """
-        Ask the LLM for a template, without the cache.
+        """Ask the LLM for a template, without the cache.
 
         When the LLM call fails with an `UpstreamError`, or the LLM sends an empty template, the
         result is the fallback template with the warning `template_fallback`. Other errors
@@ -146,7 +140,7 @@ class ContextualTemplate(TemplateStrategy):
         return self._template_result(completion, spans, citation_count)
 
     async def generate_result_async(
-        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+        self, question: str, spans: list[str], citation_count: int = 0, *, seed: int | None = None
     ) -> TemplateResult:
         """Async version of `generate_result`."""
         if not spans:
@@ -161,9 +155,7 @@ class ContextualTemplate(TemplateStrategy):
             return self._fallback_result(citation_count, error.code)
         return self._template_result(completion, spans, citation_count)
 
-    def _template_request(
-        self, question: str, spans: List[str], citation_count: int
-    ) -> Dict[str, Any]:
+    def _template_request(self, question: str, spans: list[str], citation_count: int) -> dict[str, Any]:
         return {
             "question": question,
             "spans": spans,
@@ -175,18 +167,14 @@ class ContextualTemplate(TemplateStrategy):
             "system_prompt": self.system_prompt,
         }
 
-    def _template_result(
-        self, completion: Completion, spans: List[str], citation_count: int
-    ) -> TemplateResult:
+    def _template_result(self, completion: Completion, spans: list[str], citation_count: int) -> TemplateResult:
         units = {
             "llm_calls": 1,
             "spans": len(spans),
             "characters": sum(len(span) for span in spans),
         }
         if completion.input_tokens is not None and completion.output_tokens is not None:
-            units.update(
-                input_tokens=completion.input_tokens, output_tokens=completion.output_tokens
-            )
+            units.update(input_tokens=completion.input_tokens, output_tokens=completion.output_tokens)
         usage = Usage(
             model_id=getattr(self.llm_client, "model", None),
             model_version=completion.model,
@@ -200,9 +188,7 @@ class ContextualTemplate(TemplateStrategy):
         content_logger.debug("Template: %r", template)
         return TemplateResult(text=template, usage=[usage])
 
-    def _fallback_result(
-        self, citation_count: int, error_code: str, usage: Usage | None = None
-    ) -> TemplateResult:
+    def _fallback_result(self, citation_count: int, error_code: str, usage: Usage | None = None) -> TemplateResult:
         _log_fallback(error_code)
         warning = ResultWarning(
             code="template_fallback",
@@ -217,12 +203,12 @@ class ContextualTemplate(TemplateStrategy):
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
         return self.filler.fill(template, display_spans, citation_spans)
 
-    def save_state(self) -> Dict[str, Any]:
+    def save_state(self) -> dict[str, Any]:
         return {
             "type": "contextual",
             "use_per_fact": self.use_per_fact,
@@ -233,7 +219,7 @@ class ContextualTemplate(TemplateStrategy):
             "preserve_span_newlines": self.preserve_span_newlines,
         }
 
-    def load_state(self, state: Dict[str, Any]) -> None:
+    def load_state(self, state: dict[str, Any]) -> None:
         self.use_per_fact = state.get("use_per_fact", True)
         if "citation_format" in state:
             self.set_citation_format(state["citation_format"])
@@ -256,7 +242,7 @@ class ContextualTemplate(TemplateStrategy):
     def clear_cache(self) -> None:
         self._template_cache.clear()
 
-    def _create_cache_key(self, question: str, spans: List[str], citation_count: int) -> str:
+    def _create_cache_key(self, question: str, spans: list[str], citation_count: int) -> str:
         import hashlib
 
         span_sample = " | ".join(span[:30] for span in spans[:3])

@@ -1,5 +1,4 @@
-"""
-VerbatimTransform: a question and context dicts in, a cited QueryResponse out.
+"""VerbatimTransform: a question and context dicts in, a cited QueryResponse out.
 
 Deprecated: use the Transformer, which takes chunks and returns an Answer, and
 ResponseBuilder.build_from_answer for a QueryResponse.
@@ -7,18 +6,19 @@ ResponseBuilder.build_from_answer for a QueryResponse.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable
+from collections.abc import Iterable
+from typing import Any
 
-from ._context import _aquery_response, _default_transformer, _query_response
-from ._deprecation import deprecated
-from .errors import ConfigurationError
-from .extractors import LLMExtractConfig, LLMSpanExtractor, SpanExtractor
-from .llm_client import LLMClient
-from .models import QueryResponse
-from .providers import RAGProvider
-from .response_builder import ResponseBuilder
-from .templates import TemplateManager
-from .transformer import _STRUCTURED_MODE_UNSUPPORTED, TransformConfig, Transformer
+from verbatim_core._context import _aquery_response, _default_transformer, _query_response
+from verbatim_core._deprecation import deprecated
+from verbatim_core.errors import ConfigurationError
+from verbatim_core.extractors import LLMExtractConfig, LLMSpanExtractor, SpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.models import QueryResponse
+from verbatim_core.providers import RAGProvider
+from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates import TemplateManager
+from verbatim_core.transformer import _STRUCTURED_MODE_UNSUPPORTED, TransformConfig, Transformer
 
 _DEFAULT_MAX_DISPLAY_SPANS = 5
 
@@ -66,11 +66,10 @@ class VerbatimTransform:
     def transform(
         self,
         question: str,
-        context: Iterable[Dict[str, Any]],
+        context: Iterable[dict[str, Any]],
         answer: str | None = None,  # Ignored
     ) -> QueryResponse:
-        """
-        :param context: Dicts with "content" or "text", and optionally "title", "source" and
+        """:param context: Dicts with "content" or "text", and optionally "title", "source" and
             "metadata", or objects with a text attribute
         :raises InvalidInputError: If a context item has another shape
         :raises ConfigurationError: If the template manager is in structured mode
@@ -80,7 +79,7 @@ class VerbatimTransform:
     async def transform_async(
         self,
         question: str,
-        context: Iterable[Dict[str, Any]],
+        context: Iterable[dict[str, Any]],
         answer: str | None = None,
     ) -> QueryResponse:
         """Async version of `transform`."""
@@ -90,14 +89,13 @@ class VerbatimTransform:
         """The template manager's settings, with this transform's number of displayed spans."""
         if self.template_manager.config.template_mode == "structured":
             raise ConfigurationError(_STRUCTURED_MODE_UNSUPPORTED, code="invalid_value")
-        return self.template_manager.config.model_copy(
-            update={"max_display_spans": self.max_display_spans}
-        )
+        return self.template_manager.config.model_copy(update={"max_display_spans": self.max_display_spans})
 
 
 def _as_span_extractor(extractor: Any) -> SpanExtractor:
     """The extractor, or for one written before 0.3.0 that has extract_spans without subclassing
-    SpanExtractor, a SpanExtractor over it whose deprecation warning names its class."""
+    SpanExtractor, a SpanExtractor over it whose deprecation warning names its class.
+    """
     if isinstance(extractor, SpanExtractor):
         return extractor
 

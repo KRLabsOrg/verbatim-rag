@@ -23,10 +23,7 @@ class VerbatimDeprecationWarning(DeprecationWarning):
 
 
 def _message(name: str, use: str) -> str:
-    return (
-        f"{name} is deprecated since {DEPRECATED_SINCE} and will be removed in {REMOVED_IN}. "
-        f"Use {use}."
-    )
+    return f"{name} is deprecated since {DEPRECATED_SINCE} and will be removed in {REMOVED_IN}. Use {use}."
 
 
 def deprecated(name: str, *, use: str):
@@ -47,7 +44,8 @@ def warn_deprecated(name: str, *, use: str, stacklevel: int | None = 3) -> None:
 
 def warn_contextual_without_client() -> None:
     """Contextual template mode needs an LLM client. Until the deprecation window ends, the static
-    templates stand in for it."""
+    templates stand in for it.
+    """
     warn_deprecated(
         "Contextual template mode without an LLM client",
         use="TemplateManager(llm_client=...)",

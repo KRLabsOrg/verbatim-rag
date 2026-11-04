@@ -14,6 +14,7 @@ import asyncio
 from verbatim_core import Transformer
 from verbatim_core.extractors import LLMSpanExtractor
 from verbatim_core.templates import TemplateManager
+
 from verbatim_rag import Document, VerbatimIndex, VerbatimRAG
 from verbatim_rag.core import LLMClient
 from verbatim_rag.document import ChunkType, DocumentChunk, DocumentType, ProcessedChunk

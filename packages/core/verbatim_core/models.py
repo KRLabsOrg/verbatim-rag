@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from .types import ResultWarning
+from verbatim_core.types import ResultWarning
 
 
 class Highlight(BaseModel):

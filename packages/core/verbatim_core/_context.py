@@ -1,21 +1,23 @@
 """Answering context items, the input of VerbatimTransform, verbatim_enhance and the CLI, with a
-Transformer, as a QueryResponse."""
+Transformer, as a QueryResponse.
+"""
 
 from __future__ import annotations
 
-from typing import Any, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
-from .errors import InvalidInputError
-from .extractors import LLMSpanExtractor
-from .llm_client import LLMClient
-from .models import QueryResponse
-from .response_builder import ResponseBuilder
-from .templates import TemplateManager
-from .transformer import TransformConfig, Transformer
-from .types import Chunk
+from verbatim_core.errors import InvalidInputError
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.models import QueryResponse
+from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates import TemplateManager
+from verbatim_core.transformer import TransformConfig, Transformer
+from verbatim_core.types import Chunk
 
 
-def _chunks_from_context(context: Iterable[Any]) -> List[Chunk]:
+def _chunks_from_context(context: Iterable[Any]) -> list[Chunk]:
     """Chunks with positional ids (ctx_0, ctx_1, ...) from context items: dicts with "content" or
     "text", and optionally "title", "source" and "metadata", or objects with a text attribute.
 
@@ -28,9 +30,9 @@ def _chunks_from_context(context: Iterable[Any]) -> List[Chunk]:
             text, metadata = item.text, getattr(item, "metadata", None) or {}
         elif isinstance(item, dict):
             if "content" not in item and "text" not in item:
+                msg = f"{param} has no 'content' or 'text'. Put the text of each context item in one of them."
                 raise InvalidInputError(
-                    f"{param} has no 'content' or 'text'. Put the text of each context item in "
-                    "one of them.",
+                    msg,
                     code="missing_field",
                     param=param,
                 )
@@ -42,15 +44,16 @@ def _chunks_from_context(context: Iterable[Any]) -> List[Chunk]:
                 **(item.get("metadata") or {}),
             }
         else:
+            msg = f"{param} must be a dict with 'content' or 'text', or an object with a text attribute."
             raise InvalidInputError(
-                f"{param} must be a dict with 'content' or 'text', or an object with a text "
-                "attribute.",
+                msg,
                 code="invalid_value",
                 param=param,
             )
         if not isinstance(text, str) or not text:
+            msg = f"The text of {param} must be a non-empty string."
             raise InvalidInputError(
-                f"The text of {param} must be a non-empty string.",
+                msg,
                 code="invalid_value",
                 param=param,
             )
@@ -61,17 +64,20 @@ def _chunks_from_context(context: Iterable[Any]) -> List[Chunk]:
 
 def _check_metadata(metadata: Any, param: str) -> None:
     """The metadata of a context item: a dict with string keys, whose title and source, which the
-    response shows, are strings."""
+    response shows, are strings.
+    """
     if not isinstance(metadata, dict) or not all(isinstance(key, str) for key in metadata):
+        msg = f"The metadata of {param} must be a dict with string keys."
         raise InvalidInputError(
-            f"The metadata of {param} must be a dict with string keys.",
+            msg,
             code="invalid_value",
             param=f"{param}.metadata",
         )
     for field in ("title", "source"):
         if not isinstance(metadata.get(field, ""), str):
+            msg = f"The {field} of {param} must be a string."
             raise InvalidInputError(
-                f"The {field} of {param} must be a string.",
+                msg,
                 code="invalid_value",
                 param=f"{param}.{field}",
             )
@@ -79,7 +85,8 @@ def _check_metadata(metadata: Any, param: str) -> None:
 
 def _default_transformer(llm_client: LLMClient, max_display_spans: int) -> Transformer:
     """The transformer VerbatimTransform builds without arguments: LLM extraction and contextual
-    templates."""
+    templates.
+    """
     return Transformer(
         LLMSpanExtractor(llm_client),
         TemplateManager(llm_client=llm_client),

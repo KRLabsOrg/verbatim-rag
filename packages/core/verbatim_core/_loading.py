@@ -4,28 +4,30 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
-from .errors import ConfigurationError
+from verbatim_core.errors import ConfigurationError
 
 
 @contextmanager
 def _load_errors_translated(model_id: str) -> Iterator[None]:
     """Turn a missing package, a failed download or a missing model file into a
-    ConfigurationError."""
+    ConfigurationError.
+    """
     try:
         yield
     except ImportError as e:
         package = e.name or "a package that is not installed"
+        msg = f"The model {model_id} needs {package}. Install it with pip install {package}."
         raise ConfigurationError(
-            f"The model {model_id} needs {package}. Install it with pip install {package}.",
+            msg,
             code="missing_dependency",
         ) from e
     except OSError as e:
+        msg = f"Could not load the model {model_id}. Check the model id or path, and the connection to Hugging Face."
         raise ConfigurationError(
-            f"Could not load the model {model_id}. Check the model id or path, and the "
-            "connection to Hugging Face.",
+            msg,
             code="model_not_loaded",
         ) from e
 

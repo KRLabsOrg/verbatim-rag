@@ -1,12 +1,12 @@
-"""
-Response builder for constructing QueryResponse objects with highlights and citations.
+"""Response builder for constructing QueryResponse objects with highlights and citations.
 
 This module provides the ResponseBuilder class which takes extracted spans and
 search results and constructs a complete QueryResponse with proper highlighting
 and citation numbering.
 """
 
-from typing import Any, Dict, List, Sequence, Set, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 from verbatim_core._checks import _check_unique_ids
 from verbatim_core.errors import InvalidInputError
@@ -21,8 +21,7 @@ from verbatim_core.types import Answer, AnswerCitation, Chunk
 
 
 class ResponseBuilder:
-    """
-    Builds structured query responses with highlights and citations.
+    """Builds structured query responses with highlights and citations.
 
     Takes search results and extracted spans and creates a complete QueryResponse
     object with proper document highlighting and citation tracking.
@@ -30,18 +29,16 @@ class ResponseBuilder:
 
     def __init__(self):
         """Initialize the response builder."""
-        pass
 
     def build_response(
         self,
         question: str,
         answer: str,
-        search_results: List[Any],
-        relevant_spans: Dict[str, List[str]],
-        display_span_count: int = None,
+        search_results: list[Any],
+        relevant_spans: dict[str, list[str]],
+        display_span_count: int | None = None,
     ) -> QueryResponse:
-        """
-        Build a complete QueryResponse from components.
+        """Build a complete QueryResponse from components.
 
         :param question: The original question
         :param answer: The generated answer text
@@ -69,9 +66,7 @@ class ResponseBuilder:
                 # Create citations for each highlight
                 for highlight_index, highlight in enumerate(highlights):
                     # Determine if this should be a display citation or reference-only
-                    is_display = (
-                        display_span_count is None or current_citation_number <= display_span_count
-                    )
+                    is_display = display_span_count is None or current_citation_number <= display_span_count
 
                     all_citations.append(
                         Citation(
@@ -105,11 +100,8 @@ class ResponseBuilder:
             documents=documents_with_highlights,
         )
 
-    def build_from_answer(
-        self, question: str, answer: Answer, chunks: Sequence[Chunk]
-    ) -> QueryResponse:
-        """
-        Build a QueryResponse from an answer and the chunks it was written from.
+    def build_from_answer(self, question: str, answer: Answer, chunks: Sequence[Chunk]) -> QueryResponse:
+        """Build a QueryResponse from an answer and the chunks it was written from.
 
         Each citation's span is highlighted at its offsets, without searching for its text. When
         it overlaps a span cited before it in the same chunk, the earlier one keeps the highlight,
@@ -130,9 +122,8 @@ class ResponseBuilder:
             warnings=answer.warnings,
         )
 
-    def _create_highlights(self, doc_content: str, spans: List[str]) -> List[Highlight]:
-        """
-        Create highlight objects for spans in document content.
+    def _create_highlights(self, doc_content: str, spans: list[str]) -> list[Highlight]:
+        """Create highlight objects for spans in document content.
 
         Uses sophisticated overlap detection to avoid conflicting highlights.
 
@@ -140,8 +131,8 @@ class ResponseBuilder:
         :param spans: List of text spans to highlight
         :return: List of Highlight objects
         """
-        highlights: List[Highlight] = []
-        highlighted_regions: Set[Tuple[int, int]] = set()
+        highlights: list[Highlight] = []
+        highlighted_regions: set[tuple[int, int]] = set()
 
         for span in spans:
             # Find all occurrences of this span in the document
@@ -163,24 +154,18 @@ class ResponseBuilder:
 
         return highlights
 
-    def _has_overlap(self, start: int, end: int, regions: Set[Tuple[int, int]]) -> bool:
-        """
-        Check if a text region overlaps with existing highlighted regions.
+    def _has_overlap(self, start: int, end: int, regions: set[tuple[int, int]]) -> bool:
+        """Check if a text region overlaps with existing highlighted regions.
 
         :param start: Start position of new region
         :param end: End position of new region
         :param regions: Set of existing (start, end) tuples
         :return: True if there's overlap, False otherwise
         """
-        for region_start, region_end in regions:
-            # Check for overlap: new region starts before old ends and ends after old starts
-            if start < region_end and end > region_start:
-                return True
-        return False
+        return any(start < region_end and end > region_start for region_start, region_end in regions)
 
     def clean_answer(self, answer: str) -> str:
-        """
-        Clean up generated answer text.
+        """Clean up generated answer text.
 
         Removes common formatting issues and artifacts from LLM generation.
 
@@ -191,9 +176,7 @@ class ResponseBuilder:
             return ""
 
         # Remove surrounding quotes if present
-        if answer.startswith('"') and answer.endswith('"'):
-            answer = answer[1:-1]
-        elif answer.startswith("'") and answer.endswith("'"):
+        if (answer.startswith('"') and answer.endswith('"')) or (answer.startswith("'") and answer.endswith("'")):
             answer = answer[1:-1]
 
         # Convert literal newlines
@@ -212,7 +195,7 @@ class ResponseBuilder:
 
 def _documents_and_citations(
     answer_citations: Sequence[AnswerCitation], chunks: Sequence[Chunk]
-) -> Tuple[List[DocumentWithHighlights], List[Citation]]:
+) -> tuple[list[DocumentWithHighlights], list[Citation]]:
     """The chunks as the documents of a response, each cited span highlighted at its offsets, and
     the citations of the response. A citation that overlaps one before it in its chunk gets
     neither.
@@ -221,27 +204,26 @@ def _documents_and_citations(
     """
     _check_unique_ids(chunks)
     positions = {chunk.id: position for position, chunk in enumerate(chunks)}
-    highlights: List[List[Highlight]] = [[] for _ in chunks]
+    highlights: list[list[Highlight]] = [[] for _ in chunks]
     citations = []
     for index, citation in enumerate(answer_citations):
         position = positions.get(citation.chunk_id)
         if position is None:
+            msg = f"answer.citations[{index}] points at a chunk that is not in chunks."
             raise InvalidInputError(
-                f"answer.citations[{index}] points at a chunk that is not in chunks.",
+                msg,
                 code="invalid_value",
                 param=f"answer.citations[{index}].chunk_id",
             )
         if not citation.start < citation.end <= len(chunks[position].text):
+            msg = f"answer.citations[{index}] has offsets outside its chunk."
             raise InvalidInputError(
-                f"answer.citations[{index}] has offsets outside its chunk.",
+                msg,
                 code="invalid_value",
                 param=f"answer.citations[{index}].end",
             )
         chunk_highlights = highlights[position]
-        if any(
-            citation.start < highlight.end and citation.end > highlight.start
-            for highlight in chunk_highlights
-        ):
+        if any(citation.start < highlight.end and citation.end > highlight.start for highlight in chunk_highlights):
             continue
         text = chunks[position].text[citation.start : citation.end]
         chunk_highlights.append(Highlight(text=text, start=citation.start, end=citation.end))
@@ -263,6 +245,6 @@ def _documents_and_citations(
             source=chunk.metadata.get("source", ""),
             metadata=chunk.metadata,
         )
-        for chunk, chunk_highlights in zip(chunks, highlights)
+        for chunk, chunk_highlights in zip(chunks, highlights, strict=False)
     ]
     return documents, citations
