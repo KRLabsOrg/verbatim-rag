@@ -437,7 +437,7 @@ class BaseMilvusStore(VectorStore):
             return []
         elif len(results_by_method) == 1:
             method_results = list(results_by_method.values())[0]
-            logger.info(
+            logger.debug(
                 "Hybrid search (%s): methods=%s weights=%s rrf_k=%s top_k=%s",
                 self.__class__.__name__,
                 list(results_by_method.keys()),
@@ -448,7 +448,7 @@ class BaseMilvusStore(VectorStore):
             return convert_hits_to_results(method_results[:top_k], dynamic_fields)
 
         # Multiple methods: merge with RRF
-        logger.info(f"Merging {len(results_by_method)} search methods using RRF")
+        logger.debug("Merging %d search methods using RRF", len(results_by_method))
         merged_hits = merge_hybrid_results(
             results_by_method,
             top_k,

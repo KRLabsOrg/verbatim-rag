@@ -714,6 +714,20 @@ class TestVerbatimDOC:
             await doc.process("## Opening\n[!query=When did they open?]\n", auto_approve=True)
 
 
+def test_a_hybrid_merge_logs_its_step_at_debug(caplog):
+    from verbatim_rag.vector_stores.hybrid_search import merge_hybrid_results
+
+    caplog.set_level(logging.DEBUG, logger="verbatim_rag")
+    results = {"dense": [{"id": "row-1"}, {"id": "row-2"}], "sparse": [{"id": "row-2"}]}
+
+    merged = merge_hybrid_results(results, 2, {"dense": 1.0, "sparse": 1.0}, log_label="Store")
+
+    assert [hit["id"] for hit in merged] == ["row-2", "row-1"]
+    assert [r.levelno for r in caplog.records if r.name.startswith("verbatim_rag")] == [
+        logging.DEBUG
+    ]
+
+
 def test_a_search_result_becomes_a_chunk_of_its_row():
     [row] = rows()[:1]
 

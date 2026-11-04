@@ -93,7 +93,7 @@ def merge_hybrid_results(
     normalized_weights = normalize_weights(results_by_method, weights)
 
     if log_label:
-        logger.info(
+        logger.debug(
             "Hybrid merge (%s): methods=%s normalized_weights=%s rrf_k=%s top_k=%s",
             log_label,
             list(results_by_method.keys()),
