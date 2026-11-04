@@ -1,65 +1,43 @@
+"""
+VerbatimTransform: a question and context dicts in, a cited QueryResponse out.
+
+Deprecated: use the Transformer, which takes chunks and returns an Answer, and
+ResponseBuilder.build_from_answer for a QueryResponse.
+"""
+
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable
 
-# Reuse existing components from verbatim_rag without importing vector/index types
+from ._context import _aquery_response, _default_transformer, _query_response
+from ._deprecation import deprecated
+from .errors import ConfigurationError
 from .extractors import LLMExtractConfig, LLMSpanExtractor, SpanExtractor
 from .llm_client import LLMClient
+from .models import QueryResponse
 from .providers import RAGProvider
 from .response_builder import ResponseBuilder
 from .templates import TemplateManager
+from .transformer import _STRUCTURED_MODE_UNSUPPORTED, TransformConfig, Transformer
+
+_DEFAULT_MAX_DISPLAY_SPANS = 5
 
 
-class _ResultView:
-    """Minimal view object with the fields extractors expect (text, metadata)."""
-
-    def __init__(
-        self,
-        text: str,
-        metadata: Dict[str, Any] | None = None,
-        rid: str = "ctx",
-        score: float = 1.0,
-    ):
-        self.id = rid
-        self.text = text
-        self.metadata = metadata or {}
-        self.score = score
-
-
-def _coerce_context_to_results(
-    context: Iterable[Dict[str, Any] | Any],
-) -> List[_ResultView]:
-    results: List[_ResultView] = []
-    for i, item in enumerate(context):
-        # Accept objects with a .text attribute
-        if hasattr(item, "text") and isinstance(getattr(item, "text"), str):
-            text = getattr(item, "text")
-            meta = getattr(item, "metadata", {}) or {}
-            results.append(_ResultView(text=text, metadata=meta, rid=f"ctx_{i}"))
-            continue
-        if not isinstance(item, dict):
-            raise TypeError("Each context item must be a dict with 'content' (or 'text').")
-        text = item.get("content") or item.get("text")
-        if not text or not isinstance(text, str):
-            raise ValueError("Context item missing 'content' (or 'text') string field.")
-        meta = {
-            "title": item.get("title", ""),
-            "source": item.get("source", ""),
-            **(item.get("metadata") or {}),
-        }
-        results.append(_ResultView(text=text, metadata=meta, rid=f"ctx_{i}"))
-    return results
-
-
+@deprecated("VerbatimTransform", use="Transformer")
 class VerbatimTransform:
-    """RAG-agnostic verbatim transform using existing components (sync/async)."""
+    """RAG-agnostic verbatim transform over a `Transformer` (sync/async).
+
+    Context items become chunks with positional ids (ctx_0, ctx_1, ...), and the `Transformer`'s
+    answer becomes a QueryResponse. The template manager's settings apply, with this transform's
+    number of displayed spans.
+    """
 
     def __init__(
         self,
         llm_client: LLMClient | None = None,
         extractor: SpanExtractor | None = None,
         template_manager: TemplateManager | None = None,
-        max_display_spans: int = 5,
+        max_display_spans: int = _DEFAULT_MAX_DISPLAY_SPANS,
         extraction_mode: str = "auto",
         template_mode: str = "contextual",
         span_match_mode: str = "exact",
@@ -81,90 +59,84 @@ class VerbatimTransform:
         self.template_manager = template_manager or TemplateManager(
             llm_client=self.llm_client, default_mode=template_mode
         )
-        self.response_builder = ResponseBuilder()
+        self.response_builder = ResponseBuilder()  # unused, kept for code that reads it
         self.max_display_spans = max_display_spans
+        self._transformer = Transformer(_as_span_extractor(self.extractor), self.template_manager)
 
     def transform(
         self,
         question: str,
         context: Iterable[Dict[str, Any]],
-        answer: str | None = None,  # Ignored for now
-    ):
-        search_results = _coerce_context_to_results(list(context))
-
-        relevant_spans = self.extractor.extract_spans(question, search_results)  # type: ignore[arg-type]
-
-        all_spans = []
-        for doc_text, spans in relevant_spans.items():
-            for span in spans:
-                all_spans.append({"text": span, "doc_text": doc_text})
-        display_spans = all_spans[: self.max_display_spans]
-        citation_spans = all_spans[self.max_display_spans :]
-
-        answer_text = self.template_manager.process(question, display_spans, citation_spans)
-        answer_text = self.response_builder.clean_answer(answer_text)
-
-        return self.response_builder.build_response(
-            question=question,
-            answer=answer_text,
-            search_results=search_results,  # compatible with response builder expectations
-            relevant_spans=relevant_spans,
-            display_span_count=len(display_spans),
-        )
+        answer: str | None = None,  # Ignored
+    ) -> QueryResponse:
+        """
+        :param context: Dicts with "content" or "text", and optionally "title", "source" and
+            "metadata", or objects with a text attribute
+        :raises InvalidInputError: If a context item has another shape
+        :raises ConfigurationError: If the template manager is in structured mode
+        """
+        return _query_response(self._transformer, question, context, self._settings())
 
     async def transform_async(
         self,
         question: str,
         context: Iterable[Dict[str, Any]],
         answer: str | None = None,
-    ):
-        search_results = _coerce_context_to_results(list(context))
+    ) -> QueryResponse:
+        """Async version of `transform`."""
+        return await _aquery_response(self._transformer, question, context, self._settings())
 
-        relevant_spans = await self.extractor.extract_spans_async(  # type: ignore[attr-defined]
-            question,
-            search_results,  # type: ignore[arg-type]
-        )
-
-        all_spans = []
-        for doc_text, spans in relevant_spans.items():
-            for span in spans:
-                all_spans.append({"text": span, "doc_text": doc_text})
-        display_spans = all_spans[: self.max_display_spans]
-        citation_spans = all_spans[self.max_display_spans :]
-
-        answer_text = await self.template_manager.process_async(  # type: ignore[attr-defined]
-            question, display_spans, citation_spans
-        )
-        answer_text = self.response_builder.clean_answer(answer_text)
-
-        return self.response_builder.build_response(
-            question=question,
-            answer=answer_text,
-            search_results=search_results,
-            relevant_spans=relevant_spans,
-            display_span_count=len(display_spans),
+    def _settings(self) -> TransformConfig:
+        """The template manager's settings, with this transform's number of displayed spans."""
+        if self.template_manager.config.template_mode == "structured":
+            raise ConfigurationError(_STRUCTURED_MODE_UNSUPPORTED, code="invalid_value")
+        return self.template_manager.config.model_copy(
+            update={"max_display_spans": self.max_display_spans}
         )
 
 
+def _as_span_extractor(extractor: Any) -> SpanExtractor:
+    """The extractor, or for one written before 0.3.0 that has extract_spans without subclassing
+    SpanExtractor, a SpanExtractor over it whose deprecation warning names its class."""
+    if isinstance(extractor, SpanExtractor):
+        return extractor
+
+    class Adapter(SpanExtractor):
+        def extract_spans(self, question, search_results):
+            return extractor.extract_spans(question, search_results)
+
+        if hasattr(extractor, "extract_spans_async"):
+
+            async def extract_spans_async(self, question, search_results):
+                return await extractor.extract_spans_async(question, search_results)
+
+    Adapter.__qualname__ = type(extractor).__qualname__
+    return Adapter()
+
+
+@deprecated("verbatim_query", use="RAGProvider.retrieve, then Transformer.transform")
 def verbatim_query(
     provider: RAGProvider,
     question: str,
     k: int = 5,
     filter: str | None = None,
     answer: str | None = None,
-) -> Any:
+) -> QueryResponse:
+    """Retrieve the context with the provider, then answer from it."""
     context = provider.retrieve(question, k=k, filter=filter)
-    vt = VerbatimTransform()
-    return vt.transform(question=question, context=context, answer=answer)
+    transformer = _default_transformer(LLMClient(), _DEFAULT_MAX_DISPLAY_SPANS)
+    return _query_response(transformer, question, context)
 
 
+@deprecated("verbatim_query_async", use="RAGProvider.retrieve_async, then Transformer.atransform")
 async def verbatim_query_async(
     provider: RAGProvider,
     question: str,
     k: int = 5,
     filter: str | None = None,
     answer: str | None = None,
-) -> Any:
+) -> QueryResponse:
+    """Async version of `verbatim_query`."""
     context = await provider.retrieve_async(question, k=k, filter=filter)
-    vt = VerbatimTransform()
-    return await vt.transform_async(question=question, context=context, answer=answer)
+    transformer = _default_transformer(LLMClient(), _DEFAULT_MAX_DISPLAY_SPANS)
+    return await _aquery_response(transformer, question, context)

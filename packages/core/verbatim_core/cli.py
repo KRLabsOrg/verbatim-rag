@@ -5,7 +5,8 @@ import json
 import sys
 from typing import Any, Dict, Iterable, List
 
-from .transform import VerbatimTransform
+from ._context import _default_transformer, _query_response
+from .llm_client import LLMClient
 
 
 def _iter_records(fp) -> Iterable[Dict[str, Any]]:
@@ -51,13 +52,12 @@ def main(argv: List[str] | None = None) -> int:
     fin = open(args.input, "r", encoding="utf-8") if args.input else sys.stdin
     fout = open(args.output, "w", encoding="utf-8") if args.output else sys.stdout
 
-    vt = VerbatimTransform(max_display_spans=args.max_spans)
+    transformer = _default_transformer(LLMClient(), args.max_spans)
 
     for rec in _iter_records(fin) or []:
         question = rec.get("question") or ""
         context = rec.get("context") or rec.get("sources") or []
-        answer = rec.get("answer")
-        resp = vt.transform(question=question, context=context, answer=answer)
+        resp = _query_response(transformer, question, context)
         fout.write(json.dumps(resp.model_dump()) + "\n")
 
     if fin is not sys.stdin:

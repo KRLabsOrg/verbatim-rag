@@ -31,12 +31,18 @@ except ImportError as e:
     print(f"Error importing verbatim_rag: {e}")
     sys.exit(1)
 
+from verbatim_core import InvalidInputError, Transformer
+from verbatim_core._context import _chunks_from_context
+from verbatim_core.response_builder import ResponseBuilder
+
 from api.config import APIConfig, get_config
 from api.dependencies import (
+    build_transformer,
     check_system_ready,
     get_api_service,
     get_rag_instance,
     get_template_manager,
+    get_transformer,
 )
 from api.services.rag_service import APIService
 
@@ -93,8 +99,9 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     logger.info("Starting Verbatim RAG API server...")
 
-    # Dependencies will be initialized on first request
-    # No global state initialization needed
+    # The transform route's Transformer serves every request. The other dependencies are
+    # initialized on first request.
+    app.state.transformer = build_transformer()
 
     yield
 
@@ -253,25 +260,24 @@ async def query_async_endpoint(
 
 
 @app.post("/api/transform/verbatim", response_model=QueryResponse)
-async def verbatim_transform_endpoint(request: VerbatimTransformRequest):
+async def verbatim_transform_endpoint(
+    request: VerbatimTransformRequest,
+    transformer: Annotated[Transformer, Depends(get_transformer)],
+):
     """RAG-agnostic verbatim transform: question + context -> verbatim answer.
 
-    The optional `answer` field is currently ignored.
+    The optional `answer` field is ignored.
     """
-    from verbatim_rag.transform import VerbatimTransform
-
     try:
-        vt = VerbatimTransform()
-        # Convert Pydantic models to dicts expected by the transform
-        context_dicts = [c.model_dump() for c in request.context]
-        resp = await vt.transform_async(
-            question=request.question, context=context_dicts, answer=request.answer
-        )
-        return resp
-    except ValueError as e:
+        # The same conversion as VerbatimTransform's, so a context item gets the same checks
+        chunks = _chunks_from_context([item.model_dump() for item in request.context])
+        answer = await transformer.atransform(request.question, chunks)
+        return ResponseBuilder().build_from_answer(request.question, answer, chunks)
+    except InvalidInputError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Verbatim transform failed: {e}")
+    except Exception as e:  # the application boundary: any other failure is a 500
+        # The error code or class only: a message may quote the request.
+        logger.error("Verbatim transform failed: %s", getattr(e, "code", None) or type(e).__name__)
         raise HTTPException(status_code=500, detail="Verbatim transform failed")
 
 

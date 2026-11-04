@@ -9,9 +9,11 @@ load fake torch and transformers packages, and VerbatimRAG searches an in-memory
 """
 
 import json
+import logging
 import os
 import re
 import sys
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -325,9 +327,10 @@ def transform_module(request):
 class TestVerbatimTransform:
     @pytest.mark.parametrize("template_mode", ["static", "contextual"])
     def test_transform(self, transform_module, template_mode):
-        transform = transform_module.VerbatimTransform(
-            llm_client=LLMClient(), max_display_spans=3, template_mode=template_mode
-        )
+        with pytest.warns(VerbatimDeprecationWarning):
+            transform = transform_module.VerbatimTransform(
+                llm_client=LLMClient(), max_display_spans=3, template_mode=template_mode
+            )
 
         response = transform.transform(QUESTION, ChunkProvider().retrieve(QUESTION))
 
@@ -335,23 +338,126 @@ class TestVerbatimTransform:
 
     @pytest.mark.parametrize("template_mode", ["static", "contextual"])
     async def test_transform_async(self, transform_module, template_mode):
-        transform = transform_module.VerbatimTransform(
-            llm_client=LLMClient(), max_display_spans=3, template_mode=template_mode
-        )
+        with pytest.warns(VerbatimDeprecationWarning):
+            transform = transform_module.VerbatimTransform(
+                llm_client=LLMClient(), max_display_spans=3, template_mode=template_mode
+            )
 
         response = await transform.transform_async(QUESTION, ChunkProvider().retrieve(QUESTION))
 
         assert_recorded(f"verbatim_transform_{template_mode}", response.model_dump(mode="json"))
 
     def test_verbatim_query(self, transform_module):
-        response = transform_module.verbatim_query(ChunkProvider(), QUESTION, k=4)
+        with pytest.warns(VerbatimDeprecationWarning):
+            response = transform_module.verbatim_query(ChunkProvider(), QUESTION, k=4)
 
         assert_recorded("verbatim_query", response.model_dump(mode="json"))
 
     async def test_verbatim_query_async(self, transform_module):
-        response = await transform_module.verbatim_query_async(ChunkProvider(), QUESTION, k=4)
+        with pytest.warns(VerbatimDeprecationWarning):
+            response = await transform_module.verbatim_query_async(ChunkProvider(), QUESTION, k=4)
 
         assert_recorded("verbatim_query", response.model_dump(mode="json"))
+
+
+# The enhance decorator and the verbatim-enhance CLI
+
+
+class TestEnhance:
+    @pytest.fixture(autouse=True)
+    def no_deprecation_warnings(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", VerbatimDeprecationWarning)
+            yield
+
+    def test_decorator(self):
+        from verbatim_core.enhance import verbatim_enhance
+
+        @verbatim_enhance(max_display_spans=3)
+        def answer(question):
+            return {"answer": "ignored", "context": ChunkProvider().retrieve(question)}
+
+        response = answer(QUESTION)
+
+        assert_recorded("verbatim_transform_contextual", response.model_dump(mode="json"))
+
+    def test_cli(self, tmp_path, capsys):
+        from verbatim_core.cli import main
+
+        record = {"question": QUESTION, "context": ChunkProvider().retrieve(QUESTION)}
+        (tmp_path / "records.jsonl").write_text(json.dumps(record) + "\n")
+
+        assert main(["--input", str(tmp_path / "records.jsonl"), "--max-spans", "3"]) == 0
+
+        [line] = capsys.readouterr().out.splitlines()
+        assert_recorded("verbatim_transform_contextual", json.loads(line))
+
+
+# The API server's transform route, which needs the full verbatim-rag package and fastapi
+
+
+def test_api_transform_route(caplog):
+    pytest.importorskip("verbatim_rag")
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from api.app import app
+
+    caplog.set_level(logging.DEBUG)
+    request = {"question": QUESTION, "context": ChunkProvider().retrieve(QUESTION)}
+
+    with TestClient(app) as client:
+        response = client.post("/api/transform/verbatim", json=request)
+
+    assert response.status_code == 200
+    assert_recorded("verbatim_query", response.json())
+    customer_texts = [QUESTION, *(chunk["text"] for chunk in CHUNKS)]
+    for record in caplog.records:
+        if not record.name.endswith(".content"):
+            assert not [text for text in customer_texts if text in record.getMessage()]
+
+
+class TestAPITransformRouteErrors:
+    @pytest.fixture
+    def client(self):
+        pytest.importorskip("verbatim_rag")
+        pytest.importorskip("fastapi")
+        from fastapi.testclient import TestClient
+
+        from api.app import app
+
+        with TestClient(app) as client:
+            yield client
+        app.dependency_overrides.clear()
+
+    def test_an_item_with_a_null_title_is_a_bad_request(self, client):
+        context = [{"content": CHUNKS[0]["text"], "title": None}]
+
+        response = client.post(
+            "/api/transform/verbatim", json={"question": QUESTION, "context": context}
+        )
+
+        assert response.status_code == 400
+
+    def test_a_failed_llm_call_is_a_server_error_logged_by_its_code(self, client, caplog):
+        from verbatim_core import UpstreamError
+
+        from api.app import app
+        from api.dependencies import get_transformer
+
+        class FailingTransformer:
+            async def atransform(self, question, chunks, **settings):
+                raise UpstreamError(f"Failed on {question}", code="timeout", service="llm")
+
+        app.dependency_overrides[get_transformer] = FailingTransformer
+        request = {"question": QUESTION, "context": ChunkProvider().retrieve(QUESTION)}
+
+        response = client.post("/api/transform/verbatim", json=request)
+
+        assert response.status_code == 500
+        assert [
+            record.getMessage() for record in caplog.records if record.levelname == "ERROR"
+        ] == ["Verbatim transform failed: timeout"]
 
 
 # VerbatimRAG and StreamingRAG, which need the full verbatim-rag package

@@ -138,6 +138,21 @@ All notable changes to this project will be documented in this file.
   file that can't be read or isn't JSON.
 - `TemplateManager.set_citation_format` raises `ConfigurationError` for a format with variables
   other than `{number}` and `{span_id}`, instead of failing when a template is filled (#94).
+- `VerbatimTransform` answers with a `Transformer` (#95). verbatim-rag's copy is gone:
+  `verbatim_rag.VerbatimTransform` is verbatim-core's, which also accepts context items that are
+  objects with a `text` attribute. `verbatim_enhance`, the `verbatim-enhance` CLI and the API
+  server's transform route use a `Transformer` directly; the route builds it once at startup and
+  logs no question or chunk text. The answers are today's, except:
+  - A failed LLM call raises, from `VerbatimTransform`, `verbatim_query`, `verbatim_enhance` and
+    the CLI, and the API route answers 500, instead of an answer without the chunks the call
+    covered (ADR 0006).
+  - A displayed span that a contextual template leaves out is cited as a reference.
+  - Context items with the same text each get their spans, instead of sharing one entry.
+- A context item of the wrong shape raises `InvalidInputError` (code `missing_field` or
+  `invalid_value`, `param` such as `context[3]` or `context[3].title`) instead of `TypeError` or
+  `ValueError`, before any LLM call. This includes metadata that isn't a dict with string keys,
+  and a title or source that isn't a string. `InvalidInputError` is a `ValueError`, but
+  `except TypeError` no longer catches a context item that isn't a dict (#95).
 
 ### Deprecated
 - Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
@@ -173,6 +188,12 @@ All notable changes to this project will be documented in this file.
 - `QuestionSpecificTemplate(model_name=..., device=...)`, and question-specific templates
   without an `embedder`, which load an embedding model by name. Use
   `QuestionSpecificTemplate.from_pretrained(model_name)` or pass `embedder` (#94).
+- `VerbatimTransform`. Use `Transformer`, and `ResponseBuilder.build_from_answer` for a
+  `QueryResponse` (#95).
+- `verbatim_query` and `verbatim_query_async`. Retrieve with the provider, then call a
+  `Transformer` (#95).
+- The module `verbatim_rag.transform`. Its names are verbatim-core's: import them from
+  `verbatim_core` (#95).
 
 ### Fixed
 - `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans
