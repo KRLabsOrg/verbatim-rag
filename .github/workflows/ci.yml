@@ -13,14 +13,22 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
+      # full history so the base/before commits used for --from-ref exist locally
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.01
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      # the local `ty-check` hook runs the system `ty` binary
-      - run: uv tool install ty
+      # the local `ty-check` hook runs the system `ty` binary; pinned to match the ty version in prek.toml
+      - run: uv tool install ty==0.0.94
       # ty resolves imports (torch, transformers, ...) from the project's .venv;
       # without it every third-party import is reported as unresolved
       - run: uv sync --extra dev
       - uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
+        with:
+          extra-args: >-
+            ${{ github.event_name == 'pull_request'
+              && format('--from-ref {0} --to-ref {1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha)
+              || format('--from-ref {0} --to-ref {1}', github.event.before, github.sha) }}
 
   test:
     runs-on: ubuntu-latest
@@ -34,7 +42,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install pytest pytest-asyncio
       - run: pip install -e packages/core/
-      - run: pytest tests/ -v
+      - run: pytest tests/ packages/core/tests/ -v
 
   package-build:
     # package build + twine check; pytest runs in the `test` matrix instead
@@ -42,8 +50,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.01
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      # the local `ty-check` hook runs the system `ty` binary
-      - run: uv tool install ty
       - uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
         with:
           extra-args: package-build --all-files --stage pre-push
@@ -54,8 +60,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.01
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      # the local `ty-check` hook runs the system `ty` binary
-      - run: uv tool install ty
       - uses: j178/prek-action@44924fe9ef4a6f88253c4b6b1bf11c689d3ce53d # v3.1.0
         with:
           extra-args: pip-audit --all-files --stage pre-push

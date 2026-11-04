@@ -19,7 +19,8 @@ def _iter_records(fp: IO[str]) -> Iterable[dict[str, Any]]:
     """Yield JSON objects from a file path or stdin. Supports JSONL or JSON array."""
     try:
         data = fp.read()
-    except Exception:  # noqa: BLE001  # unreadable input yields no records
+    except Exception as e:  # noqa: BLE001  # unreadable input yields no records
+        print(f"Error reading input: {e}", file=sys.stderr)
         return
     data = (data or "").strip()
     if not data:
@@ -30,12 +31,15 @@ def _iter_records(fp: IO[str]) -> Iterable[dict[str, Any]]:
             stripped = line.strip()
             if not stripped:
                 continue
-            with contextlib.suppress(Exception):
+            try:
                 yield json.loads(stripped)
+            except Exception as e:  # noqa: BLE001
+                print(f"Skipping malformed JSONL line: {e}", file=sys.stderr)
     else:
         try:
             obj = json.loads(data)
-        except Exception:  # noqa: BLE001  # invalid JSON yields no records
+        except Exception as e:  # noqa: BLE001  # invalid JSON yields no records
+            print(f"Malformed JSON input: {e}", file=sys.stderr)
             return
         if isinstance(obj, list):
             yield from obj

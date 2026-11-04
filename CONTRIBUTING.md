@@ -51,13 +51,13 @@ every commit, and CI runs the same hooks. `api/`, `frontend/` and `docs/` are
 currently excluded.
 
 ```bash
-uv tool install prek
-uv tool install ruff   # also used directly for the manual checks below
-uv tool install ty     # the ty hook runs the locally installed `ty`
+uv tool install prek==0.5.7
+uv tool install ruff==0.16.10   # also used directly for the manual checks below
+uv tool install ty==0.0.94      # the ty hook runs the locally installed `ty`
 
 # Security tooling
-uv tool install detect-secrets   # secret detection (baseline: .secrets.baseline)
-uv tool install zizmor           # GitHub Actions security audit
+uv tool install detect-secrets==1.5.0   # secret detection (baseline: .secrets.baseline)
+uv tool install zizmor==1.31.1          # GitHub Actions security audit
 brew install actionlint shellcheck   # GitHub Actions and shell script linting
 ```
 

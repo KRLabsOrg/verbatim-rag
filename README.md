@@ -75,13 +75,13 @@ GitHub Actions linting). The hooks are defined in `prek.toml`.
 
 ```bash
 # Install prek, ruff and ty (the ty hook runs the locally installed `ty`)
-uv tool install prek
-uv tool install ruff
-uv tool install ty
+uv tool install prek==0.5.7
+uv tool install ruff==0.16.10
+uv tool install ty==0.0.94
 
 # Security tooling: secret detection and GitHub Actions security audit
-uv tool install detect-secrets
-uv tool install zizmor
+uv tool install detect-secrets==1.5.0
+uv tool install zizmor==1.31.1
 
 # GitHub Actions linting and shell script linting (not on PyPI), e.g. with Homebrew
 brew install actionlint shellcheck
