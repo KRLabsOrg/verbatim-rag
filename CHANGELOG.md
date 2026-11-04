@@ -2,7 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.3.0] - Unreleased
+
+0.3.0 adds a stateless core. Extractors return spans with their chunk ids and offsets, and a
+`Transformer` turns a question and chunks into an answer cited from the chunks' own text, with
+the usage and warnings of the call. `VerbatimRAG` is built on a `Transformer` you pass in, takes
+`k` per query, and streams with `query_stream`. Models and LLM clients are passed into
+constructors, and the settings of a request are arguments of the call, so one instance can serve
+concurrent requests. The 0.2 entry points keep working through 0.3.x and 0.4.x, warn with
+`VerbatimDeprecationWarning`, and are removed in 0.5.0. The
+[migration guide](https://krlabsorg.github.io/verbatim-rag/migration/) maps each one to its
+replacement.
 
 ### Added
 - Docker Compose development and demo stack: the FastAPI API and the Vite/React UI run
@@ -106,8 +116,30 @@ All notable changes to this project will be documented in this file.
   `from_pretrained` logs the event `model_loaded` at INFO.
 - `VerbatimDOC(rag, k=...)`, the number of chunks each query retrieves (#98). Without it,
   `VerbatimDOC` retrieves `rag.k` chunks as before: 5, or the deprecated `VerbatimRAG(k=...)`.
+- The documentation has a migration page from each 0.2 entry point to its replacement, and a
+  reference of the error codes, result warning codes and log events the library emits (#99).
 
 ### Changed
+- One span gives one highlight and one citation: text that repeats in a chunk is highlighted and
+  cited once, where the extractor found it, instead of at every occurrence (ADR 0001).
+- `VerbatimRAG.query`, `query_async` and `query_stream` raise when an LLM call fails during
+  extraction, instead of answering from the remaining chunks (ADR 0006): an `UpstreamError` for
+  a failed or unreadable reply, a `ConfigurationError` for a rejected API key, model or quota. So
+  do `VerbatimTransform`, `verbatim_query`, `verbatim_enhance` and `VerbatimDOC`.
+- Random template mode gives the same question the same template, in every process, combined
+  with `TransformConfig.seed` when it is set, in a `Transformer` call and in
+  `TemplateManager.process`, instead of choosing at random (ADR 0005, #93, #94).
+- Contextual template mode without an LLM client warns with `VerbatimDeprecationWarning` where
+  it printed a note, and uses the static template.
+- The steps of a call log at DEBUG instead of INFO or `print`. Customer text, such as questions,
+  chunks, quotes and templates, is logged only on the `verbatim_core.content` logger, at DEBUG;
+  verbatim-rag logs none.
+- A context item of the wrong shape raises `InvalidInputError` (code `missing_field` or
+  `invalid_value`, `param` such as `context[3]` or `context[3].title`) instead of `TypeError` or
+  `ValueError`, before any LLM call. This includes metadata that isn't a dict with string keys,
+  and a title or source that isn't a string. `InvalidInputError` is a `ValueError`, but
+  `except TypeError` no longer catches a context item that isn't a dict (#95).
+- `verbatim-rag` now requires `verbatim-core>=0.3.0`.
 - A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
   `TypeError` when it is defined, not when it is instantiated (#90).
 - `LLMClient` translates the errors of the OpenAI client (#91). A rejected API key, model or
@@ -137,9 +169,6 @@ All notable changes to this project will be documented in this file.
 - The settings of the model extractors are in their `config`. The attributes `threshold`,
   `min_span_chars`, `merge_gap_chars`, `max_length`, `doc_stride`, `output_mode`, `language`,
   `min_span_tokens`, `merge_gap`, `max_tokens`, `device` and `model_path` are gone (#92).
-- Random template mode chooses the template by a hash of the question in `TemplateManager.process`
-  too, as in a `Transformer` call, instead of at random: the same question gets the same
-  template (#94).
 - The template classes log instead of printing, and `QuestionSpecificTemplate` logs its steps at
   DEBUG instead of INFO. When a template can't be written, the WARNING record has the event
   `fallback_used` and the warning code `template_fallback` (#94).
@@ -200,11 +229,6 @@ All notable changes to this project will be documented in this file.
   rejected API key or permission or an unknown model (#96).
 - Structured template mode without an LLM client raises `ConfigurationError` (code
   `missing_llm_client`) (#96).
-- A context item of the wrong shape raises `InvalidInputError` (code `missing_field` or
-  `invalid_value`, `param` such as `context[3]` or `context[3].title`) instead of `TypeError` or
-  `ValueError`, before any LLM call. This includes metadata that isn't a dict with string keys,
-  and a title or source that isn't a string. `InvalidInputError` is a `ValueError`, but
-  `except TypeError` no longer catches a context item that isn't a dict (#95).
 - `VerbatimDOC` extracts with `aextract`, from the chunks of the retrieved rows (#98). An
   extractor that implements only `extract_spans` still works and warns. A query that fails makes
   `process`, `process_interactive` and `stream_process` raise its error, such as an
@@ -212,14 +236,19 @@ All notable changes to this project will be documented in this file.
   information found." in its place.
 
 ### Deprecated
+
+Each of these warns with `VerbatimDeprecationWarning`, a `DeprecationWarning`, and is removed in
+0.5.0.
+
 - Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
   when they are called on it. Implement `extract` instead (#90).
 - `extract_spans` and `extract_spans_async` where an extractor inherits them from
   `SpanExtractor`. Use `extract` and `aextract` (#90).
 - `LLMSpanExtractor.extract_spans` and `extract_spans_async`. Use `extract` and `aextract` (#91).
 - `LLMSpanExtractor()` without an `llm_client`, which builds `LLMClient(model)`. Pass the client:
-  `LLMSpanExtractor(LLMClient(model))`. The argument `model` next to a client and the argument
-  `max_display_spans` have no effect (#91).
+  `LLMSpanExtractor(LLMClient(model))`. The argument `model` next to a client has no effect: the
+  client's model applies. The argument `max_display_spans` has no effect either: pass it in
+  `TransformConfig(max_display_spans=...)` (#91).
 - The `LLMSpanExtractor` arguments `extraction_mode`, `batch_size`, `span_match_mode`,
   `fuzzy_threshold`, `extraction_prompt` and `system_prompt`. Pass them in
   `config=LLMExtractConfig(...)` (#91).
@@ -227,8 +256,9 @@ All notable changes to this project will be documented in this file.
   both without a loaded model or with a model name, which load the model. Use `from_pretrained`
   (#92).
 - The settings arguments of the model extractors. Pass them in `config=ModelExtractConfig(...)`
-  or `config=SemanticHighlightConfig(...)`. The `ModelSpanExtractor` arguments
-  `extraction_mode` and `max_display_spans` have no effect (#92).
+  or `config=SemanticHighlightConfig(...)`, and `device` and `max_tokens` to `from_pretrained`.
+  The `ModelSpanExtractor` argument `extraction_mode` has no effect and has no replacement, and
+  `max_display_spans` belongs in `TransformConfig(max_display_spans=...)` (#92).
 - Contextual template mode without an LLM client. It warns where the template manager printed a
   note. A `Transformer` call or its default config (#93) and
   `TemplateManager(default_mode="contextual")` use the static template; `set_mode` and
@@ -258,7 +288,7 @@ All notable changes to this project will be documented in this file.
 - `verbatim_query` and `verbatim_query_async`. Retrieve with the provider, then call a
   `Transformer` (#95).
 - The module `verbatim_rag.transform`. Its names are verbatim-core's: import them from
-  `verbatim_core` (#95).
+  `verbatim_core`, and `SearchResult` from `verbatim_rag.vector_stores` (#95).
 
 ### Fixed
 - The `verbatim-rag` CLI's `query` and `template` commands, which failed with a `TypeError`

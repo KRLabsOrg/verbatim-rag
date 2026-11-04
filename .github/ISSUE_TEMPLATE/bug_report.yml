@@ -34,7 +34,7 @@ body:
     attributes:
       label: Versions
       description: Include the package version or commit, Python version, and relevant model id.
-      placeholder: "verbatim-rag 0.2.8, Python 3.11, KRLabsOrg/verbatim-rag-modern-bert-v2"
+      placeholder: "verbatim-rag 0.3.0, Python 3.11, KRLabsOrg/verbatim-rag-modern-bert-v2"
     validations:
       required: true
 
@@ -43,7 +43,7 @@ body:
     attributes:
       label: Installation method
       description: PyPI, editable checkout, Docker, or another method; include the exact command when possible.
-      placeholder: 'pip install "verbatim-core[model]==0.2.8"'
+      placeholder: 'pip install "verbatim-core[model]==0.3.0"'
     validations:
       required: true
 

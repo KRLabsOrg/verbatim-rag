@@ -49,7 +49,7 @@ Structured template mode is not available in the `Transformer`; use `VerbatimRAG
 
 ## VerbatimTransform
 
-Deprecated since 0.3.0: use the `Transformer`. `VerbatimTransform` turns the context items into chunks with positional ids (`ctx_0`, `ctx_1`, ...), answers with a `Transformer`, and returns the answer as a `QueryResponse`. The same with a `Transformer`:
+Deprecated since 0.3.0, and removed in 0.5.0: use the `Transformer`. [Migrating to 0.3.0](../migration.md) maps each old entry point to its replacement. `VerbatimTransform` turns the context items into chunks with positional ids (`ctx_0`, `ctx_1`, ...), answers with a `Transformer`, and returns the answer as a `QueryResponse`. The same with a `Transformer`:
 
 ```python
 from verbatim_core import Chunk, TransformConfig, Transformer
@@ -75,28 +75,6 @@ chunks = [
 ]
 answer = transformer.transform(question, chunks)
 response = ResponseBuilder().build_from_answer(question, answer, chunks)
-```
-
-It takes a question and retrieved context, extracts verbatim spans, and produces a cited response:
-
-```python
-from verbatim_core import VerbatimTransform
-
-vt = VerbatimTransform(
-    template_mode="contextual",  # or "static"
-    extraction_mode="auto",      # "auto", "batch", or "individual"
-    max_display_spans=5,
-    span_match_mode="exact",     # "exact" or "fuzzy"
-    fuzzy_threshold=0.8,         # for fuzzy mode
-)
-
-response = vt.transform(
-    question="What methodology was used?",
-    context=[
-        {"content": "We used a mixed-methods approach combining surveys and interviews."},
-        {"content": "The sample size was 500 participants across 3 hospitals."},
-    ],
-)
 ```
 
 ### Context Format
@@ -148,21 +126,15 @@ A quote that can't be located in its chunk is dropped and reported in `extractio
 
 ## Fuzzy Span Matching
 
-By default, a quote must match its chunk exactly. For documents with OCR artifacts, encoding issues (e.g. corrupted umlauts), or minor formatting differences, enable fuzzy matching:
-
-```python
-vt = VerbatimTransform(
-    span_match_mode="fuzzy",
-    fuzzy_threshold=0.8,  # 0-1, higher = stricter matching
-)
-```
-
-Or directly on the extractor:
+By default, a quote must match its chunk exactly. For documents with OCR artifacts, encoding issues (e.g. corrupted umlauts), or minor formatting differences, enable fuzzy matching in the extractor's config:
 
 ```python
 extractor = LLMSpanExtractor(
     client,
-    config=LLMExtractConfig(span_match_mode="fuzzy", fuzzy_threshold=0.8),
+    config=LLMExtractConfig(
+        span_match_mode="fuzzy",
+        fuzzy_threshold=0.8,  # 0-1, higher = stricter matching
+    ),
 )
 ```
 
@@ -201,16 +173,6 @@ extractor = LLMSpanExtractor(
         extraction_prompt=custom_prompt,
         system_prompt="You are a medical expert extracting clinical information.",
     ),
-)
-```
-
-These parameters are also available on `VerbatimTransform`:
-
-```python
-vt = VerbatimTransform(
-    extraction_prompt=custom_prompt,
-    system_prompt="You are a medical expert.",
-    span_match_mode="fuzzy",
 )
 ```
 

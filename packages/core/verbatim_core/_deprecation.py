@@ -9,8 +9,8 @@ from typing import Any
 from typing_extensions import deprecated as _deprecated
 
 DEPRECATED_SINCE = "0.3.0"
-# The release that removes the deprecated API. Provisional until the length of the
-# deprecation window is decided. Every warning reads both versions from here.
+# The release that removes the deprecated API: the 0.3.x and 0.4.x releases warn first.
+# Every warning reads both versions from here.
 REMOVED_IN = "0.5.0"
 
 

@@ -136,7 +136,7 @@ The `documents` event carries the retrieved chunks, the `spans` event the spans 
 
 `StreamingRAG` still works and warns. It sends the events of `query_stream` as the dicts it sent before 0.3.0 (`documents`, `progress`, `highlights` and `answer`), and a failure as a last `error` event with the error's `code`. Its `error` field is the code, or the message of an `InvalidInputError`, never the text of another exception. The failure is logged with its traceback, which shows the messages of verbatim's own errors only, since another exception's message may quote the question or a chunk. The API server's streaming route sends the same events.
 
-`VerbatimRAG(index)` and the arguments `model`, `k`, `template_manager`, `extractor`, `max_display_spans`, `template_mode` and `extraction_mode` still work and warn: without a transformer, `VerbatimRAG` builds the one it built before 0.3.0.
+`VerbatimRAG(index)` and the arguments `model`, `k`, `template_manager`, `extractor`, `max_display_spans`, `template_mode` and `extraction_mode` still work and warn until 0.5.0: without a transformer, `VerbatimRAG` builds the one it built before 0.3.0. [Migrating to 0.3.0](../migration.md) shows the replacement of each.
 
 ## Span Extractors
 

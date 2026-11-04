@@ -18,11 +18,11 @@ If you only need verbatim span extraction without the full RAG pipeline:
 pip install verbatim-core
 ```
 
-This installs only `openai`, `pydantic`, `rapidfuzz`, and `jinja2` -- no heavy ML dependencies.
+This installs only `openai`, `pydantic`, `rapidfuzz`, `jinja2` and `typing_extensions` -- no heavy ML dependencies.
 
 The `verbatim-core` package provides the same `verbatim_core` module with:
 
-- `VerbatimTransform` -- question + context -> cited, grounded answer
+- `Transformer` -- question + chunks -> answer cited from the chunks' own text
 - `LLMSpanExtractor` -- extract verbatim spans using an LLM
 - `LLMClient` -- unified OpenAI API wrapper
 - Template system for response formatting

@@ -1,6 +1,6 @@
 """Provenance-first RAG with verbatim evidence spans and citations."""
 
-__version__ = "0.2.8"
+__version__ = "0.3.0"
 
 from verbatim_core import SpansEvent as SpansEvent
 from verbatim_core import VerbatimDeprecationWarning as VerbatimDeprecationWarning

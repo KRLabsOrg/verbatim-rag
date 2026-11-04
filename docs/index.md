@@ -26,7 +26,7 @@ contextual framing. Use static templates for fixed deterministic framing.
 | Package | Install | Dependencies | Use case |
 |---------|---------|-------------|----------|
 | **verbatim-rag** | `pip install verbatim-rag` | Full (torch, milvus, etc.) | Complete RAG pipeline with indexing, search, and extraction |
-| **verbatim-core** | `pip install verbatim-core` | Lean (openai, pydantic, rapidfuzz, jinja2) | Reusable evidence transform for integration into existing systems |
+| **verbatim-core** | `pip install verbatim-core` | Lean (openai, pydantic, rapidfuzz, jinja2, typing_extensions) | Reusable evidence transform for integration into existing systems |
 
 ## Key Features
 

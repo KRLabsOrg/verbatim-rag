@@ -1,24 +1,41 @@
 # Quickstart
 
-## Lightweight: VerbatimTransform
+## Lightweight: the Transformer
 
-The fastest way to add verbatim grounding to your existing RAG system. Works with `verbatim-core` (lean) or `verbatim-rag` (full).
+The fastest way to add verbatim grounding to your existing RAG system: pass a question and the chunks you retrieved, and get an answer whose citations point at the chunks' own text. Works with `verbatim-core` (lean) or `verbatim-rag` (full).
 
 ```python
-from verbatim_core import VerbatimTransform
+from verbatim_core import Chunk, Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates import TemplateManager
 
-vt = VerbatimTransform()
-response = vt.transform(
-    question="What is the main finding?",
-    context=[
-        {"content": "The study found that X leads to Y.", "title": "Paper A"},
-        {"content": "Results show Z is statistically significant.", "title": "Paper B"},
-    ],
+client = LLMClient("gpt-4o-mini")
+transformer = Transformer(
+    LLMSpanExtractor(client),
+    TemplateManager(llm_client=client, default_mode="contextual"),
 )
 
-print(response.answer)
+question = "What is the main finding?"
+chunks = [
+    Chunk(id="paper-a", text="The study found that X leads to Y.", metadata={"title": "Paper A"}),
+    Chunk(
+        id="paper-b",
+        text="Results show Z is statistically significant.",
+        metadata={"title": "Paper B"},
+    ),
+]
 
-# Access highlights and citations
+answer = transformer.transform(question, chunks)
+print(answer.text)
+
+# Each citation points at a span of a chunk, by id and offsets
+for citation in answer.citations:
+    print(citation.number, citation.chunk_id, citation.start, citation.end)
+
+# A QueryResponse, with the highlights of each document
+response = ResponseBuilder().build_from_answer(question, answer, chunks)
 for doc in response.documents:
     for highlight in doc.highlights:
         print(f"  [{highlight.start}:{highlight.end}] {highlight.text}")
@@ -29,6 +46,10 @@ for doc in response.documents:
 For the complete RAG system with document processing, indexing, and retrieval:
 
 ```python
+from verbatim_core import Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.templates import TemplateManager
 from verbatim_rag import VerbatimIndex, VerbatimRAG
 from verbatim_rag.ingestion import DocumentProcessor
 from verbatim_rag.vector_stores import LocalMilvusStore
@@ -61,11 +82,18 @@ index = VerbatimIndex(
 )
 index.add_documents([document])
 
-# Query
-rag = VerbatimRAG(index)
-response = rag.query("What is the main contribution?")
+# Query: the Transformer writes the answers from the retrieved chunks
+client = LLMClient("gpt-4o-mini")
+transformer = Transformer(
+    LLMSpanExtractor(client),
+    TemplateManager(llm_client=client, default_mode="contextual"),
+)
+rag = VerbatimRAG(index, transformer=transformer)
+response = rag.query("What is the main contribution?", k=5)
 print(response.answer)
 ```
+
+`k` and the other retrieval settings are arguments of each query, so one `VerbatimRAG` can serve concurrent queries.
 
 ## Using the ModernBERT Extractor
 
@@ -76,6 +104,10 @@ rendering—no generative LLM API call is made:
 from verbatim_rag.extractors import ModelSpanExtractor
 
 extractor = ModelSpanExtractor.from_pretrained("KRLabsOrg/verbatim-rag-modern-bert-v2")
-rag = VerbatimRAG(index, extractor=extractor, template_mode="static")
-response = rag.query("Main findings?")
+rag = VerbatimRAG(index, transformer=Transformer(extractor, TemplateManager()))
+response = rag.query("Main findings?", k=5)
 ```
+
+`from_pretrained` downloads and loads the model when you call it. `TemplateManager()` writes the answers with the static template.
+
+Upgrading from 0.2.x? See [Migrating to 0.3.0](../migration.md).
