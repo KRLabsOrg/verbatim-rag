@@ -254,6 +254,33 @@ class TestGenerateTemplate:
         assert "[DISPLAY_SPANS]" in result
 
 
+class TestTemplateCompletion:
+    def test_returns_the_completion_of_the_template_prompt(self, mock_llm_client):
+        client, mock_sync, _, make_response = mock_llm_client
+        mock_sync.chat.completions.create.return_value = make_response("Findings:\n[FACT_1]")
+
+        completion = client.template_completion("What?", ["span1"], citation_count=0)
+
+        assert (completion.text, completion.model) == (
+            "Findings:\n[FACT_1]",
+            "test-model-2026-01-01",
+        )
+        prompt = mock_sync.chat.completions.create.call_args.kwargs["messages"][-1]["content"]
+        assert "span1" in prompt
+
+    async def test_a_failed_call_raises_instead_of_falling_back(self, mock_llm_client):
+        client, mock_sync, mock_async, _ = mock_llm_client
+        error, _, _ = OPENAI_ERRORS["server_error"]
+        mock_sync.chat.completions.create.side_effect = error
+        mock_async.chat.completions.create.side_effect = error
+
+        with pytest.raises(UpstreamError):
+            client.template_completion("What?", ["span1"], citation_count=0)
+        with pytest.raises(UpstreamError):
+            await client.template_completion_async("What?", ["span1"], citation_count=0)
+        assert "[DISPLAY_SPANS]" in client.generate_template("What?", ["span1"], citation_count=0)
+
+
 class TestFallbackTemplate:
     def test_without_citations(self, mock_llm_client):
         client, _, _, _ = mock_llm_client

@@ -2,6 +2,51 @@
 
 The `verbatim_core` package provides RAG-agnostic verbatim span extraction. It works with any retrieval system -- you provide the question and context, it returns grounded answers with citations.
 
+## Transformer
+
+Writes a cited answer from a question and chunks you pass in, without an index. Pass the extractor and the templates it uses:
+
+```python
+from verbatim_core import Chunk, TransformConfig, Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.templates import TemplateManager
+
+client = LLMClient(model="gpt-4o-mini")
+transformer = Transformer(
+    LLMSpanExtractor(client),
+    TemplateManager(llm_client=client),
+    config=TransformConfig(template_mode="contextual", max_display_spans=5),
+)
+
+answer = transformer.transform(
+    "What methodology was used?",
+    [
+        Chunk(id="methods", text="We used a mixed-methods approach combining surveys and interviews."),
+        Chunk(id="sample", text="The sample size was 500 participants across 3 hospitals."),
+    ],
+)
+print(answer.text)
+for citation in answer.citations:
+    print(citation.number, citation.type, citation.chunk_id, citation.start, citation.end)
+```
+
+Each span of the answer gets one citation, which points at the span by chunk id and offsets. The first `max_display_spans` spans fill the template, and the citations of the spans the answer shows are marked `display`; the others are cited for reference only. In random template mode the template is chosen by the question and the config's `seed`, so the same question gets the same template. `answer.usage` lists the extractor's work and, when a template LLM ran, the LLM's, and `answer.warnings` says what made the answer less complete, such as a quote that couldn't be located or a template that fell back to the fallback template.
+
+A `config` passed to a call replaces the transformer's default config for that call only, so one transformer can serve concurrent requests. `atransform` is the async version. `stream` and `astream` yield a `spans` event once the spans are extracted, then an `answer` event with the same `Answer` that `transform` returns:
+
+```python
+for event in transformer.stream(question, chunks):
+    if event.type == "spans":
+        show_sources(event.spans)
+    else:
+        show_answer(event.answer)
+```
+
+`ResponseBuilder().build_from_answer(question, answer, chunks)` turns an `Answer` into the `QueryResponse` that `VerbatimTransform` returns, with each cited span highlighted in its chunk.
+
+Structured template mode is not available in the `Transformer`; use `VerbatimRAG` for structured answers.
+
 ## VerbatimTransform
 
 The main entry point. Takes a question and retrieved context, extracts verbatim spans, and produces a cited response.

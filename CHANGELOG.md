@@ -42,6 +42,43 @@ All notable changes to this project will be documented in this file.
   A `config` passed to `extract` replaces the default for one call (#91).
 - `LLMClient.completion` and `completion_async`, which return the text of a reply with the
   model name and the token counts the LLM service sent (#91).
+- `ModelSpanExtractor.from_pretrained(model_id, device=None)` and
+  `SemanticHighlightExtractor.from_pretrained(...)`, which download and load a model or load it
+  from a local path (#92). They record the model's Hugging Face commit as the version the usage
+  of each extraction reports; for a local path, pass `model_version`. They also load the
+  highlighter's tokenizer, which it used to load on the first extraction. Loading logs the event
+  `model_loaded` at INFO. The constructors take a loaded model and a config, and load nothing.
+- `extract` and `aextract` on `ModelSpanExtractor` and `SemanticHighlightExtractor`, whose spans
+  keep the offsets and probabilities the model computed (#92). Highlighter models give their
+  character spans with the span probability, the v1 sentence model the sentences of a chunk with
+  the sentence probability. `SemanticHighlightExtractor` locates the sentences it highlights in
+  order, scored with the sentence probability, and turns token regions into offsets, scored with
+  the mean token probability. When a model examines only part of a chunk, the result has a
+  warning with the code `chunk_truncated`. `aextract` runs the model in a worker thread.
+- `ModelExtractConfig` and `SemanticHighlightConfig`, the settings of the model extractors (#92).
+- `Transformer(extractor, templates, config=TransformConfig(...))`, which writes a cited answer
+  from a question and chunks, without an index (#93). `transform` and `atransform` return an
+  `Answer`: its text, a citation for each span (its number, whether the answer shows the span or
+  cites it for reference only, and the span's chunk id and offsets), the spans, the usage of the
+  extractor and of the template LLM when one ran, and the warnings. `stream` and `astream` yield a
+  `spans` event once the spans are extracted and an `answer` event with the same `Answer`.
+  `TransformConfig` holds the settings of a call: the number of displayed spans, the template
+  mode, the citation mode and format, and a seed. Nothing is set on the transformer between
+  calls, so one transformer can serve concurrent calls. In random template mode it chooses the
+  template by a hash of the question, combined with the seed, so the same question gets the same
+  template. Structured template mode raises: it stays in `VerbatimRAG`.
+- In a `Transformer` call, a contextual template falls back to the fallback template only when
+  the LLM call fails with an `UpstreamError` or the LLM sends an empty template, and the answer
+  then has the warning `template_fallback`. A rejected API key, model or quota raises
+  `ConfigurationError`. Generated templates are logged only on the `verbatim_core.content`
+  logger. A client that replaces `LLMClient.generate_template` is still called that way (#93).
+- `ResponseBuilder.build_from_answer`, which builds today's `QueryResponse` from an `Answer`. It
+  highlights each cited span at its offsets, without searching for its text, and of two
+  overlapping spans keeps the first. A citation of a chunk it isn't given, or with offsets
+  outside its chunk, raises `InvalidInputError` (#93).
+- `LLMClient.template_completion` and `template_completion_async`, which return the completion
+  of a template prompt and raise when the call fails, and `TemplateStrategy.generate_result`,
+  which returns a template with the usage and warnings of writing it (#93).
 
 ### Changed
 - A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
@@ -63,6 +100,16 @@ All notable changes to this project will be documented in this file.
 - An unknown `extraction_mode`, which acted like `individual`, raises: `ConfigurationError` from
   `LLMSpanExtractor`, and pydantic's `ValidationError`, a `ValueError`, from `VerbatimRAG` and
   `VerbatimTransform` (#91).
+- An error of a model extractor's model propagates, instead of giving its chunk no spans (#92).
+- `SemanticHighlightExtractor` runs its model on the device it is given, or the best available
+  one, where it ignored `device`, and the model no longer draws progress bars (#92).
+- The model extractors raise `ConfigurationError` instead of `ImportError` when torch,
+  transformers or a package the model's code needs is missing (code `missing_dependency`),
+  instead of `OSError` when a model can't be downloaded or read (code `model_not_loaded`), and
+  instead of `ValueError` for an invalid `output_mode` (#92).
+- The settings of the model extractors are in their `config`. The attributes `threshold`,
+  `min_span_chars`, `merge_gap_chars`, `max_length`, `doc_stride`, `output_mode`, `language`,
+  `min_span_tokens`, `merge_gap`, `max_tokens`, `device` and `model_path` are gone (#92).
 
 ### Deprecated
 - Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
@@ -76,6 +123,14 @@ All notable changes to this project will be documented in this file.
 - The `LLMSpanExtractor` arguments `extraction_mode`, `batch_size`, `span_match_mode`,
   `fuzzy_threshold`, `extraction_prompt` and `system_prompt`. Pass them in
   `config=LLMExtractConfig(...)` (#91).
+- `ModelSpanExtractor(model_path=...)` and `SemanticHighlightExtractor(model_name=...)`, and
+  both without a loaded model or with a model name, which load the model. Use `from_pretrained`
+  (#92).
+- The settings arguments of the model extractors. Pass them in `config=ModelExtractConfig(...)`
+  or `config=SemanticHighlightConfig(...)`. The `ModelSpanExtractor` arguments
+  `extraction_mode` and `max_display_spans` have no effect (#92).
+- Contextual template mode without an LLM client in a `Transformer` call. It uses the static
+  template and warns. Give the `TemplateManager` an `llm_client` (#93).
 
 ### Fixed
 - `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans

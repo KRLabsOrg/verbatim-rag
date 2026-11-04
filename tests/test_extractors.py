@@ -5,7 +5,26 @@ import logging
 import sys
 import types
 
+import pytest
+import verbatim_core.extractor_models
 from verbatim_core.extractors import ModelSpanExtractor
+
+DATASET_MODULE = "verbatim_core.extractor_models.dataset"
+
+
+@pytest.fixture
+def import_dataset_module():
+    """Imports the dataset module against the packages a test fakes, and forgets it afterwards."""
+    package = verbatim_core.extractor_models
+    saved_module = sys.modules.pop(DATASET_MODULE, None)
+    saved_attribute = vars(package).pop("dataset", None)
+    yield lambda: importlib.import_module(DATASET_MODULE)
+    sys.modules.pop(DATASET_MODULE, None)
+    vars(package).pop("dataset", None)
+    if saved_module is not None:
+        sys.modules[DATASET_MODULE] = saved_module
+    if saved_attribute is not None:
+        package.dataset = saved_attribute
 
 
 class TestModelSpanExtractorWarnings:
@@ -25,7 +44,9 @@ class TestModelSpanExtractorWarnings:
         assert result == ModelSpanExtractor._FORMAT_QA_MODEL
         assert "Highlighter detection failed for org/highlighter: offline config" in caplog.text
 
-    def test_legacy_token_budget_warns_when_sentences_are_dropped(self, caplog, monkeypatch):
+    def test_legacy_token_budget_warns_when_sentences_are_dropped(
+        self, caplog, monkeypatch, import_dataset_module
+    ):
         class FakeDataset:
             pass
 
@@ -58,8 +79,7 @@ class TestModelSpanExtractorWarnings:
         monkeypatch.setitem(sys.modules, "torch.utils", torch_utils)
         monkeypatch.setitem(sys.modules, "torch.utils.data", torch_utils_data)
         monkeypatch.setitem(sys.modules, "transformers", transformers)
-        monkeypatch.delitem(sys.modules, "verbatim_core.extractor_models.dataset", raising=False)
-        dataset = importlib.import_module("verbatim_core.extractor_models.dataset")
+        dataset = import_dataset_module()
 
         sample = dataset.QASample(
             question="question",
