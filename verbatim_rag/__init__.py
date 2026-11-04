@@ -2,11 +2,15 @@
 
 __version__ = "0.2.8"
 
+from verbatim_core import SpansEvent as SpansEvent
 from verbatim_core import VerbatimDeprecationWarning as VerbatimDeprecationWarning
 from verbatim_core.transform import VerbatimTransform as VerbatimTransform
 from verbatim_core.transform import verbatim_query as verbatim_query
 from verbatim_core.transform import verbatim_query_async as verbatim_query_async
 
+from verbatim_rag.core import DocumentsEvent as DocumentsEvent
+from verbatim_rag.core import QueryStreamEvent as QueryStreamEvent
+from verbatim_rag.core import ResponseEvent as ResponseEvent
 from verbatim_rag.core import VerbatimRAG as VerbatimRAG
 from verbatim_rag.document import Document as Document
 from verbatim_rag.extractors import LLMSpanExtractor as LLMSpanExtractor

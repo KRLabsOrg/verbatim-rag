@@ -88,6 +88,11 @@ All notable changes to this project will be documented in this file.
   retrieved rows into chunks with `SearchResult.to_chunk()`, whose id is the row's id, and answer
   with the `Transformer`. Nothing is set on `VerbatimRAG` by a call. The `llm_client` serves
   structured template mode alone, which still answers without the `Transformer`.
+- `VerbatimRAG.query_stream(question, k=..., ...)`, an async generator with the retrieval
+  arguments of `query` (#97). It yields a `DocumentsEvent` with the retrieved chunks, a
+  `SpansEvent` with their spans and a `ResponseEvent` with the `QueryResponse` that `query`
+  returns for the same input, and raises the errors `query` raises. A question the intent
+  detector answers yields the `ResponseEvent` alone. The events are exported from `verbatim_rag`.
 - `DocumentChunk`, the new name of the ingestion record `verbatim_rag.document.Chunk` (#96).
 - `QueryResponse.warnings`: how an answer is degraded but still correct, as `ResultWarning`s with
   a code and a message, such as `quote_not_found`, `chunk_truncated`, `template_fallback` and
@@ -168,6 +173,24 @@ All notable changes to this project will be documented in this file.
   - An extractor that implements only `extract_spans` receives the chunks, with `id`, `text` and
     `metadata`, instead of the search results; one that reads `score` or `enhanced_text` needs to
     implement `extract`. The same holds for `VerbatimTransform` (#95).
+- `StreamingRAG` and the API server's streaming route send the events of
+  `VerbatimRAG.query_stream` as the dicts they sent before (#97). `num_docs` and the other
+  retrieval arguments apply to the call: `StreamingRAG` no longer sets `k` on the `VerbatimRAG`
+  it streams, so concurrent streams don't interfere. The events are today's, except:
+  - The response of the `answer` event has the `warnings` that `query` reports.
+  - An `error` event has the error's `code`, and its `error` is the code, or the message of an
+    `InvalidInputError`, instead of the exception's text. An error that isn't a `VerbatimError`
+    has the code `internal_error`. The failure is logged once on `verbatim_rag.streaming`, with
+    its traceback. The traceback shows the messages of `VerbatimError`s only, since another
+    exception's message may quote the question or a chunk, and the route logs no question text.
+  - A failed LLM call during extraction ends the stream with an `error` event, instead of
+    answering from the remaining chunks (ADR 0006).
+  - The `highlights` event has the response's highlights: one per span, at its offsets
+    (ADR 0001). Retrieved rows with the same text each get their spans, instead of sharing one
+    entry.
+  - In structured template mode the stream answers as `query` does, with `VerbatimRAG`'s
+    client, and sends no `progress` or `highlights` event. Before, it filled the structured
+    template from the extractor's spans.
 - A reranker failure keeps the retrieval order only when its service fails (`UpstreamError`), adds
   the warning `reranker_fallback` to the response, and logs `fallback_used` on the
   `verbatim_rag.core` logger instead of the root logger. Other errors propagate. `CohereReranker`
@@ -221,6 +244,8 @@ All notable changes to this project will be documented in this file.
 - Assigning `VerbatimRAG.extractor`, `template_manager` or `max_display_spans`. Pass a
   `Transformer` with the extractor, templates and config (#96).
 - `verbatim_rag.document.Chunk`. Use `DocumentChunk` (#96).
+- `StreamingRAG`, `StreamingRAG.stream_query` and `stream_query_sync`. Use
+  `VerbatimRAG.query_stream` (#97).
 - `VerbatimTransform`. Use `Transformer`, and `ResponseBuilder.build_from_answer` for a
   `QueryResponse` (#95).
 - `verbatim_query` and `verbatim_query_async`. Retrieve with the provider, then call a

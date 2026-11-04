@@ -3,6 +3,7 @@
 import logging
 import re
 import sys
+import time
 import types
 import warnings
 
@@ -11,6 +12,7 @@ from verbatim_core import (
     ConfigurationError,
     ExtractedSpan,
     Extraction,
+    InvalidInputError,
     TransformConfig,
     Transformer,
     UpstreamError,
@@ -95,10 +97,17 @@ def no_deprecation_warnings():
         yield
 
 
-async def query(rag, asynchronous, *args, **settings):
-    if asynchronous:
+CALLS = pytest.mark.parametrize("call", ["query", "query_async", "query_stream"])
+
+
+async def query(rag, call, *args, **settings):
+    """The response of one of VerbatimRAG's calls. For query_stream, the last event's."""
+    if call == "query":
+        return rag.query(*args, **settings)
+    if call == "query_async":
         return await rag.query_async(*args, **settings)
-    return rag.query(*args, **settings)
+    events = [event async for event in rag.query_stream(*args, **settings)]
+    return events[-1].response
 
 
 class TestConstruction:
@@ -208,19 +217,19 @@ class TestConstruction:
             build(template_mode="static")
 
 
-@pytest.mark.parametrize("asynchronous", [False, True])
+@CALLS
 class TestQuery:
-    async def test_the_chunks_are_the_rows_of_the_index(self, asynchronous):
+    async def test_the_chunks_are_the_rows_of_the_index(self, call):
         extractor = OpenedExtractor()
 
-        await query(build(extractor=extractor), asynchronous, QUESTION)
+        await query(build(extractor=extractor), call, QUESTION)
 
         assert [(c.id, c.text, c.metadata) for c in extractor.chunks] == [
             (row.id, row.text, row.metadata) for row in rows()
         ]
         assert all(c.source_start is None and c.source_end is None for c in extractor.chunks)
 
-    async def test_retrieval_settings_apply_to_one_call(self, asynchronous):
+    async def test_retrieval_settings_apply_to_one_call(self, call):
         index = RecordingIndex()
         rag = build(index)
         settings = {
@@ -231,16 +240,16 @@ class TestQuery:
             "search_params": {"ef": 64},
         }
 
-        await query(rag, asynchronous, QUESTION, **settings)
-        await query(rag, asynchronous, QUESTION)
+        await query(rag, call, QUESTION, **settings)
+        await query(rag, call, QUESTION)
 
         assert index.queries == [
             settings,
             {"k": 5, "filter": None, "hybrid_weights": None, "rrf_k": 60, "search_params": None},
         ]
 
-    async def test_the_answer_cites_the_spans_at_their_offsets(self, asynchronous):
-        response = await query(build(), asynchronous, QUESTION)
+    async def test_the_answer_cites_the_spans_at_their_offsets(self, call):
+        response = await query(build(), call, QUESTION)
 
         assert "[1] The bridge opened in 1932." in response.answer
         assert [(d.title, [h.text for h in d.highlights]) for d in response.documents] == [
@@ -249,28 +258,26 @@ class TestQuery:
             ("", []),
         ]
 
-    async def test_the_settings_of_the_transformer_apply(self, asynchronous):
+    async def test_the_settings_of_the_transformer_apply(self, call):
         transformer = Transformer(
             OpenedExtractor(), TemplateManager(), config=TransformConfig(max_display_spans=1)
         )
         rag = verbatim_rag.VerbatimRAG(RecordingIndex(), transformer=transformer)
 
-        response = await query(rag, asynchronous, QUESTION)
+        response = await query(rag, call, QUESTION)
 
         assert [c.type for c in response.structured_answer.citations] == ["display", "reference"]
 
-    async def test_a_failed_extraction_raises(self, asynchronous):
+    async def test_a_failed_extraction_raises(self, call):
         error = UpstreamError("The LLM service failed.", code="server_error", service="llm")
 
         with pytest.raises(UpstreamError):
-            await query(build(extractor=OpenedExtractor(error=error)), asynchronous, QUESTION)
+            await query(build(extractor=OpenedExtractor(error=error)), call, QUESTION)
 
-    async def test_the_steps_are_logged_at_debug_and_nothing_is_printed(
-        self, asynchronous, caplog, capsys
-    ):
+    async def test_the_steps_are_logged_at_debug_and_nothing_is_printed(self, call, caplog, capsys):
         caplog.set_level(logging.DEBUG, logger="verbatim_rag")
 
-        await query(build(), asynchronous, QUESTION)
+        await query(build(), call, QUESTION)
 
         assert capsys.readouterr() == ("", "")
         assert [r.levelno for r in caplog.records if r.name == "verbatim_rag.core"] == [
@@ -294,23 +301,21 @@ class ReversingReranker:
         return list(reversed(results))
 
 
-@pytest.mark.parametrize("asynchronous", [False, True])
+@CALLS
 class TestReranker:
-    async def test_the_reranked_order_is_the_order_of_the_chunks(self, asynchronous):
+    async def test_the_reranked_order_is_the_order_of_the_chunks(self, call):
         extractor = OpenedExtractor()
 
-        await query(
-            build(extractor=extractor, reranker=ReversingReranker()), asynchronous, QUESTION
-        )
+        await query(build(extractor=extractor, reranker=ReversingReranker()), call, QUESTION)
 
         assert [chunk.id for chunk in extractor.chunks] == ["row-5", "row-3", "row-7"]
 
-    async def test_a_failed_service_falls_back_to_the_retrieval_order(self, asynchronous, caplog):
+    async def test_a_failed_service_falls_back_to_the_retrieval_order(self, call, caplog):
         error = UpstreamError("The reranker failed.", code="timeout", service="reranker")
         extractor = OpenedExtractor()
         rag = build(extractor=extractor, reranker=FailingReranker(error))
 
-        response = await query(rag, asynchronous, QUESTION)
+        response = await query(rag, call, QUESTION)
 
         assert [chunk.id for chunk in extractor.chunks] == ["row-7", "row-3", "row-5"]
         assert [warning.code for warning in response.warnings] == ["reranker_fallback"]
@@ -321,11 +326,11 @@ class TestReranker:
             "reranker_fallback",
         )
 
-    async def test_another_error_propagates(self, asynchronous):
+    async def test_another_error_propagates(self, call):
         rag = build(reranker=FailingReranker(KeyError("bug")))
 
         with pytest.raises(KeyError):
-            await query(rag, asynchronous, QUESTION)
+            await query(rag, call, QUESTION)
 
 
 class StructuredLLM:
@@ -339,31 +344,305 @@ class StructuredLLM:
         return self.extract_structured(question, template, placeholders, documents)
 
 
-@pytest.mark.parametrize("asynchronous", [False, True])
+@CALLS
 class TestStructuredMode:
-    async def test_the_client_of_verbatim_rag_answers(self, asynchronous):
+    async def test_the_client_of_verbatim_rag_answers(self, call):
         rag = build(llm_client=StructuredLLM())
         rag.template_manager.use_structured_mode(template="## Opening\n[OPENING]")
 
-        response = await query(rag, asynchronous, QUESTION)
+        response = await query(rag, call, QUESTION)
 
         assert "The bridge opened in 1932." in response.answer
 
-    async def test_a_reranker_fallback_is_a_warning_of_the_response(self, asynchronous):
+    async def test_a_reranker_fallback_is_a_warning_of_the_response(self, call):
         error = UpstreamError("The reranker failed.", code="timeout", service="reranker")
         rag = build(llm_client=StructuredLLM(), reranker=FailingReranker(error))
         rag.template_manager.use_structured_mode(template="## Opening\n[OPENING]")
 
-        response = await query(rag, asynchronous, QUESTION)
+        response = await query(rag, call, QUESTION)
 
         assert [warning.code for warning in response.warnings] == ["reranker_fallback"]
 
-    async def test_without_a_client_it_is_a_configuration_error(self, asynchronous):
+    async def test_without_a_client_it_is_a_configuration_error(self, call):
         rag = build()
         rag.template_manager.use_structured_mode(template="## Opening\n[OPENING]")
 
         with pytest.raises(ConfigurationError):
-            await query(rag, asynchronous, QUESTION)
+            await query(rag, call, QUESTION)
+
+
+class GreetingDetector:
+    def detect(self, question):
+        return {"route": "predefined", "answer": "Hello! Ask me about the bridge."}
+
+
+async def stream(rag, *args, **settings):
+    return [event async for event in rag.query_stream(*args, **settings)]
+
+
+class TestQueryStream:
+    async def test_the_chunks_then_their_spans_then_the_response_of_query(self):
+        rag = build()
+
+        events = await stream(rag, QUESTION)
+
+        assert [event.type for event in events] == ["documents", "spans", "response"]
+        documents, spans, response = events
+        assert [chunk.id for chunk in documents.chunks] == ["row-7", "row-3", "row-5"]
+        assert [(span.chunk_id, span.text) for span in spans.spans] == [
+            ("row-7", "The bridge opened in 1932."),
+            ("row-3", "The tunnel opened in 1992."),
+        ]
+        assert response.response == rag.query(QUESTION)
+
+    async def test_concurrent_streams_keep_their_own_k(self):
+        rag = build()
+        two, three = rag.query_stream(QUESTION, k=2), rag.query_stream(QUESTION, k=3)
+
+        first_of_two, first_of_three = await anext(two), await anext(three)
+        rest_of_two = [event async for event in two]
+
+        assert len(first_of_two.chunks) == 2
+        assert len(first_of_three.chunks) == 3
+        assert len(rest_of_two[-1].response.documents) == 2
+
+    async def test_a_question_the_intent_detector_answers_is_the_response_alone(self):
+        rag = build(intent_detector=GreetingDetector())
+
+        events = await stream(rag, QUESTION)
+
+        assert [event.type for event in events] == ["response"]
+        assert events[0].response == rag.query(QUESTION)
+        assert events[0].response.answer == "Hello! Ask me about the bridge."
+
+    async def test_a_failure_raises_after_the_documents(self):
+        error = UpstreamError("The LLM service failed.", code="server_error", service="llm")
+        events = []
+
+        with pytest.raises(UpstreamError):
+            async for event in build(extractor=OpenedExtractor(error=error)).query_stream(QUESTION):
+                events.append(event)
+
+        assert [event.type for event in events] == ["documents"]
+
+    async def test_structured_mode_sends_the_documents_then_the_response(self):
+        rag = build(llm_client=StructuredLLM())
+        rag.template_manager.use_structured_mode(template="## Opening\n[OPENING]")
+
+        events = await stream(rag, QUESTION)
+
+        assert [event.type for event in events] == ["documents", "response"]
+        assert events[-1].response == rag.query(QUESTION)
+
+
+def timeout_from(cause):
+    """An UpstreamError raised from the cause."""
+    try:
+        raise UpstreamError("The LLM timed out.", code="timeout", service="llm") from cause
+    except UpstreamError as error:
+        return error
+
+
+def logged_traceback(caplog):
+    [record] = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    return logging.Formatter().formatException(record.exc_info)
+
+
+def dict_events(rag, *args, **settings):
+    with pytest.warns(VerbatimDeprecationWarning):
+        return verbatim_rag.StreamingRAG(rag).stream_query_sync(*args, **settings)
+
+
+class OverlappingExtractor(SpanExtractor):
+    """Extracts two overlapping spans of the first chunk."""
+
+    def extract(self, question, chunks, *, config=None):
+        chunk = chunks[0]
+        spans = [
+            ExtractedSpan(chunk_id=chunk.id, start=s, end=e, text=chunk.text[s:e], score=1.0)
+            for s, e in [(4, 20), (0, 10)]
+        ]
+        return Extraction(spans=spans)
+
+
+class TestStreamingRAG:
+    def test_it_warns_and_so_do_its_methods(self):
+        with pytest.warns(VerbatimDeprecationWarning, match="^StreamingRAG is deprecated"):
+            streaming = verbatim_rag.StreamingRAG(build())
+        with pytest.warns(VerbatimDeprecationWarning, match=r"^StreamingRAG\.stream_query is"):
+            streaming.stream_query(QUESTION)
+        with pytest.warns(VerbatimDeprecationWarning, match=r"^StreamingRAG\.stream_query_sync"):
+            streaming.stream_query_sync(QUESTION)
+
+    def test_the_events_of_query_stream_as_dicts(self):
+        rag = build()
+
+        events = dict_events(rag, QUESTION)
+
+        assert [event["type"] for event in events] == [
+            "documents",
+            "progress",
+            "highlights",
+            "answer",
+        ]
+        documents, progress, highlights, answer = events
+        assert [(d["content"], d["title"], d["highlights"]) for d in documents["data"]] == [
+            (row.text, row.metadata.get("title", ""), []) for row in rows()
+        ]
+        assert progress["stage"] == "extraction_complete"
+        assert isinstance(progress["elapsed_ms"], int) and progress["elapsed_ms"] >= 0
+        assert highlights["data"] == answer["data"]["documents"]
+        assert answer == {"type": "answer", "data": rag.query(QUESTION).model_dump(), "done": True}
+
+    def test_the_progress_event_times_the_extraction_alone(self):
+        class SlowIndex(RecordingIndex):
+            def query(self, **retrieval):
+                time.sleep(0.3)
+                return super().query(**retrieval)
+
+        class SlowExtractor(OpenedExtractor):
+            def extract(self, question, chunks, *, config=None):
+                time.sleep(0.1)
+                return super().extract(question, chunks, config=config)
+
+        events = dict_events(build(SlowIndex(), SlowExtractor()), QUESTION)
+
+        [progress] = [event for event in events if event["type"] == "progress"]
+        assert 100 <= progress["elapsed_ms"] < 300
+
+    def test_the_highlights_are_the_responses_where_spans_overlap(self):
+        events = dict_events(build(extractor=OverlappingExtractor()), QUESTION)
+
+        [highlights] = [event for event in events if event["type"] == "highlights"]
+        [answer] = [event for event in events if event["type"] == "answer"]
+        assert [h["text"] for h in highlights["data"][0]["highlights"]] == ["bridge opened in"]
+        assert highlights["data"] == answer["data"]["documents"]
+
+    def test_num_docs_and_filter_apply_to_the_call(self):
+        index = RecordingIndex()
+
+        dict_events(build(index), QUESTION, num_docs=2, filter="year > 1900")
+
+        assert [(q["k"], q["filter"]) for q in index.queries] == [(2, "year > 1900")]
+
+    async def test_stream_query_passes_the_retrieval_settings(self):
+        index = RecordingIndex()
+        settings = {
+            "filter": "year > 1900",
+            "hybrid_weights": {"dense": 1.0},
+            "rrf_k": 10,
+            "search_params": {"ef": 64},
+        }
+
+        with pytest.warns(VerbatimDeprecationWarning):
+            events = verbatim_rag.StreamingRAG(build(index)).stream_query(QUESTION, 2, **settings)
+        [event async for event in events]
+
+        assert index.queries == [{"k": 2, **settings}]
+
+    @pytest.mark.parametrize(
+        "error, sent",
+        [
+            (UpstreamError(f"Failed on {QUESTION}", code="timeout", service="llm"), "timeout"),
+            (
+                ConfigurationError(f"Rejected {QUESTION}", code="authentication_failed"),
+                "authentication_failed",
+            ),
+            (KeyError(QUESTION), "internal_error"),
+        ],
+    )
+    def test_a_failure_is_the_last_event_with_its_code_alone(self, error, sent):
+        events = dict_events(build(extractor=OpenedExtractor(error=error)), QUESTION)
+
+        assert [event["type"] for event in events] == ["documents", "error"]
+        assert events[-1] == {"type": "error", "error": sent, "code": sent, "done": True}
+
+    def test_an_invalid_input_error_is_sent_with_its_message(self):
+        error = InvalidInputError(
+            "chunks[1].id is not unique.", code="invalid_value", param="chunks[1].id"
+        )
+
+        events = dict_events(build(extractor=OpenedExtractor(error=error)), QUESTION)
+
+        assert events[-1] == {
+            "type": "error",
+            "error": "chunks[1].id is not unique.",
+            "code": "invalid_value",
+            "done": True,
+        }
+
+    def test_a_span_outside_the_chunks_fails_as_in_query(self):
+        class StrayExtractor(SpanExtractor):
+            def extract(self, question, chunks, *, config=None):
+                span = ExtractedSpan(chunk_id="row-1", start=0, end=3, text="The", score=1.0)
+                return Extraction(spans=[span])
+
+        rag = build(extractor=StrayExtractor())
+
+        events = dict_events(rag, QUESTION)
+
+        with pytest.raises(InvalidInputError) as raised:
+            rag.query(QUESTION)
+        assert events[-1] == {
+            "type": "error",
+            "error": str(raised.value),
+            "code": "invalid_value",
+            "done": True,
+        }
+
+    @pytest.mark.parametrize(
+        "error, code, shown",
+        [
+            (KeyError(QUESTION), "internal_error", "KeyError"),
+            (timeout_from(TimeoutError(QUESTION)), "timeout", "UpstreamError: The LLM timed out."),
+        ],
+    )
+    def test_a_failure_is_logged_once_with_its_traceback_without_customer_text(
+        self, caplog, error, code, shown
+    ):
+        dict_events(build(extractor=OpenedExtractor(error=error)), QUESTION)
+
+        [record] = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert (record.name, record.levelno, record.getMessage()) == (
+            "verbatim_rag.streaming",
+            logging.ERROR,
+            f"Streamed query failed: {code}",
+        )
+        traceback = logging.Formatter().formatException(record.exc_info)
+        assert ", in extract\n" in traceback
+        assert traceback.endswith(shown)
+        assert QUESTION not in traceback
+
+    def test_the_log_shows_the_class_of_a_cause(self, caplog):
+        dict_events(
+            build(extractor=OpenedExtractor(error=timeout_from(TimeoutError(QUESTION)))), QUESTION
+        )
+
+        assert "TimeoutError\n\nThe above exception was the direct cause" in logged_traceback(
+            caplog
+        )
+
+    def test_the_log_leaves_out_a_suppressed_context(self, caplog):
+        try:
+            try:
+                raise TimeoutError(QUESTION)
+            except TimeoutError:
+                raise UpstreamError("The LLM timed out.", code="timeout", service="llm") from None
+        except UpstreamError as raised:
+            error = raised
+
+        dict_events(build(extractor=OpenedExtractor(error=error)), QUESTION)
+
+        assert "TimeoutError" not in logged_traceback(caplog)
+
+    def test_an_error_whose_causes_loop_is_logged(self, caplog):
+        error, cause = KeyError("first"), KeyError("second")
+        error.__context__, cause.__context__ = cause, error
+
+        events = dict_events(build(extractor=OpenedExtractor(error=error)), QUESTION)
+
+        assert events[-1]["code"] == "internal_error"
+        assert logged_traceback(caplog).count("KeyError") == 2
 
 
 def test_a_search_result_becomes_a_chunk_of_its_row():

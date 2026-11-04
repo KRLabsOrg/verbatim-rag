@@ -18,14 +18,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from verbatim_core import VerbatimDeprecationWarning
+from verbatim_core import Transformer, UpstreamError, VerbatimDeprecationWarning
 from verbatim_core.extractors import (
     LLMSpanExtractor,
     ModelSpanExtractor,
     SemanticHighlightExtractor,
+    SpanExtractor,
 )
 from verbatim_core.llm_client import LLMClient
 from verbatim_core.providers import RAGProvider
+from verbatim_core.templates import TemplateManager
 
 RECORDINGS = Path(__file__).parent / "recordings"
 
@@ -440,8 +442,6 @@ class TestAPITransformRouteErrors:
         assert response.status_code == 400
 
     def test_a_failed_llm_call_is_a_server_error_logged_by_its_code(self, client, caplog):
-        from verbatim_core import UpstreamError
-
         from api.app import app
         from api.dependencies import get_transformer
 
@@ -479,6 +479,15 @@ class InMemoryIndex:
         return results[:k]
 
 
+class RecordingIndex(InMemoryIndex):
+    def __init__(self):
+        self.queries = []
+
+    def query(self, text=None, **retrieval):
+        self.queries.append(retrieval)
+        return super().query(text, **retrieval)
+
+
 class GreetingDetector:
     def detect(self, question):
         return {"route": "predefined", "answer": "Hello! Ask me about the Harbour Bridge."}
@@ -500,23 +509,6 @@ def make_rag():
             )
 
     return _make
-
-
-def test_the_api_rag_streams_with_contextual_templates():
-    verbatim_rag = pytest.importorskip("verbatim_rag")
-    pytest.importorskip("fastapi")
-    from api.dependencies import build_transformer
-
-    llm_client = LLMClient()
-    rag = verbatim_rag.VerbatimRAG(
-        InMemoryIndex(), transformer=build_transformer(llm_client), llm_client=llm_client
-    )
-
-    with pytest.warns(VerbatimDeprecationWarning):
-        events = list(verbatim_rag.StreamingRAG(rag).stream_query_sync(QUESTION))
-
-    [answer] = [event for event in events if event["type"] == "answer"]
-    assert answer["data"]["answer"].startswith("The sources say:")
 
 
 class TestVerbatimRAG:
@@ -548,7 +540,10 @@ class TestStreamingRAG:
     def test_stream_query_sync(self, make_rag, template_mode):
         from verbatim_rag import StreamingRAG
 
-        events = StreamingRAG(make_rag(template_mode)).stream_query_sync(QUESTION)
+        rag = make_rag(template_mode)
+
+        with pytest.warns(VerbatimDeprecationWarning):
+            events = StreamingRAG(rag).stream_query_sync(QUESTION)
 
         assert_recorded(f"streaming_rag_{template_mode}", without_timing(events))
 
@@ -556,9 +551,11 @@ class TestStreamingRAG:
     async def test_stream_query(self, make_rag, template_mode):
         from verbatim_rag import StreamingRAG
 
-        events = [
-            event async for event in StreamingRAG(make_rag(template_mode)).stream_query(QUESTION)
-        ]
+        rag = make_rag(template_mode)
+
+        with pytest.warns(VerbatimDeprecationWarning):
+            stream = StreamingRAG(rag).stream_query(QUESTION)
+        events = [event async for event in stream]
 
         assert_recorded(f"streaming_rag_{template_mode}", without_timing(events))
 
@@ -567,6 +564,95 @@ class TestStreamingRAG:
 
         rag = make_rag("contextual", GreetingDetector())
 
-        events = StreamingRAG(rag).stream_query_sync(QUESTION)
+        with pytest.warns(VerbatimDeprecationWarning):
+            events = StreamingRAG(rag).stream_query_sync(QUESTION)
 
         assert_recorded("streaming_rag_intent", without_timing(events))
+
+
+# The API server's streaming route, which needs fastapi as well
+
+
+class FailingExtractor(SpanExtractor):
+    def extract(self, question, chunks, *, config=None):
+        cause = TimeoutError(f"No reply about {question}")
+        raise UpstreamError("The LLM timed out.", code="timeout", service="llm") from cause
+
+
+class TestAPIStreamRoute:
+    @pytest.fixture
+    def stream(self):
+        pytest.importorskip("verbatim_rag")
+        pytest.importorskip("fastapi")
+        from fastapi.testclient import TestClient
+
+        from api.app import app
+        from api.dependencies import get_rag_instance
+
+        def _stream(rag, **request):
+            app.dependency_overrides[get_rag_instance] = lambda: rag
+            try:
+                with TestClient(app) as client:
+                    response = client.post(
+                        "/api/query/stream", json={"question": QUESTION, **request}
+                    )
+            finally:
+                app.dependency_overrides.clear()
+            assert response.status_code == 200
+            return [json.loads(line) for line in response.text.splitlines()]
+
+        return _stream
+
+    @pytest.mark.parametrize("template_mode", ["static", "contextual"])
+    def test_the_route_sends_the_recorded_stream(self, stream, make_rag, template_mode):
+        events = stream(make_rag(template_mode), num_docs=4)
+
+        assert_recorded(f"streaming_rag_{template_mode}", without_timing(events))
+
+    def test_the_request_sets_the_retrieval_of_the_call(self, stream, make_rag):
+        rag = make_rag("static")
+        rag.index = RecordingIndex()
+        retrieval = {
+            "filter": "year > 1900",
+            "hybrid_weights": {"dense": 1.0},
+            "rrf_k": 10,
+            "search_params": {"ef": 64},
+        }
+
+        events = stream(rag, num_docs=2, **retrieval)
+
+        assert rag.index.queries == [{"k": 2, **retrieval}]
+        assert len(events[0]["data"]) == 2
+
+    def test_the_api_rag_streams_with_contextual_templates(self, stream):
+        import verbatim_rag
+        from api.dependencies import build_transformer
+
+        llm_client = LLMClient()
+        rag = verbatim_rag.VerbatimRAG(
+            InMemoryIndex(), transformer=build_transformer(llm_client), llm_client=llm_client
+        )
+
+        events = stream(rag)
+
+        assert events[-1]["data"]["answer"].startswith("The sources say:")
+
+    def test_a_failure_is_the_last_event_and_logged_once(self, stream, caplog):
+        import verbatim_rag
+
+        rag = verbatim_rag.VerbatimRAG(
+            InMemoryIndex(), transformer=Transformer(FailingExtractor(), TemplateManager())
+        )
+
+        events = stream(rag)
+
+        assert [event["type"] for event in events] == ["documents", "error"]
+        assert events[-1] == {"type": "error", "error": "timeout", "code": "timeout", "done": True}
+        [record] = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert record.getMessage() == "Streamed query failed: timeout"
+        assert "UpstreamError: The LLM timed out." in caplog.text
+        customer_texts = [QUESTION, *(chunk["text"] for chunk in CHUNKS)]
+        for record in caplog.records:
+            if not record.name.endswith(".content"):
+                logged = caplog.handler.format(record)
+                assert not [text for text in customer_texts if text in logged]

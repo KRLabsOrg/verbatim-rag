@@ -67,14 +67,13 @@ class TestDisplayCitations:
         assert citation_texts(response, "display") == SHOWN_SPANS
         assert citation_texts(response, "reference") == CITED_ONLY_SPANS
 
-    def test_query_and_the_streamed_answer_mark_the_same_citations(self, rag):
-        streamed = verbatim_rag.StreamingRAG(rag).stream_query_sync("What is listed?")
-        [final] = [stage for stage in streamed if stage["type"] == "answer"]
-        streamed_types = [c["type"] for c in final["data"]["structured_answer"]["citations"]]
+    async def test_query_and_the_streamed_answer_mark_the_same_citations(self, rag):
+        events = [event async for event in rag.query_stream("What is listed?")]
+        streamed = events[-1].response.structured_answer.citations
 
         response = rag.query("What is listed?")
 
-        assert [c.type for c in response.structured_answer.citations] == streamed_types
+        assert [c.type for c in response.structured_answer.citations] == [c.type for c in streamed]
 
 
 def test_structured_mode_can_call_back_into_it_without_a_deprecation_warning(recwarn):
