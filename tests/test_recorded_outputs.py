@@ -489,16 +489,34 @@ def make_rag():
     verbatim_rag = pytest.importorskip("verbatim_rag")
 
     def _make(template_mode, intent_detector=None):
-        return verbatim_rag.VerbatimRAG(
-            InMemoryIndex(),
-            k=4,
-            max_display_spans=3,
-            template_mode=template_mode,
-            llm_client=LLMClient(),
-            intent_detector=intent_detector,
-        )
+        with pytest.warns(VerbatimDeprecationWarning):
+            return verbatim_rag.VerbatimRAG(
+                InMemoryIndex(),
+                k=4,
+                max_display_spans=3,
+                template_mode=template_mode,
+                llm_client=LLMClient(),
+                intent_detector=intent_detector,
+            )
 
     return _make
+
+
+def test_the_api_rag_streams_with_contextual_templates():
+    verbatim_rag = pytest.importorskip("verbatim_rag")
+    pytest.importorskip("fastapi")
+    from api.dependencies import build_transformer
+
+    llm_client = LLMClient()
+    rag = verbatim_rag.VerbatimRAG(
+        InMemoryIndex(), transformer=build_transformer(llm_client), llm_client=llm_client
+    )
+
+    with pytest.warns(VerbatimDeprecationWarning):
+        events = list(verbatim_rag.StreamingRAG(rag).stream_query_sync(QUESTION))
+
+    [answer] = [event for event in events if event["type"] == "answer"]
+    assert answer["data"]["answer"].startswith("The sources say:")
 
 
 class TestVerbatimRAG:

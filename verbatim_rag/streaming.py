@@ -73,7 +73,8 @@ class StreamingRAG:
                 rrf_k=rrf_k,
                 search_params=search_params,
             )
-            docs = await self.rag._apply_reranker_async(question, docs)
+            # StreamingRAG's events have no warnings; query_stream will carry them (#97)
+            docs, _ = await self.rag._apply_reranker_async(question, docs)
 
             documents_without_highlights = [
                 DocumentWithHighlights(

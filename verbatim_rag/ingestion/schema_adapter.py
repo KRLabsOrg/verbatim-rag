@@ -11,9 +11,9 @@ from typing import Any, Dict
 
 from verbatim_rag.chunker_providers import MarkdownChunkerProvider
 from verbatim_rag.document import (
-    Chunk,
     ChunkType,
     Document,
+    DocumentChunk,
     DocumentType,
     ProcessedChunk,
 )
@@ -50,7 +50,7 @@ def schema_to_document(
         # Add document metadata to enhanced content
         enhanced_content = _add_document_metadata(struct_enhanced, document)
 
-        doc_chunk = Chunk(
+        doc_chunk = DocumentChunk(
             document_id=document.id,
             content=raw_text,
             chunk_number=i,

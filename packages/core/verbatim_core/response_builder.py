@@ -172,6 +172,7 @@ class ResponseBuilder:
             answer=answer.text,
             structured_answer=StructuredAnswer(text=answer.text, citations=citations),
             documents=documents,
+            warnings=answer.warnings,
         )
 
     def _create_highlights(self, doc_content: str, spans: List[str]) -> List[Highlight]:

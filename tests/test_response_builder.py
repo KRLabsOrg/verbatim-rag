@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from verbatim_core import Answer, AnswerCitation, Chunk, InvalidInputError
+from verbatim_core import Answer, AnswerCitation, Chunk, InvalidInputError, ResultWarning
 from verbatim_core.response_builder import ResponseBuilder
 
 
@@ -183,6 +183,16 @@ class TestBuildFromAnswer:
             (2, "reference", 1, 0, "Bradfield designed the bridge."),
         ]
         assert (response.question, response.answer) == ("When?", "The answer.")
+
+    def test_the_warnings_of_the_answer_are_the_warnings_of_the_response(self):
+        warning = ResultWarning(code="quote_not_found", message="A quote of chunks[1] is missing.")
+        answer = self.answer(("display", "opened", 13, 39)).model_copy(
+            update={"warnings": [warning]}
+        )
+
+        response = ResponseBuilder().build_from_answer("When?", answer, self.CHUNKS)
+
+        assert response.warnings == [warning]
 
     def test_repeated_text_is_highlighted_only_where_it_is_cited(self):
         answer = self.answer(("display", "opened", 40, 52))

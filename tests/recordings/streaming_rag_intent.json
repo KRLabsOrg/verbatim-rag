@@ -8,7 +8,8 @@
         "text": "Hello! Ask me about the Harbour Bridge.",
         "citations": []
       },
-      "documents": []
+      "documents": [],
+      "warnings": []
     },
     "done": true
   }

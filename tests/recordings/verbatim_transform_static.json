@@ -98,5 +98,15 @@
         "source": "design.md"
       }
     }
+  ],
+  "warnings": [
+    {
+      "code": "quote_not_found",
+      "message": "A quote for chunks[1] is not in the chunk."
+    },
+    {
+      "code": "quote_not_found",
+      "message": "A quote for chunks[3] is not in the chunk."
+    }
   ]
 }

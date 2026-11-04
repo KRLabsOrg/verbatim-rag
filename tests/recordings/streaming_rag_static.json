@@ -219,7 +219,8 @@
             "source": "design.md"
           }
         }
-      ]
+      ],
+      "warnings": []
     },
     "done": true
   }

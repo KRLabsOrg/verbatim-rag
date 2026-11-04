@@ -9,6 +9,7 @@ from verbatim_core import (
     ExtractedSpan,
     Extraction,
     InvalidInputError,
+    ResultWarning,
     VerbatimDeprecationWarning,
     VerbatimTransform,
 )
@@ -137,6 +138,20 @@ class TestVerbatimTransform:
         assert "[1] The bridge opened in 1932." in response.answer
         assert [h.text for h in response.documents[0].highlights] == ["The bridge opened in 1932."]
         assert await transform.transform_async(QUESTION, context) == response
+
+    def test_the_warnings_of_the_extraction_reach_the_response(self):
+        warning = ResultWarning(code="quote_not_found", message="A quote of chunks[0] is missing.")
+
+        class WarningExtractor(SentenceExtractor):
+            def extract(self, question, chunks, *, config=None):
+                extraction = super().extract(question, chunks)
+                return extraction.model_copy(update={"warnings": [warning]})
+
+        response = build_transform(WarningExtractor()).transform(
+            QUESTION, [{"content": "The bridge opened in 1932."}]
+        )
+
+        assert response.warnings == [warning]
 
     def test_max_display_spans_applies(self):
         context = [{"content": "The bridge opened in 1932. The tunnel opened in 1992."}]

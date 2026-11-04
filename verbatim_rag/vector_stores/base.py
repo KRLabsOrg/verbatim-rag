@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from verbatim_core import Chunk
+
 
 @dataclass
 class SearchResult:
@@ -16,6 +18,15 @@ class SearchResult:
     metadata: Dict[str, Any]
     text: str  # Original clean text for display
     enhanced_text: str = ""  # Enhanced text used for vectorization
+
+    def to_chunk(self) -> Chunk:
+        """The chunk of this row, with the row id as its id (ADR 0002), its text (not the enhanced
+        text used for embedding) and its metadata. The index doesn't store source offsets.
+
+        A chunk id stays the same while its document stays indexed, and changes when the document
+        is indexed again.
+        """
+        return Chunk(id=self.id, text=self.text, metadata=dict(self.metadata))
 
     def __repr__(self) -> str:
         return f"SearchResult(id={self.id}, score={self.score}, metadata={self.metadata}, text={self.text}, enhanced_text={self.enhanced_text})"

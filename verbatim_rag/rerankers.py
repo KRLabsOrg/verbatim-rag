@@ -8,6 +8,8 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import List
 
+from verbatim_core.errors import ConfigurationError, UpstreamError, VerbatimError
+
 from verbatim_rag.vector_stores.base import SearchResult
 
 
@@ -63,8 +65,19 @@ class CohereReranker(BaseReranker):
         if not head:
             return results
         texts = self._get_texts(head)
-        response = self.client.rerank(model=self.model, query=question, documents=texts)
-        ranked = [head[item.index] for item in response.results]
+        # The Cohere SDK raises its errors with the HTTP status, and httpx's when no reply came.
+        # Any other error is a bug, which propagates.
+        try:
+            response = self.client.rerank(model=self.model, query=question, documents=texts)
+        except Exception as e:
+            status = getattr(e, "status_code", None)
+            if status is None and type(e).__module__.split(".")[0] != "httpx":
+                raise
+            raise _service_error("Cohere", status, timed_out="Timeout" in type(e).__name__) from e
+        try:
+            ranked = [head[item.index] for item in response.results]
+        except (AttributeError, IndexError, TypeError) as e:
+            raise _invalid_reply("Cohere") from e
         return ranked + tail
 
 
@@ -99,10 +112,17 @@ class JinaReranker(BaseReranker):
             "documents": self._get_texts(head),
         }
         headers = {"Authorization": f"Bearer {self.api_key}"}
-        resp = requests.post(self.base_url, json=payload, headers=headers, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        ranked = [head[item["index"]] for item in data.get("results", [])]
+        try:
+            resp = requests.post(self.base_url, json=payload, headers=headers, timeout=60)
+            resp.raise_for_status()
+        except requests.RequestException as e:
+            status = e.response.status_code if e.response is not None else None
+            timed_out = isinstance(e, requests.Timeout)
+            raise _service_error("Jina", status, timed_out=timed_out) from e
+        try:
+            ranked = [head[item["index"]] for item in resp.json().get("results", [])]
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError) as e:
+            raise _invalid_reply("Jina") from e
         return ranked + tail
 
 
@@ -162,3 +182,64 @@ class JinaV3Reranker(BaseReranker):
         texts = self._get_texts(head)
         results = self.model.rerank(question, texts, top_n=self.rerank_k)
         return [head[item["index"]] for item in results]
+
+
+def _service_error(service: str, status: int | None, *, timed_out: bool = False) -> VerbatimError:
+    """The error of a failed rerank call, by the HTTP status of the reply when there is one.
+
+    A rejected key is a ConfigurationError. Every other failure is an UpstreamError, which
+    VerbatimRAG answers by keeping the retrieval order.
+    """
+    if status == 401:
+        return ConfigurationError(
+            f"The {service} reranker rejected the API key. Check the key.",
+            code="authentication_failed",
+        )
+    if status == 403:
+        return ConfigurationError(
+            f"The {service} reranker refused the request. Check the key's permissions.",
+            code="permission_denied",
+        )
+    if status == 404:
+        return ConfigurationError(
+            f"The {service} reranker doesn't know the model, or the address is wrong. Check both.",
+            code="model_not_found",
+        )
+    if status == 429:
+        return UpstreamError(
+            f"The {service} reranker limited the rate of requests. Retry later.",
+            code="rate_limited",
+            service="reranker",
+            retryable=True,
+        )
+    if status is not None and status < 500:
+        return UpstreamError(
+            f"The {service} reranker rejected the request (HTTP {status}). Check the model and "
+            "the number of results reranked.",
+            code="request_rejected",
+            service="reranker",
+        )
+    if status is not None:
+        return UpstreamError(
+            f"The {service} reranker failed (HTTP {status}). Retry later.",
+            code="server_error",
+            service="reranker",
+            retryable=True,
+        )
+    return UpstreamError(
+        f"The {service} reranker did not answer. Check the connection, and retry.",
+        code="timeout" if timed_out else "connection_failed",
+        service="reranker",
+        retryable=True,
+    )
+
+
+def _invalid_reply(service: str) -> UpstreamError:
+    """The error of a reply that can't be read, which a retry may fix, as for the LLM."""
+    return UpstreamError(
+        f"The {service} reranker sent a reply that can't be read. Retry, or check the model and "
+        "the service's address.",
+        code="invalid_reply",
+        service="reranker",
+        retryable=True,
+    )
