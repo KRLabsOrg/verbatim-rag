@@ -1,19 +1,17 @@
-"""
-Static template strategy for the Verbatim RAG system.
+"""Static template strategy for the Verbatim RAG system.
 
 Provides a simple, static template approach that uses predefined templates
 without LLM generation. Supports customization and persistence.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
-from .base import TemplateStrategy
-from .filler import TemplateFiller
+from verbatim_core.templates.base import TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 
 
 class StaticTemplate(TemplateStrategy):
-    """
-    Static template strategy using predefined templates.
+    """Static template strategy using predefined templates.
 
     This strategy provides fast, deterministic template generation without
     requiring LLM calls. Users can customize the template and it supports
@@ -31,12 +29,11 @@ The following is an unordered list of verbatim excerpts from the source document
 
     def __init__(
         self,
-        template: str = None,
+        template: str | None = None,
         citation_mode: str = "inline",
         citation_format: str = "[{number}]",
-    ):
-        """
-        Initialize static template strategy.
+    ) -> None:
+        """Initialize static template strategy.
 
         :param template: Custom template string (uses default if None)
         :param citation_format: See TemplateFiller for format string contract.
@@ -46,9 +43,8 @@ The following is an unordered list of verbatim excerpts from the source document
         self.filler = TemplateFiller(citation_mode=citation_mode, citation_format=citation_format)
         self.validate_template(self.template)
 
-    def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
-        """
-        Return the static template (no generation needed).
+    def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
+        """Return the static template (no generation needed).
 
         :param question: User's question (not used for static templates)
         :param spans: List of spans (not used for static templates)
@@ -60,11 +56,10 @@ The following is an unordered list of verbatim excerpts from the source document
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
-        """
-        Fill the template with actual span content.
+        """Fill the template with actual span content.
 
         :param template: Template string with placeholders
         :param display_spans: Spans to display with full text
@@ -73,17 +68,15 @@ The following is an unordered list of verbatim excerpts from the source document
         """
         return self.filler.fill(template, display_spans, citation_spans)
 
-    def save_state(self) -> Dict[str, Any]:
-        """
-        Save the current template configuration.
+    def save_state(self) -> dict[str, Any]:
+        """Save the current template configuration.
 
         :return: Dictionary with template state
         """
         return {"type": "static", "template": self.template}
 
-    def load_state(self, state: Dict[str, Any]) -> None:
-        """
-        Load template configuration from saved state.
+    def load_state(self, state: dict[str, Any]) -> None:
+        """Load template configuration from saved state.
 
         :param state: Dictionary with template configuration
         """
@@ -92,8 +85,7 @@ The following is an unordered list of verbatim excerpts from the source document
             self.validate_template(self.template)
 
     def set_template(self, template: str) -> None:
-        """
-        Set a new template string.
+        """Set a new template string.
 
         :param template: New template string
         :raises ValueError: If template is invalid
@@ -102,24 +94,24 @@ The following is an unordered list of verbatim excerpts from the source document
         self.template = template
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set the citation mode and propagate it to the filler."""
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
     def set_citation_format(self, citation_format: str) -> None:
+        """Set the citation marker format used by the filler."""
         self.filler.citation_format = citation_format
 
     def get_template(self) -> str:
-        """
-        Get the current template string.
+        """Get the current template string.
 
         :return: Current template
         """
         return self.template
 
     @classmethod
-    def create_simple(cls, intro: str = None, outro: str = None) -> "StaticTemplate":
-        """
-        Create a simple static template with custom intro/outro.
+    def create_simple(cls, intro: str | None = None, outro: str | None = None) -> "StaticTemplate":
+        """Create a simple static template with custom intro/outro.
 
         :param intro: Optional introduction text
         :param outro: Optional conclusion text
@@ -136,8 +128,7 @@ The following is an unordered list of verbatim excerpts from the source document
 
     @classmethod
     def create_academic(cls) -> "StaticTemplate":
-        """
-        Create an academic-style template.
+        """Create an academic-style template.
 
         :return: New StaticTemplate instance with academic formatting
         """
@@ -155,8 +146,7 @@ These findings provide evidence relevant to the research question."""
 
     @classmethod
     def create_brief(cls) -> "StaticTemplate":
-        """
-        Create a brief, minimal template.
+        """Create a brief, minimal template.
 
         :return: New StaticTemplate instance with minimal formatting
         """
