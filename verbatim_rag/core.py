@@ -9,9 +9,10 @@ limit) expand to a numbered reference token (e.g. "[6]") without verbatim text.
 import asyncio
 import copy
 import logging
-from typing import Any, Optional
+from typing import Any, AsyncIterator, List, Literal, Optional, Union
 
-from verbatim_core import Answer, Chunk, ResultWarning, TransformConfig, Transformer
+from pydantic import BaseModel, ConfigDict
+from verbatim_core import Answer, Chunk, ResultWarning, SpansEvent, TransformConfig, Transformer
 from verbatim_core._deprecation import _UNSET, warn_deprecated
 from verbatim_core.errors import ConfigurationError, UpstreamError
 from verbatim_core.templates import TemplateManager
@@ -89,6 +90,28 @@ def _reranker_fallback(error: UpstreamError) -> ResultWarning:
         code="reranker_fallback",
         message="The reranker failed, so the results keep the order of the retrieval.",
     )
+
+
+class DocumentsEvent(BaseModel):
+    """The first event of a streamed query: the retrieved chunks, before their spans are
+    extracted."""
+
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
+
+    type: Literal["documents"] = "documents"
+    chunks: List[Chunk]
+
+
+class ResponseEvent(BaseModel):
+    """The last event of a streamed query: the response `query` returns for the same input."""
+
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
+
+    type: Literal["response"] = "response"
+    response: QueryResponse
+
+
+QueryStreamEvent = Union[DocumentsEvent, SpansEvent, ResponseEvent]
 
 
 class VerbatimRAG:
@@ -292,28 +315,6 @@ class VerbatimRAG:
             return await asyncio.to_thread(self.intent_detector.detect, question)
         return None
 
-    def _rank_and_split_spans(
-        self, relevant_spans: dict[str, list[str]]
-    ) -> tuple[list[dict], list[dict]]:
-        """
-        Split spans into display vs citation-only, trusting the extractor's ordering. StreamingRAG
-        uses it until query_stream replaces it (#97).
-
-        :param relevant_spans: Dictionary mapping doc text to span lists (already ordered by relevance)
-        :return: Tuple of (display_spans, citation_spans) with minimal metadata
-        """
-        # Flatten spans, preserving the order from the extractors
-        all_spans = []
-        for doc_text, spans in relevant_spans.items():
-            for span in spans:
-                all_spans.append({"text": span, "doc_text": doc_text})
-
-        # Split into display and citation-only (trust the extractor's relevance ordering)
-        display_spans = all_spans[: self.max_display_spans]
-        citation_spans = all_spans[self.max_display_spans :]
-
-        return display_spans, citation_spans
-
     def query(
         self,
         question: str,
@@ -419,18 +420,55 @@ class VerbatimRAG:
         :param rrf_k: RRF constant for hybrid search (default: 60)
         :return: A QueryResponse object containing the structured response
         """
-        # Step 0: Optional intent detection
+        events = [
+            event
+            async for event in self.query_stream(
+                question,
+                k=k,
+                filter=filter,
+                hybrid_weights=hybrid_weights,
+                rrf_k=rrf_k,
+                search_params=search_params,
+            )
+        ]
+        return events[-1].response
+
+    async def query_stream(
+        self,
+        question: str,
+        k: Optional[int] = None,
+        filter: Optional[str] = None,
+        hybrid_weights: Optional[dict[str, float]] = None,
+        rrf_k: int = 60,
+        search_params: Optional[dict[str, Any]] = None,
+    ) -> AsyncIterator[QueryStreamEvent]:
+        """
+        Answer the question as events: the retrieved chunks, their spans, then the response.
+
+        The last event carries the response that `query` returns for the same input. A question
+        the intent detector answers yields that event alone. Structured template mode yields no
+        spans event, because it extracts without the transformer (ADR 0004).
+
+        :param question: The user's question
+        :param k: The number of chunks to retrieve (uses self.k if not provided)
+        :param filter: Optional filter to narrow document search
+        :param hybrid_weights: Optional dict mapping method names to weights
+        :param rrf_k: RRF constant for hybrid search (default: 60)
+        :param search_params: Optional parameters of the vector search
+        :raises UpstreamError: If a service the extractor or the templates call fails
+        :raises ConfigurationError: If a service rejects its key, model or quota, or structured
+            template mode has no LLM client
+        """
         decision = await self._detect_intent_async(question)
         route = self._decision_field(decision, "route")
         if decision and route and route != "continue":
             answer = self._decision_field(decision, "answer", "") or ""
-            return self._build_short_circuit_response(question, answer)
+            yield ResponseEvent(response=self._build_short_circuit_response(question, answer))
+            return
 
-        # Step 1: Retrieve documents
-        k = k or self.k
         search_results = self.index.query(
             text=question,
-            k=k,
+            k=k or self.k,
             filter=filter,
             hybrid_weights=hybrid_weights,
             rrf_k=rrf_k,
@@ -438,21 +476,29 @@ class VerbatimRAG:
         )
         logger.debug("Retrieved %d results", len(search_results))
         search_results, warnings = await self._apply_reranker_async(question, search_results)
+        chunks = [result.to_chunk() for result in search_results]
+        yield DocumentsEvent(chunks=chunks)
 
-        # Step 2: Structured mode answers by itself (ADR 0004), the other modes with the transformer
+        # Structured mode answers by itself (ADR 0004), the other modes with the transformer
         if self.template_manager.current_mode == "structured":
-            return self._structured_response(
+            response = self._structured_response(
                 question,
                 search_results,
                 *await self._process_structured_async(question, search_results),
                 warnings,
             )
-        chunks = [result.to_chunk() for result in search_results]
+            yield ResponseEvent(response=response)
+            return
         logger.debug("Answering from %d chunks", len(chunks))
-        answer = await self.transformer.atransform(
+        async for event in self.transformer.astream(
             question, chunks, config=self._transform_config()
-        )
-        return self._response(question, answer, chunks, warnings)
+        ):
+            if isinstance(event, SpansEvent):
+                yield event
+            else:
+                yield ResponseEvent(
+                    response=self._response(question, event.answer, chunks, warnings)
+                )
 
     def _response(
         self, question: str, answer: Answer, chunks: list[Chunk], warnings: list[ResultWarning]

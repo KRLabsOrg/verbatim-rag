@@ -24,12 +24,8 @@ _api_service: APIService = None
 
 
 def build_transformer(llm_client: LLMClient | None = None) -> Transformer:
-    """A Transformer with LLM extraction and contextual templates. The transform route's is built
-    once, at startup.
-
-    The templates are in contextual mode themselves, not only by the transformer's config, because
-    StreamingRAG fills them without the transformer until query_stream replaces it (#97).
-    """
+    """A Transformer with LLM extraction and contextual templates. Startup builds the transform
+    route's, and the RAG gets its own."""
     llm_client = llm_client or LLMClient()
     return Transformer(
         LLMSpanExtractor(llm_client),

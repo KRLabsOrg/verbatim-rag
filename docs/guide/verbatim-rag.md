@@ -120,6 +120,22 @@ for doc in response.documents:
 
 When the reranker's service fails, the results keep the retrieval order, and the response's `warnings` include `reranker_fallback`. `response.warnings` lists every way an answer is degraded but still correct, such as quotes that couldn't be located in their chunk (`quote_not_found`). Structured template mode answers without the `Transformer`, with the `llm_client` given to `VerbatimRAG`.
 
+`query_stream` takes the arguments of `query_async` and yields the answer as events, so a UI can show the sources before the answer is written:
+
+```python
+async for event in rag.query_stream("What is the main contribution?", k=5):
+    if event.type == "documents":
+        show_sources(event.chunks)
+    elif event.type == "spans":
+        highlight(event.spans)
+    else:
+        show_answer(event.response)
+```
+
+The `documents` event carries the retrieved chunks, the `spans` event the spans extracted from them with their chunk ids and offsets, and the last event, `response`, the `QueryResponse` that `query` returns for the same input. A failure raises the error that `query` raises. A question the intent detector answers yields the `response` event alone, and structured template mode yields no `spans` event.
+
+`StreamingRAG` still works and warns. It sends the events of `query_stream` as the dicts it sent before 0.3.0 (`documents`, `progress`, `highlights` and `answer`), and a failure as a last `error` event with the error's `code`. Its `error` field is the code, or the message of an `InvalidInputError`, never the text of another exception. The failure is logged with its traceback, which shows the messages of verbatim's own errors only, since another exception's message may quote the question or a chunk. The API server's streaming route sends the same events.
+
 `VerbatimRAG(index)` and the arguments `model`, `k`, `template_manager`, `extractor`, `max_display_spans`, `template_mode` and `extraction_mode` still work and warn: without a transformer, `VerbatimRAG` builds the one it built before 0.3.0.
 
 ## Span Extractors

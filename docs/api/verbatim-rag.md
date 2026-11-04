@@ -8,6 +8,14 @@
 
 ::: verbatim_rag.core.VerbatimRAG
 
+## Streaming events
+
+`query_stream` yields a `DocumentsEvent`, a `SpansEvent` (from `verbatim_core`) and a `ResponseEvent`.
+
+::: verbatim_rag.core.DocumentsEvent
+
+::: verbatim_rag.core.ResponseEvent
+
 ## VerbatimIndex
 
 ::: verbatim_rag.index.VerbatimIndex
