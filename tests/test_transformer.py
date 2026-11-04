@@ -5,6 +5,7 @@ import re
 
 import pytest
 from pydantic import ValidationError
+from test_question_specific_templates import WordEmbedder
 from transformer_contract import TransformerContract
 from verbatim_core import (
     Chunk,
@@ -113,6 +114,27 @@ class TestRandomContract(TransformerContract):
     @pytest.fixture
     def transformer(self):
         return static_transformer(config=TransformConfig(template_mode="random"))
+
+
+class ContractEmbedder(WordEmbedder):
+    WORDS = ["tall", "arch", "who", "design"]
+
+
+class TestQuestionSpecificContract(TransformerContract):
+    @pytest.fixture
+    def transformer(self):
+        # The contract's two questions each match an example of their own.
+        templates = TemplateManager()
+        templates.use_question_specific_mode(
+            [
+                {"template": "Design: [RELEVANT_SENTENCES]", "examples": ["Who designed it?"]},
+                {"template": "Height: [RELEVANT_SENTENCES]", "examples": ["How tall is the arch?"]},
+            ],
+            embedder=ContractEmbedder(),
+        )
+        return Transformer(
+            StubExtractor(), templates, config=TransformConfig(template_mode="question_specific")
+        )
 
 
 class TestRandomTemplates:
@@ -267,6 +289,77 @@ class TestConfig:
             static_transformer(config={"max_display_spans": 1})
 
         assert raised.value.param == "config"
+
+
+class TestDefaultConfigFromTheTemplates:
+    def test_without_a_config_the_templates_settings_are_the_default(self):
+        templates = TemplateManager(llm_client=FakeTemplateLLM(), default_mode="contextual")
+
+        answer = Transformer(StubExtractor(), templates).transform(QUESTION, CHUNKS)
+
+        assert answer.text.startswith("The sources say:")
+
+    @pytest.mark.parametrize(
+        "setter, value, check",
+        [
+            ("set_mode", "random", lambda text: text.startswith("### Response")),
+            ("set_citation_mode", "hidden", lambda text: "[1]" not in text),
+            ("set_citation_format", "<{number}>", lambda text: "<1>" in text),
+        ],
+    )
+    def test_a_deprecated_setter_replaces_the_default(self, setter, value, check):
+        templates = TemplateManager()
+        transformer = Transformer(StubExtractor(), templates)
+
+        with pytest.warns(VerbatimDeprecationWarning, match=f"TemplateManager.{setter}") as warned:
+            getattr(templates, setter)(value)
+
+        assert check(transformer.transform(QUESTION, CHUNKS).text)
+        assert warned[0].filename == __file__
+
+    def test_assigning_the_current_mode_replaces_the_default(self):
+        templates = TemplateManager()
+        transformer = Transformer(StubExtractor(), templates)
+
+        with pytest.warns(VerbatimDeprecationWarning, match="TemplateManager.current_mode"):
+            templates.current_mode = "random"
+
+        assert transformer.transform(QUESTION, CHUNKS).text.startswith("### Response")
+
+    def test_a_config_of_the_transformer_wins_over_the_templates_settings(self):
+        templates = TemplateManager()
+        transformer = Transformer(StubExtractor(), templates, config=TransformConfig())
+
+        with pytest.warns(VerbatimDeprecationWarning):
+            templates.set_mode("random")
+
+        assert transformer.transform(QUESTION, CHUNKS).text.startswith("## Response")
+
+    async def test_structured_mode_of_the_templates_is_a_configuration_error_at_the_call(self):
+        # VerbatimRAG answers structured questions itself, with the same templates (ADR 0004).
+        structured = TemplateManager()
+        structured.use_structured_mode(template="## Results\n[RESULTS]")
+        built_with_structured = Transformer(StubExtractor(), structured)
+        templates = TemplateManager()
+        transformer = Transformer(StubExtractor(), templates)
+        templates.use_structured_mode(template="## Results\n[RESULTS]")
+
+        with pytest.raises(ConfigurationError):
+            built_with_structured.transform(QUESTION, CHUNKS)
+        with pytest.raises(ConfigurationError):
+            transformer.transform(QUESTION, CHUNKS)
+        with pytest.raises(ConfigurationError):
+            await transformer.atransform(QUESTION, CHUNKS)
+        with pytest.raises(ConfigurationError):
+            transformer.stream(QUESTION, CHUNKS)
+
+    def test_a_default_that_needs_a_client_warns_at_construction(self):
+        config = TransformConfig(template_mode="contextual")
+
+        with pytest.warns(VerbatimDeprecationWarning, match="without an LLM client") as warned:
+            Transformer(StubExtractor(), TemplateManager(), config=config)
+
+        assert warned[0].filename == __file__
 
 
 class TestTemplateGeneration:

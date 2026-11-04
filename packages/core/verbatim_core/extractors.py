@@ -13,14 +13,14 @@ import logging
 import re
 import time
 from abc import ABC
-from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Literal, Sequence, Tuple, Type, TypeVar
+from typing import Any, Dict, List, Literal, Sequence, Tuple, Type, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
 
-from ._checks import _call_config, _check_unique_ids, _default_config
-from ._deprecation import deprecated, warn_deprecated
+from ._checks import _call_config, _check_unique_ids, _config_from_settings, _default_config
+from ._deprecation import _UNSET, deprecated, warn_deprecated
+from ._loading import _load_errors_translated, _log_model_loaded
 from ._locate import UNSCORED, locate
 from ._logging import content_logger
 from .errors import ConfigurationError, InvalidInputError, UpstreamError
@@ -42,9 +42,6 @@ class ExtractConfig(BaseModel):
 
 
 _ConfigT = TypeVar("_ConfigT", bound=ExtractConfig)
-
-# Marks the deprecated constructor arguments that the caller didn't pass.
-_UNSET: Any = object()
 
 
 class SpanExtractor(ABC):
@@ -119,18 +116,6 @@ class SpanExtractor(ABC):
 
 def _overrides(cls: type, name: str) -> bool:
     return getattr(cls, name) is not getattr(SpanExtractor, name)
-
-
-def _config_from_settings(config_class: Type[_ConfigT], settings: Dict[str, Any]) -> _ConfigT:
-    """The config that the deprecated setting arguments of an extractor's constructor describe."""
-    try:
-        return config_class(**settings)
-    except ValidationError as e:
-        names = ", ".join(str(error["loc"][0]) for error in e.errors())
-        raise ConfigurationError(
-            f"Invalid value for {names}. See {config_class.__name__} for the valid values.",
-            code="invalid_value",
-        ) from e
 
 
 def _check_old_interface_call(cls: type, chunks: Sequence[Chunk], config: Any) -> None:
@@ -841,7 +826,7 @@ def _load_model_span_model(model_id: str, device: str | None) -> Tuple[Any, Any,
             tokenizer = _load_qa_tokenizer(transformers, model_id, model)
     model.to(device)
     model.eval()
-    _log_model_loaded(model_id, device, started)
+    _log_model_loaded(logger, model_id, device, started)
     return model, tokenizer, _commit(model)
 
 
@@ -867,49 +852,13 @@ def _load_semantic_highlight_model(
         )
     model.to(device)
     model.eval()
-    _log_model_loaded(model_id, device, started)
+    _log_model_loaded(logger, model_id, device, started)
     return model, _commit(model)
-
-
-@contextmanager
-def _load_errors_translated(model_id: str) -> Iterator[None]:
-    """Turn a missing package, a failed download or a missing model file into a
-    ConfigurationError."""
-    try:
-        yield
-    except ImportError as e:
-        package = e.name or "a package that is not installed"
-        raise ConfigurationError(
-            f"The model {model_id} needs {package}. Install it with pip install {package}.",
-            code="missing_dependency",
-        ) from e
-    except OSError as e:
-        raise ConfigurationError(
-            f"Could not load the model {model_id}. Check the model id or path, and the "
-            "connection to Hugging Face.",
-            code="model_not_loaded",
-        ) from e
 
 
 def _commit(model: Any) -> str | None:
     """The Hugging Face commit the model was loaded from. None for a local path."""
     return getattr(getattr(model, "config", None), "_commit_hash", None)
-
-
-def _log_model_loaded(model_id: str, device: str, started: float) -> None:
-    duration_ms = round((time.perf_counter() - started) * 1000)
-    logger.info(
-        "Loaded %s on %s in %d ms",
-        model_id,
-        device,
-        duration_ms,
-        extra={
-            "event": "model_loaded",
-            "model": model_id,
-            "device": device,
-            "duration_ms": duration_ms,
-        },
-    )
 
 
 def _model_span(chunk: Chunk, start: int, end: int, probability: float) -> ExtractedSpan:

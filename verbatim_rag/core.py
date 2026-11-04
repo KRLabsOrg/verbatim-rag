@@ -101,7 +101,7 @@ class VerbatimRAG:
         )
 
         # Ensure template manager has access to RAG system for structured mode
-        self.template_manager.set_rag_system(self)
+        self.template_manager._attach_rag_system(self)
 
         self.response_builder = ResponseBuilder()
 

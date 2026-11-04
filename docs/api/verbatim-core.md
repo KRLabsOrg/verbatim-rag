@@ -32,6 +32,10 @@
 
 ::: verbatim_core.templates.manager.TemplateManager
 
+## QuestionSpecificTemplate
+
+::: verbatim_core.templates.question_specific.QuestionSpecificTemplate
+
 ## Models
 
 ::: verbatim_core.models

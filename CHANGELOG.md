@@ -79,6 +79,15 @@ All notable changes to this project will be documented in this file.
 - `LLMClient.template_completion` and `template_completion_async`, which return the completion
   of a template prompt and raise when the call fails, and `TemplateStrategy.generate_result`,
   which returns a template with the usage and warnings of writing it (#93).
+- `TemplateManager.config`, the `TransformConfig` that the template manager's constructor
+  arguments describe. A `Transformer` built without a `config` uses it as its default, and raises
+  `ConfigurationError` at the call while the template manager is in structured mode (#94).
+  `TemplateManager.save` also saves the citation mode and format, and `load` restores them.
+- `QuestionSpecificTemplate.from_pretrained(model_name, device=None, templates=...)`, and the
+  `embedder` argument of `QuestionSpecificTemplate` and `TemplateManager.use_question_specific_mode`,
+  which take a loaded embedding model (#94). The template examples are embedded when the
+  templates are built, and each question with the same model, so no call loads a model.
+  `from_pretrained` logs the event `model_loaded` at INFO.
 
 ### Changed
 - A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
@@ -110,6 +119,25 @@ All notable changes to this project will be documented in this file.
 - The settings of the model extractors are in their `config`. The attributes `threshold`,
   `min_span_chars`, `merge_gap_chars`, `max_length`, `doc_stride`, `output_mode`, `language`,
   `min_span_tokens`, `merge_gap`, `max_tokens`, `device` and `model_path` are gone (#92).
+- Random template mode chooses the template by a hash of the question in `TemplateManager.process`
+  too, as in a `Transformer` call, instead of at random: the same question gets the same
+  template (#94).
+- The template classes log instead of printing, and `QuestionSpecificTemplate` logs its steps at
+  DEBUG instead of INFO. When a template can't be written, the WARNING record has the event
+  `fallback_used` and the warning code `template_fallback` (#94).
+- `ContextualTemplate.generate` and `generate_async`, for a client that replaces
+  `generate_template`, and `RandomTemplate.generate_diverse_templates` fall back only when the
+  LLM call fails with an `UpstreamError`. A rejected API key, model or quota raises
+  `ConfigurationError` (#94).
+- `QuestionSpecificTemplate` raises `ConfigurationError` (code `missing_dependency`) instead of
+  `ImportError` when sentence-transformers is missing, and `ConfigurationError` (code
+  `model_not_loaded`) instead of `OSError` when the model can't be loaded (#94).
+- `TemplateManager.load` raises these errors instead of logging them and going on, and raises
+  `ConfigurationError` (code `missing_embedder`) for question-specific templates that were saved
+  with an embedder of their own when no embedder is given (#94). It still returns `False` for a
+  file that can't be read or isn't JSON.
+- `TemplateManager.set_citation_format` raises `ConfigurationError` for a format with variables
+  other than `{number}` and `{span_id}`, instead of failing when a template is filled (#94).
 
 ### Deprecated
 - Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
@@ -129,8 +157,22 @@ All notable changes to this project will be documented in this file.
 - The settings arguments of the model extractors. Pass them in `config=ModelExtractConfig(...)`
   or `config=SemanticHighlightConfig(...)`. The `ModelSpanExtractor` arguments
   `extraction_mode` and `max_display_spans` have no effect (#92).
-- Contextual template mode without an LLM client in a `Transformer` call. It uses the static
-  template and warns. Give the `TemplateManager` an `llm_client` (#93).
+- Contextual template mode without an LLM client. It warns where the template manager printed a
+  note. A `Transformer` call or its default config (#93) and
+  `TemplateManager(default_mode="contextual")` use the static template; `set_mode` and
+  `use_contextual_mode` return `False` and keep the template mode (#94). Give the
+  `TemplateManager` an `llm_client`.
+- `TemplateManager.set_mode`, `set_citation_mode` and `set_citation_format`, and assigning its
+  `current_mode` or `citation_mode`. Pass the settings in a `TransformConfig` to the `Transformer`
+  or to its call. Until they are removed, they change the template manager's `config`, the
+  default of every `Transformer` built with it and no `config` of its own. `use_structured_mode`
+  switches to structured mode without a warning (#94).
+- `TemplateManager.set_rag_system`, `StructuredTemplate.set_rag_system` and
+  `StructuredTemplate.fill_async`, through which the templates call back into `VerbatimRAG`. Use
+  `VerbatimRAG.query_async` (#94).
+- `QuestionSpecificTemplate(model_name=..., device=...)`, and question-specific templates
+  without an `embedder`, which load an embedding model by name. Use
+  `QuestionSpecificTemplate.from_pretrained(model_name)` or pass `embedder` (#94).
 
 ### Fixed
 - `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans

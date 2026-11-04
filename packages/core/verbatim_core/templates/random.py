@@ -1,18 +1,21 @@
 """
 Random template strategy for the Verbatim RAG system.
 
-Provides random template selection from a pool of diverse templates.
+Provides template selection from a pool of diverse templates, by the question.
 Templates can be generated using LLM or manually curated.
 """
 
 import hashlib
-import random
+import logging
 from typing import Any, Dict, List, Optional
 
+from verbatim_core.errors import UpstreamError
 from verbatim_core.llm_client import LLMClient
 
 from .base import TemplateResult, TemplateStrategy
 from .filler import TemplateFiller
+
+logger = logging.getLogger(__name__)
 
 
 class RandomTemplate(TemplateStrategy):
@@ -89,17 +92,14 @@ The relevant information from the documents includes:
 
     def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
         """
-        Randomly select a template from the pool.
+        Choose a template from the pool by the question (ADR 0005).
 
-        :param question: User's question (not used for selection)
+        :param question: User's question, which chooses the template
         :param spans: List of spans (not used for selection)
         :param citation_count: Number of citation spans (not used for selection)
-        :return: Randomly selected template
+        :return: The template the question chooses
         """
-        if not self.templates:
-            return self._get_fallback_template()
-
-        return random.choice(self.templates)
+        return self._choose(question, seed=None)
 
     def generate_result(
         self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
@@ -109,13 +109,14 @@ The relevant information from the documents includes:
 
         The same question and seed choose the same template in every process.
         """
+        return TemplateResult(text=self._choose(question, seed))
+
+    def _choose(self, question: str, seed: int | None) -> str:
         if not self.templates:
-            return TemplateResult(text=self._get_fallback_template())
+            return self._get_fallback_template()
         key = question if seed is None else f"{seed}\n{question}"
         digest = hashlib.sha256(key.encode("utf-8")).digest()
-        return TemplateResult(
-            text=self.templates[int.from_bytes(digest[:8], "big") % len(self.templates)]
-        )
+        return self.templates[int.from_bytes(digest[:8], "big") % len(self.templates)]
 
     def fill(
         self,
@@ -148,14 +149,18 @@ The relevant information from the documents includes:
         :param state: Dictionary with template pool configuration
         """
         if "templates" in state:
-            self.templates = state["templates"]
+            self.templates = []
             # Validate all loaded templates
-            for template in self.templates:
+            for position, template in enumerate(state["templates"]):
                 try:
                     self.validate_template(template)
-                except ValueError as e:
-                    print(f"Warning: Invalid template removed during load: {e}")
-                    self.templates.remove(template)
+                except ValueError:
+                    logger.warning(
+                        "Removed template %d of the saved pool: it has no span placeholder",
+                        position,
+                    )
+                    continue
+                self.templates.append(template)
 
     def add_template(self, template: str) -> None:
         """
@@ -234,10 +239,14 @@ Return only the templates, one per line. No numbering or explanations."""
                 except ValueError:
                     continue  # Skip invalid templates
 
-            print(f"Generated and added {added_count} new templates to the pool")
+            logger.info("Generated and added %d new templates to the pool", added_count)
 
-        except Exception as e:
-            print(f"Template generation failed: {e}")
+        except UpstreamError as e:
+            logger.warning(
+                "Adding the fallback templates to the pool, because the LLM wrote none (%s)",
+                e.code,
+                extra={"event": "fallback_used", "warning_code": "template_fallback"},
+            )
             # Add some fallback templates if generation fails
             fallback_templates = [
                 "Here's what the documents reveal:\n\n[DISPLAY_SPANS]",
