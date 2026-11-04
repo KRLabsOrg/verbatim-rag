@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from verbatim_core import Transformer
 from verbatim_core.extractors import SpanExtractor
 from verbatim_core.templates import TemplateManager
 
@@ -36,14 +37,15 @@ class InMemoryIndex:
 
 @pytest.fixture
 def rag():
-    return verbatim_rag.VerbatimRAG(
-        InMemoryIndex(),
-        k=3,
-        extractor=FixedSpanExtractor(),
-        template_manager=TemplateManager(default_mode="static"),
-        max_display_spans=5,
-        llm_client=MagicMock(),
-    )
+    with pytest.warns(verbatim_rag.VerbatimDeprecationWarning):
+        return verbatim_rag.VerbatimRAG(
+            InMemoryIndex(),
+            k=3,
+            extractor=FixedSpanExtractor(),
+            template_manager=TemplateManager(default_mode="static"),
+            max_display_spans=5,
+            llm_client=MagicMock(),
+        )
 
 
 def citation_texts(response, citation_type):
@@ -79,7 +81,7 @@ def test_structured_mode_can_call_back_into_it_without_a_deprecation_warning(rec
     templates = TemplateManager(default_mode="static")
 
     rag = verbatim_rag.VerbatimRAG(
-        InMemoryIndex(), extractor=FixedSpanExtractor(), template_manager=templates
+        InMemoryIndex(), transformer=Transformer(FixedSpanExtractor(), templates)
     )
 
     assert templates.strategies["structured"].rag_system is rag

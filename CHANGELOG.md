@@ -83,6 +83,17 @@ All notable changes to this project will be documented in this file.
   arguments describe. A `Transformer` built without a `config` uses it as its default, and raises
   `ConfigurationError` at the call while the template manager is in structured mode (#94).
   `TemplateManager.save` also saves the citation mode and format, and `load` restores them.
+- `VerbatimRAG(index, transformer=..., llm_client=None, intent_detector=None, reranker=None)`
+  (#96). `query` and `query_async` take `k` and the other retrieval arguments per call, turn the
+  retrieved rows into chunks with `SearchResult.to_chunk()`, whose id is the row's id, and answer
+  with the `Transformer`. Nothing is set on `VerbatimRAG` by a call. The `llm_client` serves
+  structured template mode alone, which still answers without the `Transformer`.
+- `DocumentChunk`, the new name of the ingestion record `verbatim_rag.document.Chunk` (#96).
+- `QueryResponse.warnings`: how an answer is degraded but still correct, as `ResultWarning`s with
+  a code and a message, such as `quote_not_found`, `chunk_truncated`, `template_fallback` and
+  `reranker_fallback` (#96). `VerbatimRAG`, `VerbatimTransform`, `verbatim_enhance`, the CLI and
+  the API server fill it; it was dropped before, so a response without warnings now has
+  `"warnings": []`.
 - `QuestionSpecificTemplate.from_pretrained(model_name, device=None, templates=...)`, and the
   `embedder` argument of `QuestionSpecificTemplate` and `TemplateManager.use_question_specific_mode`,
   which take a loaded embedding model (#94). The template examples are embedded when the
@@ -148,6 +159,22 @@ All notable changes to this project will be documented in this file.
     covered (ADR 0006).
   - A displayed span that a contextual template leaves out is cited as a reference.
   - Context items with the same text each get their spans, instead of sharing one entry.
+- `VerbatimRAG.query` and `query_async` answer with a `Transformer` (#96). The answers are
+  today's, except:
+  - A failed LLM call during extraction raises, instead of answering from the remaining chunks
+    (ADR 0006).
+  - Retrieved rows with the same text each get their spans, instead of sharing one entry.
+  - Their steps log at DEBUG instead of printing.
+  - An extractor that implements only `extract_spans` receives the chunks, with `id`, `text` and
+    `metadata`, instead of the search results; one that reads `score` or `enhanced_text` needs to
+    implement `extract`. The same holds for `VerbatimTransform` (#95).
+- A reranker failure keeps the retrieval order only when its service fails (`UpstreamError`), adds
+  the warning `reranker_fallback` to the response, and logs `fallback_used` on the
+  `verbatim_rag.core` logger instead of the root logger. Other errors propagate. `CohereReranker`
+  and `JinaReranker` raise `UpstreamError` for a failed call, and `ConfigurationError` for a
+  rejected API key or permission or an unknown model (#96).
+- Structured template mode without an LLM client raises `ConfigurationError` (code
+  `missing_llm_client`) (#96).
 - A context item of the wrong shape raises `InvalidInputError` (code `missing_field` or
   `invalid_value`, `param` such as `context[3]` or `context[3].title`) instead of `TypeError` or
   `ValueError`, before any LLM call. This includes metadata that isn't a dict with string keys,
@@ -188,6 +215,12 @@ All notable changes to this project will be documented in this file.
 - `QuestionSpecificTemplate(model_name=..., device=...)`, and question-specific templates
   without an `embedder`, which load an embedding model by name. Use
   `QuestionSpecificTemplate.from_pretrained(model_name)` or pass `embedder` (#94).
+- `VerbatimRAG` without a `transformer`, and its arguments `model`, `k`, `template_manager`,
+  `extractor`, `max_display_spans`, `template_mode` and `extraction_mode`. Pass a `Transformer`,
+  and `k` to `query` (#96).
+- Assigning `VerbatimRAG.extractor`, `template_manager` or `max_display_spans`. Pass a
+  `Transformer` with the extractor, templates and config (#96).
+- `verbatim_rag.document.Chunk`. Use `DocumentChunk` (#96).
 - `VerbatimTransform`. Use `Transformer`, and `ResponseBuilder.build_from_answer` for a
   `QueryResponse` (#95).
 - `verbatim_query` and `verbatim_query_async`. Retrieve with the provider, then call a

@@ -13,7 +13,7 @@ except ImportError:
     DOCLING_AVAILABLE = False
 
 from ..chunker_providers import ChunkerProvider, MarkdownChunkerProvider
-from ..document import Chunk, ChunkType, Document, DocumentType, ProcessedChunk
+from ..document import ChunkType, Document, DocumentChunk, DocumentType, ProcessedChunk
 
 
 class DocumentProcessor:
@@ -65,8 +65,8 @@ class DocumentProcessor:
             # Add document metadata to enhanced content
             enhanced_content = self._add_document_metadata(struct_enhanced, document)
 
-            # Create basic Chunk
-            doc_chunk = Chunk(
+            # Create basic DocumentChunk
+            doc_chunk = DocumentChunk(
                 document_id=document.id,
                 content=raw_text,
                 chunk_number=i,
@@ -129,8 +129,8 @@ class DocumentProcessor:
             # Add document metadata to enhanced content
             enhanced_content = self._add_document_metadata(struct_enhanced, document)
 
-            # Create basic Chunk
-            doc_chunk = Chunk(
+            # Create basic DocumentChunk
+            doc_chunk = DocumentChunk(
                 document_id=document.id,
                 content=raw_text,
                 chunk_number=i,

@@ -6,7 +6,7 @@ import logging
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
-from verbatim_core import TransformConfig, Transformer
+from verbatim_core import Transformer
 from verbatim_core.extractors import LLMSpanExtractor
 from verbatim_core.templates import TemplateManager
 
@@ -23,14 +23,17 @@ _template_manager: TemplateManager = None
 _api_service: APIService = None
 
 
-def build_transformer() -> Transformer:
-    """The Transformer of the transform route, built once at startup: LLM extraction and
-    contextual templates."""
-    llm_client = LLMClient()
+def build_transformer(llm_client: LLMClient | None = None) -> Transformer:
+    """A Transformer with LLM extraction and contextual templates. The transform route's is built
+    once, at startup.
+
+    The templates are in contextual mode themselves, not only by the transformer's config, because
+    StreamingRAG fills them without the transformer until query_stream replaces it (#97).
+    """
+    llm_client = llm_client or LLMClient()
     return Transformer(
         LLMSpanExtractor(llm_client),
-        TemplateManager(llm_client=llm_client),
-        config=TransformConfig(template_mode="contextual"),
+        TemplateManager(llm_client=llm_client, default_mode="contextual"),
     )
 
 
@@ -73,10 +76,7 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
 
             # Create RAG instance with the index
             _rag_instance = VerbatimRAG(
-                index=index,
-                k=5,
-                template_mode="contextual",
-                llm_client=llm_client,
+                index, transformer=build_transformer(llm_client), llm_client=llm_client
             )
             logger.info(f"RAG instance created with index path: {config.index_path}")
         except Exception as e:

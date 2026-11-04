@@ -87,6 +87,10 @@ sparse = SpladeProvider(
 ## Indexing and Querying
 
 ```python
+from verbatim_core import Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.templates import TemplateManager
 from verbatim_rag import VerbatimIndex, VerbatimRAG
 
 index = VerbatimIndex(
@@ -99,14 +103,24 @@ index = VerbatimIndex(
 index.add_documents([doc1, doc2])
 
 # Query
-rag = VerbatimRAG(index, k=5)
-response = rag.query("What is the main contribution?")
+client = LLMClient()
+transformer = Transformer(
+    LLMSpanExtractor(client), TemplateManager(llm_client=client, default_mode="contextual")
+)
+rag = VerbatimRAG(index, transformer=transformer)
+response = rag.query("What is the main contribution?", k=5)
 
 print(response.answer)
 for doc in response.documents:
     for h in doc.highlights:
         print(f"  [{h.start}:{h.end}] {h.text}")
 ```
+
+`query` and `query_async` retrieve with `k` and the other retrieval arguments of the call, rerank when a reranker is given, and answer with the `Transformer`. Each retrieved row becomes a chunk whose id is the row's id: it stays the same while its document stays indexed, and changes when the document is indexed again. Nothing is set on `VerbatimRAG` by a call, so one instance can serve concurrent queries.
+
+When the reranker's service fails, the results keep the retrieval order, and the response's `warnings` include `reranker_fallback`. `response.warnings` lists every way an answer is degraded but still correct, such as quotes that couldn't be located in their chunk (`quote_not_found`). Structured template mode answers without the `Transformer`, with the `llm_client` given to `VerbatimRAG`.
+
+`VerbatimRAG(index)` and the arguments `model`, `k`, `template_manager`, `extractor`, `max_display_spans`, `template_mode` and `extraction_mode` still work and warn: without a transformer, `VerbatimRAG` builds the one it built before 0.3.0.
 
 ## Span Extractors
 
@@ -120,7 +134,7 @@ Uses OpenAI models for extraction. Requires `OPENAI_API_KEY`.
 from verbatim_rag.extractors import ModelSpanExtractor
 
 extractor = ModelSpanExtractor.from_pretrained("KRLabsOrg/verbatim-rag-modern-bert-v2")
-rag = VerbatimRAG(index, extractor=extractor, template_mode="static")
+rag = VerbatimRAG(index, transformer=Transformer(extractor, TemplateManager()))
 ```
 
 `from_pretrained` downloads and loads the model, or loads it from a local path. It records the
