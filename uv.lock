@@ -6559,7 +6559,7 @@ wheels = [
 
 [[package]]
 name = "verbatim-core"
-version = "0.2.9"
+version = "0.3.0"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "jinja2" },
@@ -6567,6 +6567,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "rapidfuzz", version = "3.14.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "rapidfuzz", version = "3.14.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "typing-extensions" },
 ]
 
 [package.metadata]
@@ -6578,12 +6579,13 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'model'", specifier = "==1.6.1" },
     { name = "torch", marker = "extra == 'model'", specifier = ">=2.6.0" },
     { name = "transformers", marker = "extra == 'model'", specifier = "==4.53.3" },
+    { name = "typing-extensions", specifier = ">=4.5.0" },
 ]
 provides-extras = ["model"]
 
 [[package]]
 name = "verbatim-rag"
-version = "0.2.9"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "chonkie" },

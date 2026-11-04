@@ -839,7 +839,7 @@ class TestRerankerServices:
         monkeypatch.setattr(requests, "post", post)
 
         with pytest.raises(error_class) as raised:
-            JinaReranker(api_key="key").rerank(QUESTION, rows())
+            JinaReranker(api_key="key").rerank(QUESTION, rows())  # pragma: allowlist secret
 
         assert raised.value.code == code
 
@@ -857,7 +857,7 @@ class TestRerankerServices:
         monkeypatch.setattr(requests, "post", post)
 
         with pytest.raises(UpstreamError) as raised:
-            JinaReranker(api_key="key").rerank(QUESTION, rows())
+            JinaReranker(api_key="key").rerank(QUESTION, rows())  # pragma: allowlist secret
 
         assert raised.value.code == "invalid_reply"
 
@@ -873,7 +873,7 @@ class TestRerankerServices:
         from verbatim_rag.rerankers import CohereReranker
 
         with pytest.raises(TypeError):
-            CohereReranker(api_key="key").rerank(QUESTION, rows())
+            CohereReranker(api_key="key").rerank(QUESTION, rows())  # pragma: allowlist secret
 
     def test_an_unreadable_cohere_reply_is_an_upstream_error(self, monkeypatch):
         class Client:
@@ -887,7 +887,7 @@ class TestRerankerServices:
         from verbatim_rag.rerankers import CohereReranker
 
         with pytest.raises(UpstreamError) as raised:
-            CohereReranker(api_key="key").rerank(QUESTION, rows())
+            CohereReranker(api_key="key").rerank(QUESTION, rows())  # pragma: allowlist secret
 
         assert raised.value.code == "invalid_reply"
 
@@ -905,7 +905,7 @@ class TestRerankerServices:
         monkeypatch.setattr(requests, "post", post)
 
         with pytest.raises(UpstreamError) as raised:
-            JinaReranker(api_key="key").rerank(QUESTION, rows())
+            JinaReranker(api_key="key").rerank(QUESTION, rows())  # pragma: allowlist secret
 
         assert (raised.value.code, raised.value.retryable) == ("invalid_reply", True)
 
@@ -925,6 +925,6 @@ class TestRerankerServices:
         from verbatim_rag.rerankers import CohereReranker
 
         with pytest.raises(UpstreamError) as raised:
-            CohereReranker(api_key="key").rerank(QUESTION, rows())
+            CohereReranker(api_key="key").rerank(QUESTION, rows())  # pragma: allowlist secret
 
         assert (raised.value.code, raised.value.service) == ("server_error", "reranker")
