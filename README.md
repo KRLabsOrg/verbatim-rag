@@ -314,21 +314,19 @@ The linked model card reports higher micro Word-F1 than the evaluated Zilliz
 Semantic Highlight and Provence baselines on ACL, RAGBench, Squeez, and QASPER
 slices. These are extractor evaluations, not end-to-end hallucination rates.
 
-`ModelSpanExtractor` defaults to this model:
+Load it with `ModelSpanExtractor.from_pretrained`:
 
 ```python
 from verbatim_rag.core import VerbatimRAG
 from verbatim_rag.index import VerbatimIndex
-from verbatim_rag.extractors import ModelSpanExtractor
+from verbatim_rag.extractors import ModelExtractConfig, ModelSpanExtractor
 from verbatim_rag.vector_stores import LocalMilvusStore
 from verbatim_rag.embedding_providers import SpladeProvider
 
-extractor = ModelSpanExtractor(
-    model_path="KRLabsOrg/verbatim-rag-modern-bert-v2",  # default
-    threshold=0.2,
-    min_span_chars=30,
-    merge_gap_chars=20,
+extractor = ModelSpanExtractor.from_pretrained(
+    "KRLabsOrg/verbatim-rag-modern-bert-v2",
     device=None,  # auto-detects cuda, mps, cpu
+    config=ModelExtractConfig(threshold=0.2, min_span_chars=30, merge_gap_chars=20),
 )
 
 sparse_provider = SpladeProvider(

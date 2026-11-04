@@ -10,14 +10,17 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
+import time
 from abc import ABC
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Sequence, Tuple, Type, TypeVar
+from typing import Any, Dict, Iterator, List, Literal, Sequence, Tuple, Type, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt, ValidationError
 
 from ._deprecation import deprecated, warn_deprecated
-from ._locate import locate
+from ._locate import UNSCORED, locate
 from ._logging import content_logger
 from .errors import ConfigurationError, InvalidInputError, UpstreamError
 from .llm_client import Completion, LLMClient
@@ -38,6 +41,9 @@ class ExtractConfig(BaseModel):
 
 
 _ConfigT = TypeVar("_ConfigT", bound=ExtractConfig)
+
+# Marks the deprecated constructor arguments that the caller didn't pass.
+_UNSET: Any = object()
 
 
 class SpanExtractor(ABC):
@@ -202,11 +208,7 @@ def _locate_span_texts(chunks: Sequence[Chunk], span_texts: Dict[str, List[str]]
         chunks, texts, fuzzy_threshold=0.8, what="span text", code="span_text_not_found"
     )
     # The extractor doesn't say which model it runs.
-    usage = Usage(
-        model_id=None,
-        model_version=None,
-        units={"chunks": len(chunks), "characters": sum(len(chunk.text) for chunk in chunks)},
-    )
+    usage = _model_usage(None, None, chunks)
     return Extraction(spans=spans, usage=[usage], warnings=warnings)
 
 
@@ -236,11 +238,7 @@ def _locate_texts(
         span = locate(text, chunks[position], fuzzy_threshold=fuzzy_threshold)
         if span is None:
             dropped.append(text)
-            warnings.append(
-                ResultWarning(
-                    code=code, message=f"A {what} for chunks[{position}] is not in the chunk."
-                )
-            )
+            warnings.append(_not_found(position, what, code))
         elif span not in spans:
             spans.append(span)
 
@@ -272,22 +270,31 @@ def _span_texts_by_chunk_text(
     return {chunk.text: texts_by_id[chunk.id] for chunk in chunks}
 
 
-class ModelSpanExtractor(SpanExtractor):
-    """Extract spans using a Verbatim-RAG ModernBERT model.
+class ModelExtractConfig(ExtractConfig):
+    """Settings of `ModelSpanExtractor`."""
 
-    Supports two model formats and auto-detects which one ``model_path`` is:
+    # The lowest probability of a span. 0.2 suits the highlighter models, 0.5 the v1 sentence model.
+    threshold: float = Field(default=0.2, ge=0.0, le=1.0)
+    # Highlighter models only:
+    min_span_chars: NonNegativeInt = 30  # shorter spans are dropped
+    merge_gap_chars: NonNegativeInt = 20  # spans at most this many characters apart are merged
+    max_length: PositiveInt = 8192  # tokens per window
+    doc_stride: NonNegativeInt = 256  # tokens shared by neighbouring windows
+
+
+class ModelSpanExtractor(SpanExtractor):
+    """Extract spans with a Verbatim-RAG ModernBERT model.
+
+    Supports two model formats:
 
     - **highlighter** (`KRLabsOrg/verbatim-rag-modern-bert-v2`,
-      `KRLabsOrg/acl-verbatim-modernbert`): a token classifier loaded via
-      ``AutoModel.from_pretrained(..., trust_remote_code=True)`` that exposes
-      a ``.process()`` method returning character spans. This is the current
-      Verbatim-RAG model family.
-    - **qa_model** (`KRLabsOrg/verbatim-rag-modern-bert-v1` and earlier
-      checkpoints): the legacy custom ``QAModel`` sentence classifier.
+      `KRLabsOrg/acl-verbatim-modernbert`): a token classifier with a ``.process()`` method that
+      returns character spans with their probabilities. This is the current model family.
+    - **sentence model** (`KRLabsOrg/verbatim-rag-modern-bert-v1` and earlier checkpoints): the
+      legacy ``QAModel`` sentence classifier, which needs its tokenizer. Its spans are the
+      sentences of a chunk, scored with their probability.
 
-    Detection is done at load time by checking the model config for an
-    ``auto_map`` entry pointing to a ``.process()``-capable class. Both
-    formats yield the same return shape: ``dict[chunk_text, list[span_text]]``.
+    Load a model with `from_pretrained`. The constructor takes a loaded model and loads nothing.
     """
 
     DEFAULT_MODEL = "KRLabsOrg/verbatim-rag-modern-bert-v2"
@@ -296,205 +303,251 @@ class ModelSpanExtractor(SpanExtractor):
 
     def __init__(
         self,
-        model_path: str = DEFAULT_MODEL,
-        device: str | None = None,
-        threshold: float = 0.2,
-        extraction_mode: str = "individual",
-        max_display_spans: int = 5,
-        # Highlighter-format-only knobs (ignored for the legacy qa_model path):
-        min_span_chars: int = 30,
-        merge_gap_chars: int = 20,
-        max_length: int = 8192,
-        doc_stride: int = 256,
+        model: Any = None,
+        device: str | None = _UNSET,
+        threshold: float = _UNSET,
+        extraction_mode: str = _UNSET,
+        max_display_spans: int = _UNSET,
+        min_span_chars: int = _UNSET,
+        merge_gap_chars: int = _UNSET,
+        max_length: int = _UNSET,
+        doc_stride: int = _UNSET,
+        *,
+        config: ModelExtractConfig | None = None,
+        tokenizer: Any = None,
+        model_id: str | None = None,
+        model_version: str | None = None,
+        model_path: str = _UNSET,
     ):
         """
-        :param model_path: Path or HuggingFace id. Defaults to v2 generic.
-        :param device: ``"cuda"`` / ``"mps"`` / ``"cpu"`` or None to auto-detect.
-        :param threshold: Probability cutoff. Default 0.2 matches v2's
-            published headline; raise to 0.5 for the legacy v1 sentence model.
-        :param extraction_mode: Reserved for future use.
-        :param max_display_spans: Reserved for future use.
-        :param min_span_chars: (highlighter only) drop predicted spans shorter
-            than this many characters.
-        :param merge_gap_chars: (highlighter only) merge adjacent spans
-            separated by ≤ this many characters.
-        :param max_length: (highlighter only) max tokens per sliding window.
-        :param doc_stride: (highlighter only) token overlap between windows.
+        :param model: A loaded highlighter model, or a loaded v1 sentence model
+        :param config: The settings of a call, unless the call passes its own
+        :param tokenizer: The tokenizer of a v1 sentence model
+        :param model_id: The model's name or path, for the usage of a call
+        :param model_version: The exact version of the model's weights, for the usage of a call
+
+        The other arguments are deprecated. Without ``model``, or with ``model_path``, the
+        extractor loads the model with `from_pretrained`. The settings from ``threshold`` to
+        ``doc_stride`` belong in ``config``, and ``extraction_mode`` and ``max_display_spans``
+        are unused.
+        :raises ConfigurationError: If the arguments contradict each other or have invalid
+            values, or a package the model needs is missing
         """
-        import torch
+        settings = {
+            "threshold": threshold,
+            "min_span_chars": min_span_chars,
+            "merge_gap_chars": merge_gap_chars,
+            "max_length": max_length,
+            "doc_stride": doc_stride,
+        }
+        config = _config_with_old_settings(type(self), ModelExtractConfig, config, settings)
+        _warn_unused(
+            type(self), extraction_mode=extraction_mode, max_display_spans=max_display_spans
+        )
 
-        self.model_path = model_path
-        self.threshold = threshold
-        self.min_span_chars = min_span_chars
-        self.merge_gap_chars = merge_gap_chars
-        self.max_length = max_length
-        self.doc_stride = doc_stride
-        self._torch = torch
+        if model_path is not _UNSET or model is None or isinstance(model, str):
+            if model_path is not _UNSET and model is not None:
+                raise ConfigurationError(
+                    "Pass a loaded model or model_path to ModelSpanExtractor, not both.",
+                    code="invalid_value",
+                )
+            model_id = model if isinstance(model, str) else self.DEFAULT_MODEL
+            model_id = model_id if model_path is _UNSET else model_path
+            warn_deprecated(
+                "Loading a model in the ModelSpanExtractor constructor",
+                use="ModelSpanExtractor.from_pretrained(model_id)",
+            )
+            loaded = type(self).from_pretrained(
+                model_id,
+                None if device is _UNSET else device,
+                model_version=model_version,
+                config=config,
+            )
+            vars(self).update(vars(loaded))
+            return
+        if device is not _UNSET:
+            raise ConfigurationError(
+                "ModelSpanExtractor got a loaded model and a device. Pass the device to "
+                "from_pretrained, or move the model before passing it.",
+                code="invalid_value",
+            )
 
-        if device is None:
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif (
-                getattr(torch.backends, "mps", None) is not None
-                and torch.backends.mps.is_available()
-            ):
-                device = "mps"
-            else:
-                device = "cpu"
-        self.device = device
+        self.model = model
+        self.config = config
+        self.model_id = model_id
+        self.model_version = model_version
+        self._format = (
+            self._FORMAT_HIGHLIGHTER if hasattr(model, "process") else self._FORMAT_QA_MODEL
+        )
+        if self._format == self._FORMAT_QA_MODEL:
+            if tokenizer is None:
+                raise ConfigurationError(
+                    "A v1 sentence model needs its tokenizer: "
+                    "ModelSpanExtractor(model, tokenizer=tokenizer).",
+                    code="invalid_value",
+                )
+            self.tokenizer = tokenizer
+            self._qa_dataset = _import_qa_dataset()
 
-        self._format = self._detect_format(model_path)
-        logger.info("Loading model from %s as format=%s on %s", model_path, self._format, device)
-        if self._format == self._FORMAT_HIGHLIGHTER:
-            self._init_highlighter(model_path)
-        else:
-            self._init_qa_model(model_path)
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_id: str,
+        device: str | None = None,
+        *,
+        model_version: str | None = None,
+        config: ModelExtractConfig | None = None,
+    ) -> ModelSpanExtractor:
+        """
+        Download and load a model, or load it from a local path.
+
+        :param model_id: A Hugging Face model id or the path of a local model
+        :param device: ``"cuda"``, ``"mps"`` or ``"cpu"``, or None to choose the best available
+        :param model_version: The version of weights from a local path. A model from Hugging
+            Face records its resolved commit instead.
+        :param config: The default settings of a call
+        :raises ConfigurationError: If a package the model needs is missing, or the model can't
+            be downloaded or read
+        """
+        model, tokenizer, resolved_version = _load_model_span_model(model_id, device)
+        return cls(
+            model,
+            config=config,
+            tokenizer=tokenizer,
+            model_id=model_id,
+            model_version=resolved_version or model_version,
+        )
 
     @staticmethod
-    def _detect_format(model_path: str) -> str:
+    def _detect_format(model_id: str) -> str:
         """Return ``"highlighter"`` if the model exposes a ``.process()`` API
         via ``trust_remote_code``, else ``"qa_model"`` (legacy)."""
         try:
             from transformers import AutoConfig
 
-            config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+            config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
             auto_map = getattr(config, "auto_map", None) or {}
             target = auto_map.get("AutoModel") or auto_map.get("AutoModelForTokenClassification")
             if target and "Highlighter" in target:
                 return ModelSpanExtractor._FORMAT_HIGHLIGHTER
+        # The config's remote code may raise anything. The legacy loader then reports the problem.
         except Exception as exc:
-            logger.warning("Highlighter detection failed for %s: %s", model_path, exc)
+            logger.warning("Highlighter detection failed for %s: %s", model_id, exc)
         return ModelSpanExtractor._FORMAT_QA_MODEL
 
-    def _init_highlighter(self, model_path: str) -> None:
-        from transformers import AutoModel
+    def extract(
+        self, question: str, chunks: Sequence[Chunk], *, config: ModelExtractConfig | None = None
+    ) -> Extraction:
+        """
+        Extract the spans of the chunks that are relevant to the question.
 
-        self.model = AutoModel.from_pretrained(model_path, trust_remote_code=True)
-        self.model.to(self.device)
-        self.model.eval()
-        self.tokenizer = None  # the highlighter loads its tokenizer internally
-
-    def _init_qa_model(self, model_path: str) -> None:
-        from transformers import AutoTokenizer
-
-        from .extractor_models.dataset import (
-            Document as DatasetDocument,
-        )
-        from .extractor_models.dataset import (
-            QADataset,
-            QASample,
-        )
-        from .extractor_models.dataset import (
-            Sentence as DatasetSentence,
-        )
-        from .extractor_models.model import QAModel
-
-        self.QADataset = QADataset
-        self.DatasetSentence = DatasetSentence
-        self.DatasetDocument = DatasetDocument
-        self.QASample = QASample
-
-        self.model = QAModel.from_pretrained(model_path)
-        self.model.to(self.device)
-        self.model.eval()
-
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        except Exception as e:
-            logger.warning("Could not load tokenizer from %s: %s", model_path, e)
-            base_model = getattr(self.model.config, "model_name", "answerdotai/ModernBERT-base")
-            self.tokenizer = AutoTokenizer.from_pretrained(base_model)
-
-    def _split_into_sentences(self, text: str) -> list[str]:
-        """Simple sentence splitting."""
-        import re
-
-        sentences = re.split(r"(?<=[.!?])\s+", text)
-        return [s.strip() for s in sentences if s.strip()]
-
-    def extract_spans(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
-        """Extract spans using the loaded model. Dispatches by format."""
-        if self._format == self._FORMAT_HIGHLIGHTER:
-            return self._extract_highlighter(question, search_results)
-        return self._extract_qa_model(question, search_results)
-
-    def _extract_highlighter(
-        self, question: str, search_results: List[Any]
-    ) -> Dict[str, List[str]]:
-        relevant: Dict[str, List[str]] = {}
-        for result in search_results:
-            context = getattr(result, "text", "")
-            if not context.strip():
-                relevant[context] = []
+        :param question: The query or question
+        :param chunks: Chunks with unique ids
+        :param config: Replaces the extractor's default config for this call
+        :return: The spans, with the usage and warnings of the call
+        :raises InvalidInputError: If two chunks share an id, or the config is of the wrong type
+        """
+        config = _call_config(config, self.config, ModelExtractConfig)
+        _check_unique_ids(chunks)
+        logger.debug("Extracting spans from %d chunks with a %s model", len(chunks), self._format)
+        spans: List[ExtractedSpan] = []
+        warnings: List[ResultWarning] = []
+        for position, chunk in enumerate(chunks):
+            if not chunk.text.strip():
                 continue
-            try:
-                out = self.model.process(
-                    question=question,
-                    context=context,
-                    threshold=self.threshold,
-                    min_span_chars=self.min_span_chars,
-                    merge_gap_chars=self.merge_gap_chars,
-                    max_length=self.max_length,
-                    doc_stride=self.doc_stride,
+            if self._format == self._FORMAT_HIGHLIGHTER:
+                spans += self._highlight(question, chunk, config)
+            else:
+                chunk_spans, chunk_warnings = self._classify_sentences(
+                    question, chunk, position, config
                 )
-                relevant[context] = [
-                    sp["text"] for sp in out.get("spans", []) if sp.get("text", "").strip()
-                ]
-            except Exception as exc:
-                logger.error("Highlighter extraction failed: %s", exc)
-                relevant[context] = []
-        return relevant
+                spans += chunk_spans
+                warnings += chunk_warnings
+        _log_result_warnings(warnings)
+        usage = _model_usage(self.model_id, self.model_version, chunks)
+        return Extraction(spans=spans, usage=[usage], warnings=warnings)
 
-    def _extract_qa_model(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
-        relevant_spans: Dict[str, List[str]] = {}
+    def _highlight(
+        self, question: str, chunk: Chunk, config: ModelExtractConfig
+    ) -> List[ExtractedSpan]:
+        output = self.model.process(
+            question=question,
+            context=chunk.text,
+            threshold=config.threshold,
+            min_span_chars=config.min_span_chars,
+            merge_gap_chars=config.merge_gap_chars,
+            max_length=config.max_length,
+            doc_stride=config.doc_stride,
+        )
+        return [
+            _model_span(chunk, span["start"], span["end"], span.get("score", UNSCORED))
+            for span in output.get("spans", [])
+            if chunk.text[span["start"] : span["end"]].strip()
+        ]
 
-        for result in search_results:
-            raw_text = getattr(result, "text", "")
-            raw_sentences = self._split_into_sentences(raw_text)
-            if not raw_sentences:
-                relevant_spans[raw_text] = []
-                continue
+    def _classify_sentences(
+        self, question: str, chunk: Chunk, position: int, config: ModelExtractConfig
+    ) -> Tuple[List[ExtractedSpan], List[ResultWarning]]:
+        sentences = _sentence_offsets(chunk.text)
+        probabilities = self._sentence_probabilities(
+            question, [chunk.text[start:end] for start, end in sentences]
+        )
+        spans = [
+            _model_span(chunk, start, end, probability)
+            for (start, end), probability in zip(sentences, probabilities)
+            if probability > config.threshold
+        ]
+        if len(probabilities) == len(sentences):
+            return spans, []
+        return spans, [_truncated(position, len(probabilities), len(sentences), "sentences")]
 
-            dataset_sentences = [
-                self.DatasetSentence(text=sent, relevant=False, sentence_id=f"s{i}")
-                for i, sent in enumerate(raw_sentences)
+    def _sentence_probabilities(self, question: str, sentences: List[str]) -> List[float]:
+        """The probability of each sentence that fits the model's input, in order."""
+        import torch
+
+        dataset_module = self._qa_dataset
+        document = dataset_module.Document(
+            sentences=[
+                dataset_module.Sentence(text=text, relevant=False, sentence_id=f"s{i}")
+                for i, text in enumerate(sentences)
             ]
-            dataset_doc = self.DatasetDocument(sentences=dataset_sentences)
+        )
+        sample = dataset_module.QASample(
+            question=question,
+            documents=[document],
+            split="test",
+            dataset_name="inference",
+            task_type="qa",
+        )
+        dataset = dataset_module.QADataset([sample], self.tokenizer, max_length=512)
+        if len(dataset) == 0:
+            return []
 
-            qa_sample = self.QASample(
-                question=question,
-                documents=[dataset_doc],
-                split="test",
-                dataset_name="inference",
-                task_type="qa",
+        encoding = dataset[0]
+        device = next(self.model.parameters()).device
+        with torch.no_grad():
+            predictions = self.model(
+                input_ids=encoding["input_ids"].unsqueeze(0).to(device),
+                attention_mask=encoding["attention_mask"].unsqueeze(0).to(device),
+                sentence_boundaries=[encoding["sentence_boundaries"]],
             )
+        if len(predictions) == 0 or len(predictions[0]) == 0:
+            return []
+        probabilities = torch.nn.functional.softmax(predictions[0], dim=1)[:, 1]
+        return [float(probability) for probability in probabilities][: len(sentences)]
 
-            dataset = self.QADataset([qa_sample], self.tokenizer, max_length=512)
-            if len(dataset) == 0:
-                relevant_spans[raw_text] = []
-                continue
 
-            encoding = dataset[0]
-            input_ids = encoding["input_ids"].unsqueeze(0).to(self.device)
-            attention_mask = encoding["attention_mask"].unsqueeze(0).to(self.device)
+class SemanticHighlightConfig(ExtractConfig):
+    """Settings of `SemanticHighlightExtractor`."""
 
-            with self._torch.no_grad():
-                predictions = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    sentence_boundaries=[encoding["sentence_boundaries"]],
-                )
-
-            spans = []
-            if len(predictions) > 0 and len(predictions[0]) > 0:
-                sentence_preds = self._torch.nn.functional.softmax(predictions[0], dim=1)
-                for i, pred in enumerate(sentence_preds):
-                    if i < len(raw_sentences) and pred[1] > self.threshold:
-                        spans.append(raw_sentences[i])
-
-            relevant_spans[raw_text] = spans
-
-        return relevant_spans
+    threshold: float = Field(default=0.5, ge=0.0, le=1.0)  # the lowest probability of a span
+    # "sentences" gives the complete sentences the model highlights, "spans" token-level spans
+    # that may cross sentence boundaries.
+    output_mode: Literal["sentences", "spans"] = "sentences"
+    language: str = "auto"  # the language code of the sentence splitter, or "auto"
+    # Spans mode only:
+    min_span_tokens: PositiveInt = 3  # shorter spans are dropped
+    merge_gap: NonNegativeInt = 2  # spans at most this many tokens apart are merged
 
 
 class SemanticHighlightExtractor(SpanExtractor):
@@ -511,180 +564,474 @@ class SemanticHighlightExtractor(SpanExtractor):
 
     Unlike ModelSpanExtractor which requires training, this uses a pre-trained
     model that works out of the box for English and Chinese text.
+
+    Load the model with `from_pretrained`. The constructor takes a loaded model and loads nothing.
     """
+
+    DEFAULT_MODEL = "zilliz/semantic-highlight-bilingual-v1"
 
     def __init__(
         self,
-        model_name: str = "zilliz/semantic-highlight-bilingual-v1",
-        device: str | None = None,
-        threshold: float = 0.5,
-        output_mode: str = "sentences",
-        language: str = "auto",
-        min_span_tokens: int = 3,
-        merge_gap: int = 2,
-        max_tokens: int = 4096,
+        model: Any = None,
+        device: str | None = _UNSET,
+        threshold: float = _UNSET,
+        output_mode: str = _UNSET,
+        language: str = _UNSET,
+        min_span_tokens: int = _UNSET,
+        merge_gap: int = _UNSET,
+        max_tokens: int = _UNSET,
+        *,
+        config: SemanticHighlightConfig | None = None,
+        model_id: str | None = None,
+        model_version: str | None = None,
+        model_name: str = _UNSET,
     ):
         """
-        Initialize the semantic highlight extractor.
+        :param model: The loaded semantic highlight model
+        :param config: The settings of a call, unless the call passes its own
+        :param model_id: The model's name or path, for the usage of a call
+        :param model_version: The exact version of the model's weights, for the usage of a call
 
-        :param model_name: HuggingFace model name
-        :param device: Device to run on (auto-detects if None)
-        :param threshold: Probability threshold (0-1)
-        :param output_mode: "sentences" for complete sentences, "spans" for token-level
-        :param language: Language hint ("en", "zh", or "auto")
-        :param min_span_tokens: Minimum tokens for a valid span (spans mode only)
-        :param merge_gap: Merge spans separated by <= N tokens (spans mode only)
-        :param max_tokens: Token limit of the extractor model
+        The other arguments are deprecated. Without ``model``, or with ``model_name``, the
+        extractor loads the model with `from_pretrained`, which also takes ``device`` and
+        ``max_tokens``. The settings from ``threshold`` to ``merge_gap`` belong in ``config``.
+        :raises ConfigurationError: If the arguments contradict each other or have invalid
+            values, or a package the model needs is missing
         """
-        import torch
-        from transformers import AutoModel
+        settings = {
+            "threshold": threshold,
+            "output_mode": output_mode,
+            "language": language,
+            "min_span_tokens": min_span_tokens,
+            "merge_gap": merge_gap,
+        }
+        config = _config_with_old_settings(type(self), SemanticHighlightConfig, config, settings)
 
-        if output_mode not in ("sentences", "spans"):
-            raise ValueError(f"output_mode must be 'sentences' or 'spans', got {output_mode!r}")
+        if model_name is not _UNSET or model is None or isinstance(model, str):
+            if model_name is not _UNSET and model is not None:
+                raise ConfigurationError(
+                    "Pass a loaded model or model_name to SemanticHighlightExtractor, not both.",
+                    code="invalid_value",
+                )
+            model_id = model if isinstance(model, str) else self.DEFAULT_MODEL
+            model_id = model_id if model_name is _UNSET else model_name
+            warn_deprecated(
+                "Loading a model in the SemanticHighlightExtractor constructor",
+                use="SemanticHighlightExtractor.from_pretrained(model_id)",
+            )
+            loaded = type(self).from_pretrained(
+                model_id,
+                None if device is _UNSET else device,
+                model_version=model_version,
+                max_tokens=4096 if max_tokens is _UNSET else max_tokens,
+                config=config,
+            )
+            vars(self).update(vars(loaded))
+            return
+        if device is not _UNSET or max_tokens is not _UNSET:
+            raise ConfigurationError(
+                "SemanticHighlightExtractor got a loaded model with device or max_tokens. Pass "
+                "them to from_pretrained instead.",
+                code="invalid_value",
+            )
 
-        self.threshold = threshold
-        self.output_mode = output_mode
-        self.language = language
-        self.min_span_tokens = min_span_tokens
-        self.merge_gap = merge_gap
-        self._torch = torch
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = model
+        self.config = config
+        self.model_id = model_id
+        self.model_version = model_version
 
-        logger.info("Loading semantic highlight model: %s...", model_name)
-        self.model = AutoModel.from_pretrained(
-            model_name, trust_remote_code=True, max_length=max_tokens
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_id: str,
+        device: str | None = None,
+        *,
+        model_version: str | None = None,
+        max_tokens: int = 4096,
+        config: SemanticHighlightConfig | None = None,
+    ) -> SemanticHighlightExtractor:
+        """
+        Download and load the model, or load it from a local path.
+
+        :param model_id: A Hugging Face model id or the path of a local model
+        :param device: ``"cuda"``, ``"mps"`` or ``"cpu"``, or None to choose the best available
+        :param model_version: The version of weights from a local path. A model from Hugging
+            Face records its resolved commit instead.
+        :param max_tokens: The token limit of the model
+        :param config: The default settings of a call
+        :raises ConfigurationError: If a package the model needs is missing, or the model can't
+            be downloaded or read
+        """
+        model, resolved_version = _load_semantic_highlight_model(model_id, device, max_tokens)
+        return cls(
+            model,
+            config=config,
+            model_id=model_id,
+            model_version=resolved_version or model_version,
         )
-        self.tokenizer = self.model.tokenizer
-        self.max_tokens = max_tokens
 
-    def extract_spans(self, question: str, search_results: List[Any]) -> Dict[str, List[str]]:
+    def extract(
+        self,
+        question: str,
+        chunks: Sequence[Chunk],
+        *,
+        config: SemanticHighlightConfig | None = None,
+    ) -> Extraction:
         """
-        Extract relevant spans from search results.
+        Extract the spans of the chunks that are relevant to the question.
 
         :param question: The query or question
-        :param search_results: List of search results (objects with .text attribute)
-        :return: Dictionary mapping result text to list of relevant spans
+        :param chunks: Chunks with unique ids
+        :param config: Replaces the extractor's default config for this call
+        :return: The spans, with the usage and warnings of the call
+        :raises InvalidInputError: If two chunks share an id, or the config is of the wrong type
         """
-        relevant_spans: Dict[str, List[str]] = {}
-        for result in search_results:
-            context = getattr(result, "text", "")
-            if not context.strip():
-                relevant_spans[context] = []
+        config = _call_config(config, self.config, SemanticHighlightConfig)
+        _check_unique_ids(chunks)
+        logger.debug("Extracting spans from %d chunks in %s mode", len(chunks), config.output_mode)
+        spans: List[ExtractedSpan] = []
+        warnings: List[ResultWarning] = []
+        for position, chunk in enumerate(chunks):
+            if not chunk.text.strip():
                 continue
+            if config.output_mode == "sentences":
+                chunk_spans, chunk_warnings = self._sentences(question, chunk, position, config)
+            else:
+                chunk_spans, chunk_warnings = self._token_spans(question, chunk, position, config)
+            spans += chunk_spans
+            warnings += chunk_warnings
+        _log_result_warnings(warnings)
+        usage = _model_usage(self.model_id, self.model_version, chunks)
+        return Extraction(spans=spans, usage=[usage], warnings=warnings)
 
-            try:
-                if self.output_mode == "sentences":
-                    spans = self._extract_sentences(question, context)
-                else:
-                    spans = self._extract_token_spans(question, context)
-                relevant_spans[context] = spans
-            except Exception as e:
-                logger.error("Semantic highlight extraction failed: %s", e)
-                relevant_spans[context] = []
-
-        return relevant_spans
-
-    def _extract_sentences(self, question: str, context: str) -> List[str]:
-        """Extract complete sentences using the model's built-in processing."""
+    def _sentences(
+        self, question: str, chunk: Chunk, position: int, config: SemanticHighlightConfig
+    ) -> Tuple[List[ExtractedSpan], List[ResultWarning]]:
+        """The sentences the model highlights, scored with their probability."""
         result = self.model.process(
             question=question,
-            context=context,
-            threshold=self.threshold,
-            language=self.language,
-            return_sentence_metrics=False,
+            context=chunk.text,
+            threshold=config.threshold,
+            language=config.language,
+            return_sentence_metrics=True,
+            always_select_title=False,
+            # Explicit preprocessing settings keep the model from reading environment variables.
+            show_progress=False,
+            preprocess_workers=0,
+            preprocess_batch_size=32,
         )
         sentences = result.get("highlighted_sentences", [])
-        # Clean up whitespace from sentences
-        return [s.strip() for s in sentences if s.strip()]
+        # A sentence is highlighted when its probability is above the threshold, so the
+        # probabilities above it belong to the highlighted sentences, in order.
+        probabilities = [
+            probability
+            for probability in result.get("sentence_probabilities", [])
+            if probability > config.threshold
+        ]
+        if len(probabilities) != len(sentences):
+            probabilities = [UNSCORED] * len(sentences)
 
-    def _extract_token_spans(self, question: str, context: str) -> List[str]:
-        """Extract spans based on token-level probabilities."""
-        import re
+        spans = []
+        warnings = []
+        cursor = 0
+        for sentence, probability in zip(sentences, probabilities):
+            text = sentence.strip()
+            if not text:
+                continue
+            start = chunk.text.find(text, cursor)
+            if start < 0:
+                start = chunk.text.find(text)
+            if start < 0:
+                warnings.append(
+                    _not_found(position, "sentence the model highlighted", "span_text_not_found")
+                )
+                continue
+            cursor = start + len(text)
+            spans.append(_model_span(chunk, start, cursor, probability))
+        return spans, warnings
 
-        # Get token-level scores
-        raw = self.model.get_raw_predictions(question, [context])
-        token_probs = raw.pruning_probs
-
+    def _token_spans(
+        self, question: str, chunk: Chunk, position: int, config: SemanticHighlightConfig
+    ) -> Tuple[List[ExtractedSpan], List[ResultWarning]]:
+        """Spans of contiguous tokens whose probability is above the threshold."""
+        raw = self.model.get_raw_predictions(question, [chunk.text])
         if not raw.context_ranges:
-            return []
+            return [], []
 
-        start_idx, end_idx = raw.context_ranges[0]
-        context_probs = token_probs[start_idx:end_idx]
-
-        # Tokenize to get offset mapping
-        encoding = self.tokenizer(
-            context,
+        start_index, end_index = raw.context_ranges[0]
+        probabilities = raw.pruning_probs[start_index:end_index]
+        encoding = self.model.tokenizer(
+            chunk.text,
             return_offsets_mapping=True,
             add_special_tokens=False,
-            max_length=self.max_tokens,
+            max_length=getattr(self.model, "max_length", None),
         )
-        offset_mapping = encoding["offset_mapping"]
+        offsets = encoding["offset_mapping"]
+        warnings = []
+        if len(probabilities) != len(offsets):
+            token_count = min(len(probabilities), len(offsets))
+            total = max(len(probabilities), len(offsets))
+            warnings.append(_truncated(position, token_count, total, "tokens"))
+            probabilities = probabilities[:token_count]
+            offsets = offsets[:token_count]
 
-        # Validate lengths match
-        if len(context_probs) != len(offset_mapping):
-            logger.warning(
-                "Length mismatch probs=%d tokens=%d", len(context_probs), len(offset_mapping)
-            )
-            min_len = min(len(context_probs), len(offset_mapping))
-            context_probs = context_probs[:min_len]
-            offset_mapping = offset_mapping[:min_len]
-
-        # Find contiguous high-probability regions
-        span_regions = self._find_span_regions(context_probs)
-
-        # Convert token regions to text spans
         spans = []
-        for token_start, token_end in span_regions:
-            token_end = min(token_end, len(offset_mapping))
-            if token_start >= len(offset_mapping):
-                continue
+        for token_start, token_end in _token_regions(probabilities, config):
+            region = [float(probabilities[i]) for i in range(token_start, token_end)]
+            start, end = _trim_punctuation(
+                chunk.text, offsets[token_start][0], offsets[token_end - 1][1]
+            )
+            if end > start:
+                spans.append(_model_span(chunk, start, end, sum(region) / len(region)))
+        return spans, warnings
 
-            char_start = offset_mapping[token_start][0]
-            char_end = offset_mapping[token_end - 1][1]
-            span_text = context[char_start:char_end]
 
-            # Clean up leading/trailing punctuation
-            span_text = re.sub(r"^[\s.,;:!?\-–—]+", "", span_text)
-            span_text = re.sub(r"[\s.,;:!?\-–—]+$", "", span_text)
-            span_text = span_text.strip()
+def _config_with_old_settings(
+    extractor: type,
+    config_class: Type[_ConfigT],
+    config: _ConfigT | None,
+    settings: Dict[str, Any],
+) -> _ConfigT:
+    """The default config of an extractor, built from its deprecated setting arguments if passed."""
+    settings = {name: value for name, value in settings.items() if value is not _UNSET}
+    if settings and config is not None:
+        raise ConfigurationError(
+            f"Pass the settings of {extractor.__name__} either in config or as arguments, not "
+            "both.",
+            code="invalid_value",
+        )
+    if settings:
+        warn_deprecated(
+            f"Passing {', '.join(settings)} to {extractor.__name__}",
+            use=f"config={config_class.__name__}(...)",
+            stacklevel=4,
+        )
+        return _config_from_settings(config_class, settings)
+    return _default_config(config, config_class)
 
-            if span_text:
-                spans.append(span_text)
 
-        return spans
+# What replaces the extractors' constructor arguments that have no effect.
+_UNUSED_ARGUMENTS = {
+    "extraction_mode": "nothing in its place, as it has no effect",
+    "max_display_spans": "TransformConfig(max_display_spans=...)",
+}
 
-    def _find_span_regions(self, probs) -> List[tuple]:
-        """Find contiguous regions of high-probability tokens."""
-        above_threshold = probs > self.threshold
 
-        regions = []
-        in_span = False
-        span_start = 0
+def _warn_unused(extractor: type, **arguments: Any) -> None:
+    for name, value in arguments.items():
+        if value is not _UNSET:
+            warn_deprecated(
+                f"Passing {name} to {extractor.__name__}",
+                use=_UNUSED_ARGUMENTS[name],
+                stacklevel=4,
+            )
 
-        for i, is_relevant in enumerate(above_threshold):
-            if is_relevant and not in_span:
-                span_start = i
-                in_span = True
-            elif not is_relevant and in_span:
-                if i - span_start >= self.min_span_tokens:
-                    regions.append((span_start, i))
-                in_span = False
 
-        if in_span and len(above_threshold) - span_start >= self.min_span_tokens:
-            regions.append((span_start, len(above_threshold)))
+def _import_model_packages(needed_by: str) -> Tuple[Any, Any]:
+    try:
+        import torch
+        import transformers
+    except ImportError as e:
+        raise ConfigurationError(
+            f"{needed_by} needs torch and transformers. Install them with "
+            "pip install 'verbatim-core[model]'.",
+            code="missing_dependency",
+        ) from e
+    return torch, transformers
 
-        # Merge nearby spans
-        if regions:
-            merged = [regions[0]]
-            for start, end in regions[1:]:
-                prev_start, prev_end = merged[-1]
-                if start - prev_end <= self.merge_gap:
-                    merged[-1] = (prev_start, end)
-                else:
-                    merged.append((start, end))
-            regions = merged
 
-        return regions
+def _import_qa_dataset() -> Any:
+    _import_model_packages("The v1 sentence model")
+    from .extractor_models import dataset
+
+    return dataset
+
+
+def _best_device(torch: Any) -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def _load_model_span_model(model_id: str, device: str | None) -> Tuple[Any, Any, str | None]:
+    """Load a ModelSpanExtractor model: the model, its tokenizer if it needs one, and its commit."""
+    torch, transformers = _import_model_packages("ModelSpanExtractor")
+    device = device or _best_device(torch)
+    started = time.perf_counter()
+    with _load_errors_translated(model_id):
+        if ModelSpanExtractor._detect_format(model_id) == ModelSpanExtractor._FORMAT_HIGHLIGHTER:
+            model = transformers.AutoModel.from_pretrained(model_id, trust_remote_code=True)
+            # The highlighter loads its tokenizer on first use. Loading it now keeps the download
+            # out of the first extraction.
+            if hasattr(model, "_get_tokenizer"):
+                model._get_tokenizer()
+            tokenizer = None  # the highlighter holds its tokenizer itself
+        else:
+            from .extractor_models.model import QAModel
+
+            model = QAModel.from_pretrained(model_id)
+            tokenizer = _load_qa_tokenizer(transformers, model_id, model)
+    model.to(device)
+    model.eval()
+    _log_model_loaded(model_id, device, started)
+    return model, tokenizer, _commit(model)
+
+
+def _load_qa_tokenizer(transformers: Any, model_id: str, model: Any) -> Any:
+    try:
+        return transformers.AutoTokenizer.from_pretrained(model_id)
+    except (OSError, ValueError) as e:
+        base_model = getattr(model.config, "model_name", "answerdotai/ModernBERT-base")
+        logger.warning("Loading the tokenizer of %s from %s: %s", model_id, base_model, e)
+        return transformers.AutoTokenizer.from_pretrained(base_model)
+
+
+def _load_semantic_highlight_model(
+    model_id: str, device: str | None, max_tokens: int
+) -> Tuple[Any, str | None]:
+    """Load a SemanticHighlightExtractor model: the model and its commit."""
+    torch, transformers = _import_model_packages("SemanticHighlightExtractor")
+    device = device or _best_device(torch)
+    started = time.perf_counter()
+    with _load_errors_translated(model_id):
+        model = transformers.AutoModel.from_pretrained(
+            model_id, trust_remote_code=True, max_length=max_tokens
+        )
+    model.to(device)
+    model.eval()
+    _log_model_loaded(model_id, device, started)
+    return model, _commit(model)
+
+
+@contextmanager
+def _load_errors_translated(model_id: str) -> Iterator[None]:
+    """Turn a missing package, a failed download or a missing model file into a
+    ConfigurationError."""
+    try:
+        yield
+    except ImportError as e:
+        package = e.name or "a package that is not installed"
+        raise ConfigurationError(
+            f"The model {model_id} needs {package}. Install it with pip install {package}.",
+            code="missing_dependency",
+        ) from e
+    except OSError as e:
+        raise ConfigurationError(
+            f"Could not load the model {model_id}. Check the model id or path, and the "
+            "connection to Hugging Face.",
+            code="model_not_loaded",
+        ) from e
+
+
+def _commit(model: Any) -> str | None:
+    """The Hugging Face commit the model was loaded from. None for a local path."""
+    return getattr(getattr(model, "config", None), "_commit_hash", None)
+
+
+def _log_model_loaded(model_id: str, device: str, started: float) -> None:
+    duration_ms = round((time.perf_counter() - started) * 1000)
+    logger.info(
+        "Loaded %s on %s in %d ms",
+        model_id,
+        device,
+        duration_ms,
+        extra={
+            "event": "model_loaded",
+            "model": model_id,
+            "device": device,
+            "duration_ms": duration_ms,
+        },
+    )
+
+
+def _model_span(chunk: Chunk, start: int, end: int, probability: float) -> ExtractedSpan:
+    return ExtractedSpan(
+        chunk_id=chunk.id,
+        start=start,
+        end=end,
+        text=chunk.text[start:end],
+        # Rounding can put a probability just outside 0 to 1.
+        score=min(max(float(probability), 0.0), 1.0),
+    )
+
+
+def _model_usage(model_id: str | None, model_version: str | None, chunks: Sequence[Chunk]) -> Usage:
+    return Usage(
+        model_id=model_id,
+        model_version=model_version,
+        units={"chunks": len(chunks), "characters": sum(len(chunk.text) for chunk in chunks)},
+    )
+
+
+def _sentence_offsets(text: str) -> List[Tuple[int, int]]:
+    """The offsets of the sentences of a text, without their surrounding whitespace."""
+    offsets = []
+    start = 0
+    for boundary in [*re.finditer(r"(?<=[.!?])\s+", text), None]:
+        end = boundary.start() if boundary else len(text)
+        sentence = text[start:end]
+        if sentence.strip():
+            leading = len(sentence) - len(sentence.lstrip())
+            trailing = len(sentence) - len(sentence.rstrip())
+            offsets.append((start + leading, end - trailing))
+        start = boundary.end() if boundary else len(text)
+    return offsets
+
+
+def _token_regions(probabilities: Any, config: SemanticHighlightConfig) -> List[Tuple[int, int]]:
+    """Runs of tokens above the threshold, of at least min_span_tokens, merged across gaps."""
+    regions = []
+    region_start = None
+    for i, probability in enumerate([*probabilities, 0.0]):
+        if probability > config.threshold and region_start is None:
+            region_start = i
+        elif probability <= config.threshold and region_start is not None:
+            if i - region_start >= config.min_span_tokens:
+                regions.append((region_start, i))
+            region_start = None
+
+    merged: List[Tuple[int, int]] = []
+    for start, end in regions:
+        if merged and start - merged[-1][1] <= config.merge_gap:
+            merged[-1] = (merged[-1][0], end)
+        else:
+            merged.append((start, end))
+    return merged
+
+
+_PUNCTUATION = r"[\s.,;:!?\-–—]*"
+
+
+def _trim_punctuation(text: str, start: int, end: int) -> Tuple[int, int]:
+    """Offsets without the whitespace and punctuation at either end of text[start:end]."""
+    start += re.match(_PUNCTUATION, text[start:end]).end()
+    end = start + re.search(_PUNCTUATION + "$", text[start:end]).start()
+    return start, end
+
+
+def _truncated(position: int, examined: int, total: int, unit: str) -> ResultWarning:
+    return ResultWarning(
+        code="chunk_truncated",
+        message=f"The model examined only {examined} of {total} {unit} of chunks[{position}].",
+    )
+
+
+def _not_found(position: int, what: str, code: str) -> ResultWarning:
+    return ResultWarning(code=code, message=f"A {what} for chunks[{position}] is not in the chunk.")
+
+
+def _log_result_warnings(warnings: List[ResultWarning]) -> None:
+    """One WARNING record per warning code of a result, with the number of its warnings."""
+    for code in sorted({warning.code for warning in warnings}):
+        count = sum(warning.code == code for warning in warnings)
+        logger.warning(
+            "Added %d result warnings with the code %s",
+            count,
+            code,
+            extra={"event": "fallback_used", "warning_code": code},
+        )
 
 
 class LLMExtractConfig(ExtractConfig):
@@ -702,10 +1049,6 @@ class LLMExtractConfig(ExtractConfig):
     # A Jinja2 prompt with the variables `question` and `documents`, instead of the bundled one.
     extraction_prompt: str | None = None
     system_prompt: str | None = None  # sent only with extraction_prompt
-
-
-# Marks the deprecated constructor arguments that the caller didn't pass.
-_UNSET: Any = object()
 
 
 class LLMSpanExtractor(SpanExtractor):
@@ -752,23 +1095,8 @@ class LLMSpanExtractor(SpanExtractor):
             "extraction_prompt": extraction_prompt,
             "system_prompt": system_prompt,
         }
-        settings = {name: value for name, value in settings.items() if value is not _UNSET}
-        if settings and config is not None:
-            raise ConfigurationError(
-                "Pass the settings of LLMSpanExtractor either in config or as arguments, not both.",
-                code="invalid_value",
-            )
-        if settings:
-            warn_deprecated(
-                f"Passing {', '.join(settings)} to LLMSpanExtractor",
-                use="config=LLMExtractConfig(...)",
-            )
-            config = _config_from_settings(LLMExtractConfig, settings)
-        if max_display_spans is not _UNSET:
-            warn_deprecated(
-                "Passing max_display_spans to LLMSpanExtractor",
-                use="TransformConfig(max_display_spans=...)",
-            )
+        self.config = _config_with_old_settings(type(self), LLMExtractConfig, config, settings)
+        _warn_unused(type(self), max_display_spans=max_display_spans)
         if llm_client is None:
             warn_deprecated(
                 "LLMSpanExtractor without an llm_client", use="LLMSpanExtractor(LLMClient(model))"
@@ -778,7 +1106,6 @@ class LLMSpanExtractor(SpanExtractor):
             warn_deprecated("Passing model to LLMSpanExtractor", use="the model of the llm_client")
 
         self.llm_client = llm_client
-        self.config = _default_config(config, LLMExtractConfig)
 
     def extract(
         self, question: str, chunks: Sequence[Chunk], *, config: LLMExtractConfig | None = None
