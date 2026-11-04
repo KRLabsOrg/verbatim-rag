@@ -6,7 +6,19 @@ including methods for generation, filling, and persistence.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, Dict, List
+
+from ..types import ResultWarning, Usage
+
+
+@dataclass(frozen=True)
+class TemplateResult:
+    """A template for one call, with the usage and warnings of writing it."""
+
+    text: str
+    usage: List[Usage] = field(default_factory=list)
+    warnings: List[ResultWarning] = field(default_factory=list)
 
 
 class TemplateStrategy(ABC):
@@ -30,6 +42,29 @@ class TemplateStrategy(ABC):
         :return: Template string with placeholders
         """
         pass
+
+    def generate_result(
+        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+    ) -> TemplateResult:
+        """
+        Generate a template for one call, with the usage and warnings of generating it.
+
+        Strategies that call a model override it. Unlike `generate`, it changes nothing on the
+        strategy.
+
+        :param question: The user's question
+        :param spans: List of text spans that will fill the template
+        :param citation_count: Number of citation-only spans
+        :param seed: Combined with the question by strategies that choose a template
+        :return: The template with its usage and warnings
+        """
+        return TemplateResult(text=self.generate(question, spans, citation_count))
+
+    async def generate_result_async(
+        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+    ) -> TemplateResult:
+        """Async version of `generate_result`."""
+        return self.generate_result(question, spans, citation_count, seed=seed)
 
     @abstractmethod
     def fill(

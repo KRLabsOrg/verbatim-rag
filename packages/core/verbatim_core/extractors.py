@@ -19,11 +19,12 @@ from typing import Any, Dict, Iterator, List, Literal, Sequence, Tuple, Type, Ty
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt, ValidationError
 
+from ._checks import _call_config, _check_unique_ids, _default_config
 from ._deprecation import deprecated, warn_deprecated
 from ._locate import UNSCORED, locate
 from ._logging import content_logger
 from .errors import ConfigurationError, InvalidInputError, UpstreamError
-from .llm_client import Completion, LLMClient
+from .llm_client import Completion, LLMClient, client_completion, client_completion_async
 from .prompts import load_prompt, render_prompt
 from .types import Chunk, ExtractedSpan, Extraction, ResultWarning, Usage
 
@@ -120,15 +121,6 @@ def _overrides(cls: type, name: str) -> bool:
     return getattr(cls, name) is not getattr(SpanExtractor, name)
 
 
-def _default_config(config: _ConfigT | None, config_class: Type[_ConfigT]) -> _ConfigT:
-    """The default config an extractor's constructor was given, or the default of its class."""
-    if config is None:
-        return config_class()
-    if not isinstance(config, config_class):
-        raise ConfigurationError(f"config must be a {config_class.__name__}.", code="invalid_value")
-    return config
-
-
 def _config_from_settings(config_class: Type[_ConfigT], settings: Dict[str, Any]) -> _ConfigT:
     """The config that the deprecated setting arguments of an extractor's constructor describe."""
     try:
@@ -139,32 +131,6 @@ def _config_from_settings(config_class: Type[_ConfigT], settings: Dict[str, Any]
             f"Invalid value for {names}. See {config_class.__name__} for the valid values.",
             code="invalid_value",
         ) from e
-
-
-def _call_config(
-    config: _ConfigT | None, default: _ConfigT, config_class: Type[_ConfigT]
-) -> _ConfigT:
-    """The config of one call: the one the call passed, else the extractor's default."""
-    if config is None:
-        return default
-    if not isinstance(config, config_class):
-        raise InvalidInputError(
-            f"config must be a {config_class.__name__}.", code="invalid_value", param="config"
-        )
-    return config
-
-
-def _check_unique_ids(chunks: Sequence[Chunk]) -> None:
-    positions: Dict[str, int] = {}
-    for position, chunk in enumerate(chunks):
-        if chunk.id in positions:
-            raise InvalidInputError(
-                f"chunks[{position}] has the same id as chunks[{positions[chunk.id]}]. "
-                "Chunk ids must be unique within a call.",
-                code="invalid_value",
-                param=f"chunks[{position}].id",
-            )
-        positions[chunk.id] = position
 
 
 def _check_old_interface_call(cls: type, chunks: Sequence[Chunk], config: Any) -> None:
@@ -1271,35 +1237,13 @@ def _plan_llm_calls(
 
 
 def _complete(client: LLMClient, call: _LLMCall) -> Completion:
-    if _replaces(client, "complete", "completion"):
-        text = client.complete(call.prompt, json_mode=True, system_prompt=call.system_prompt)
-        return Completion(text=text)
-    return client.completion(call.prompt, json_mode=True, system_prompt=call.system_prompt)
+    return client_completion(client, call.prompt, json_mode=True, system_prompt=call.system_prompt)
 
 
 async def _acomplete(client: LLMClient, call: _LLMCall) -> Completion:
-    if _replaces(client, "complete_async", "completion_async"):
-        text = await client.complete_async(
-            call.prompt, json_mode=True, system_prompt=call.system_prompt
-        )
-        return Completion(text=text)
-    return await client.completion_async(
-        call.prompt, json_mode=True, system_prompt=call.system_prompt
+    return await client_completion_async(
+        client, call.prompt, json_mode=True, system_prompt=call.system_prompt
     )
-
-
-def _replaces(client: Any, old: str, new: str) -> bool:
-    """Whether a client replaces LLMClient's old method but not the new one.
-
-    Clients written before 0.3.0 replace `complete`, for example to call another provider. They
-    are called that way, and their usage has no model version or tokens.
-    """
-    client_class = type(client)
-    if not hasattr(client_class, new):
-        return True
-    if getattr(client_class, new) is not getattr(LLMClient, new):
-        return False
-    return getattr(client_class, old) is not getattr(LLMClient, old)
 
 
 def _extraction_prompt(question: str, documents: Dict[str, str], config: LLMExtractConfig) -> str:

@@ -5,12 +5,13 @@ Provides random template selection from a pool of diverse templates.
 Templates can be generated using LLM or manually curated.
 """
 
+import hashlib
 import random
 from typing import Any, Dict, List, Optional
 
 from verbatim_core.llm_client import LLMClient
 
-from .base import TemplateStrategy
+from .base import TemplateResult, TemplateStrategy
 from .filler import TemplateFiller
 
 
@@ -99,6 +100,22 @@ The relevant information from the documents includes:
             return self._get_fallback_template()
 
         return random.choice(self.templates)
+
+    def generate_result(
+        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+    ) -> TemplateResult:
+        """
+        Choose a template from the pool by the question and the seed (ADR 0005).
+
+        The same question and seed choose the same template in every process.
+        """
+        if not self.templates:
+            return TemplateResult(text=self._get_fallback_template())
+        key = question if seed is None else f"{seed}\n{question}"
+        digest = hashlib.sha256(key.encode("utf-8")).digest()
+        return TemplateResult(
+            text=self.templates[int.from_bytes(digest[:8], "big") % len(self.templates)]
+        )
 
     def fill(
         self,

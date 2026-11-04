@@ -6,12 +6,18 @@ templates based on the question and available spans. Supports both per-span
 and aggregate placeholders.
 """
 
+import logging
 from typing import Any, Dict, List, Optional
 
-from verbatim_core.llm_client import LLMClient
+from verbatim_core._logging import content_logger
+from verbatim_core.errors import UpstreamError
+from verbatim_core.llm_client import Completion, LLMClient, _replaces
+from verbatim_core.types import ResultWarning, Usage
 
-from .base import TemplateStrategy
+from .base import TemplateResult, TemplateStrategy
 from .filler import TemplateFiller
+
+logger = logging.getLogger(__name__)
 
 
 class ContextualTemplate(TemplateStrategy):
@@ -83,14 +89,7 @@ class ContextualTemplate(TemplateStrategy):
 
         try:
             template = self.llm_client.generate_template(
-                question=question,
-                spans=spans,
-                citation_count=citation_count,
-                use_per_fact=self.use_per_fact and len(spans) <= 8,
-                template_preview_chars=self.template_preview_chars,
-                preserve_span_newlines=self.preserve_span_newlines,
-                template_prompt=self.template_prompt,
-                system_prompt=self.system_prompt,
+                **self._template_request(question, spans, citation_count)
             )
 
             template = self._post_process_template(template, citation_count)
@@ -111,14 +110,7 @@ class ContextualTemplate(TemplateStrategy):
 
         try:
             template = await self.llm_client.generate_template_async(
-                question=question,
-                spans=spans,
-                citation_count=citation_count,
-                use_per_fact=self.use_per_fact and len(spans) <= 8,
-                template_preview_chars=self.template_preview_chars,
-                preserve_span_newlines=self.preserve_span_newlines,
-                template_prompt=self.template_prompt,
-                system_prompt=self.system_prompt,
+                **self._template_request(question, spans, citation_count)
             )
 
             template = self._post_process_template(template, citation_count)
@@ -128,6 +120,103 @@ class ContextualTemplate(TemplateStrategy):
         except Exception as e:
             print(f"Async contextual template generation failed: {e}")
             return self._get_fallback_template(citation_count > 0)
+
+    def generate_result(
+        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+    ) -> TemplateResult:
+        """
+        Ask the LLM for a template, without the cache.
+
+        When the LLM call fails with an `UpstreamError`, or the LLM sends an empty template, the
+        result is the fallback template with the warning `template_fallback`. Other errors
+        propagate.
+
+        :raises ConfigurationError: If the LLM service rejects the key, the model or the quota
+        """
+        if not spans:
+            return TemplateResult(text=self._get_fallback_template(citation_count > 0))
+        request = self._template_request(question, spans, citation_count)
+        if _replaces(self.llm_client, "generate_template", "template_completion"):
+            text = self.llm_client.generate_template(**request)
+            return TemplateResult(text=self._post_process_template(text, citation_count))
+        try:
+            completion = self.llm_client.template_completion(**request)
+        except UpstreamError as error:
+            return self._fallback_result(citation_count, error.code)
+        return self._template_result(completion, spans, citation_count)
+
+    async def generate_result_async(
+        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+    ) -> TemplateResult:
+        """Async version of `generate_result`."""
+        if not spans:
+            return TemplateResult(text=self._get_fallback_template(citation_count > 0))
+        request = self._template_request(question, spans, citation_count)
+        if _replaces(self.llm_client, "generate_template_async", "template_completion_async"):
+            text = await self.llm_client.generate_template_async(**request)
+            return TemplateResult(text=self._post_process_template(text, citation_count))
+        try:
+            completion = await self.llm_client.template_completion_async(**request)
+        except UpstreamError as error:
+            return self._fallback_result(citation_count, error.code)
+        return self._template_result(completion, spans, citation_count)
+
+    def _template_request(
+        self, question: str, spans: List[str], citation_count: int
+    ) -> Dict[str, Any]:
+        return {
+            "question": question,
+            "spans": spans,
+            "citation_count": citation_count,
+            "use_per_fact": self.use_per_fact and len(spans) <= 8,
+            "template_preview_chars": self.template_preview_chars,
+            "preserve_span_newlines": self.preserve_span_newlines,
+            "template_prompt": self.template_prompt,
+            "system_prompt": self.system_prompt,
+        }
+
+    def _template_result(
+        self, completion: Completion, spans: List[str], citation_count: int
+    ) -> TemplateResult:
+        units = {
+            "llm_calls": 1,
+            "spans": len(spans),
+            "characters": sum(len(span) for span in spans),
+        }
+        if completion.input_tokens is not None and completion.output_tokens is not None:
+            units.update(
+                input_tokens=completion.input_tokens, output_tokens=completion.output_tokens
+            )
+        usage = Usage(
+            model_id=getattr(self.llm_client, "model", None),
+            model_version=completion.model,
+            units=units,
+        )
+        if not completion.text.strip():
+            return self._fallback_result(citation_count, "empty_reply", usage)
+
+        template = self._post_process_template(completion.text, citation_count)
+        logger.debug("The LLM wrote a template of %d characters", len(template))
+        content_logger.debug("Template: %r", template)
+        return TemplateResult(text=template, usage=[usage])
+
+    def _fallback_result(
+        self, citation_count: int, error_code: str, usage: Usage | None = None
+    ) -> TemplateResult:
+        logger.warning(
+            "Using the fallback template, because the LLM wrote no template (%s)",
+            error_code,
+            extra={"event": "fallback_used", "warning_code": "template_fallback"},
+        )
+        warning = ResultWarning(
+            code="template_fallback",
+            message="The LLM could not write a template, so the answer uses the fallback template.",
+        )
+        return TemplateResult(
+            text=self._get_fallback_template(citation_count > 0),
+            usage=[usage] if usage else [],
+            warnings=[warning],
+        )
 
     def fill(
         self,

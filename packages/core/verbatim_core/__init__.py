@@ -2,6 +2,7 @@
 Lightweight, RAG-agnostic core for verbatim transformation.
 
 This subpackage provides:
+- Transformer: question + chunks -> cited answer built from the chunks' text (sync/async/streaming)
 - VerbatimTransform: question + context -> cited, grounded answer (sync/async)
 - RAGProvider (interface): minimal retrieval contract (no index/Milvus deps)
 - UniversalDocument: simple context container
@@ -14,6 +15,7 @@ from .enhance import verbatim_enhance
 from .errors import ConfigurationError, InvalidInputError, UpstreamError, VerbatimError
 from .providers import RAGProvider
 from .transform import VerbatimTransform, verbatim_query, verbatim_query_async
+from .transformer import AnswerEvent, SpansEvent, TransformConfig, Transformer, TransformEvent
 from .types import (
     Answer,
     AnswerCitation,
@@ -27,6 +29,11 @@ from .types import (
 from .universal_document import UniversalDocument
 
 __all__ = [
+    "Transformer",
+    "TransformConfig",
+    "TransformEvent",
+    "SpansEvent",
+    "AnswerEvent",
     "VerbatimTransform",
     "verbatim_query",
     "verbatim_query_async",
