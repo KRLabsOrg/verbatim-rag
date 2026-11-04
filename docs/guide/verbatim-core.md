@@ -49,7 +49,35 @@ Structured template mode is not available in the `Transformer`; use `VerbatimRAG
 
 ## VerbatimTransform
 
-The main entry point. Takes a question and retrieved context, extracts verbatim spans, and produces a cited response.
+Deprecated since 0.3.0: use the `Transformer`. `VerbatimTransform` turns the context items into chunks with positional ids (`ctx_0`, `ctx_1`, ...), answers with a `Transformer`, and returns the answer as a `QueryResponse`. The same with a `Transformer`:
+
+```python
+from verbatim_core import Chunk, TransformConfig, Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates import TemplateManager
+
+client = LLMClient()
+transformer = Transformer(
+    LLMSpanExtractor(client),
+    TemplateManager(llm_client=client),
+    config=TransformConfig(template_mode="contextual"),
+)
+
+chunks = [
+    Chunk(
+        id=f"ctx_{i}",
+        text=item["content"],
+        metadata={"title": item.get("title", ""), "source": item.get("source", "")},
+    )
+    for i, item in enumerate(context)
+]
+answer = transformer.transform(question, chunks)
+response = ResponseBuilder().build_from_answer(question, answer, chunks)
+```
+
+It takes a question and retrieved context, extracts verbatim spans, and produces a cited response:
 
 ```python
 from verbatim_core import VerbatimTransform
@@ -77,6 +105,8 @@ Context items can be:
 
 - **Dicts** with `"content"` (or `"text"`), plus optional `"title"`, `"source"`, `"metadata"`
 - **Objects** with a `.text` attribute (e.g., search results from any vector store)
+
+An item of another shape raises `InvalidInputError` with `param` naming it, such as `context[3]`: the code `missing_field` for a dict without `"content"` or `"text"`, and `invalid_value` otherwise.
 
 ## LLMSpanExtractor
 

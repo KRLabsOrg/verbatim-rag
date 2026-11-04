@@ -3,7 +3,8 @@ from __future__ import annotations
 from functools import wraps
 from typing import Any, Callable, Dict, Iterable, Mapping
 
-from .transform import VerbatimTransform
+from ._context import _default_transformer, _query_response
+from .llm_client import LLMClient
 
 
 def _to_context_dicts(obj: Any) -> list[dict]:
@@ -51,15 +52,13 @@ def verbatim_enhance(
         def wrapper(*args, **kwargs):
             result = fn(*args, **kwargs)
             question = kwargs.get("question") or (args[0] if args else "")
-            answer = None
             context: Iterable[Dict[str, Any]] = []
 
             if isinstance(result, dict):
-                answer = result.get("answer")
                 context = result.get("context") or result.get("sources") or []
             elif isinstance(result, (list, tuple)):
                 if len(result) == 2:
-                    answer, context = result
+                    _answer, context = result
                 else:
                     context = result
             else:
@@ -67,9 +66,8 @@ def verbatim_enhance(
 
             context_dicts = _to_context_dicts(context)
 
-            vt = VerbatimTransform(max_display_spans=max_display_spans)
-            resp = vt.transform(question=question or "", context=context_dicts, answer=answer)
-            return resp
+            transformer = _default_transformer(LLMClient(), max_display_spans)
+            return _query_response(transformer, question or "", context_dicts)
 
         return wrapper
 

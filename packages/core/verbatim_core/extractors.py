@@ -131,7 +131,7 @@ def _check_old_interface_call(cls: type, chunks: Sequence[Chunk], config: Any) -
     warn_deprecated(
         f"Implementing only extract_spans() in {implementation.__qualname__}",
         use="extract()",
-        stacklevel=4,
+        stacklevel=None,
     )
 
 
