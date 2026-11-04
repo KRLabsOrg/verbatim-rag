@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple, Union
 
+from verbatim_core.errors import ConfigurationError
 from verbatim_core.models import QueryResponse
 
 
@@ -96,27 +97,35 @@ class Parser:
 class Processor:
     """Executes queries using a RAG system"""
 
-    def __init__(self, rag, use_context: bool = True):
+    def __init__(self, rag, use_context: bool = True, *, k: Optional[int] = None):
         """
         :param rag: VerbatimRAG instance (or any object with index/extractor)
         :param use_context: Include section context in queries
+        :param k: The number of chunks each query retrieves. Without it, ``rag.k``.
+        :raises ConfigurationError: If k is not a positive integer
         """
+        if k is not None and (not isinstance(k, int) or isinstance(k, bool) or k < 1):
+            raise ConfigurationError(
+                "k of VerbatimDOC must be a positive integer.", code="invalid_value"
+            )
         self.rag = rag
         self.use_context = use_context
+        self.k = k
 
     async def process_query(self, query: Query, template: str = "") -> QueryResult:
-        try:
-            question = self._build_question(query, template)
+        """
+        :raises UpstreamError: If a service the extractor calls fails
+        :raises ConfigurationError: If a service rejects its key, model or quota
+        """
+        question = self._build_question(query, template)
 
-            # Execute query and get raw spans with doc attribution
-            spans, docs = await self._execute_query_raw(question)
+        # Execute query and get raw spans with doc attribution
+        spans, docs = await self._execute_query_raw(question)
 
-            # Format result for display (local numbering - will be renumbered globally later)
-            result = self._format_spans_local(spans, query.params)
+        # Format result for display (local numbering - will be renumbered globally later)
+        result = self._format_spans_local(spans, query.params)
 
-            return QueryResult(query=query, result=result, spans=spans, docs=docs)
-        except Exception as e:
-            return QueryResult(query=query, result=f"[Error: {str(e)}]")
+        return QueryResult(query=query, result=result, spans=spans, docs=docs)
 
     async def process_queries(self, queries: List[Query], template: str = "") -> List[QueryResult]:
         tasks = [self.process_query(query, template) for query in queries]
@@ -128,20 +137,21 @@ class Processor:
 
         :return: Tuple of (spans_with_docs, source_documents)
         """
-        # Get documents
-        docs = self.rag.index.query(text=question, k=self.rag.k)
+        docs = self.rag.index.query(text=question, k=self.rag.k if self.k is None else self.k)
+        chunks = [doc.to_chunk() for doc in docs]
+        extraction = await self.rag.extractor.aextract(question, chunks)
 
-        # Extract spans
-        spans_dict = await self.rag.extractor.extract_spans_async(question, docs)
-
-        # Collect spans with document attribution
-        spans_with_docs = []
-        for i, doc in enumerate(docs):
-            doc_text = getattr(doc, "text", "")
-            doc_spans = spans_dict.get(doc_text, [])
-            for span_text in doc_spans:
-                spans_with_docs.append(SpanWithDoc(text=span_text, doc_index=i, doc_text=doc_text))
-
+        # The spans of each chunk in turn, in the extractor's order within a chunk
+        positions = {chunk.id: position for position, chunk in enumerate(chunks)}
+        spans = sorted(extraction.spans, key=lambda span: positions[span.chunk_id])
+        spans_with_docs = [
+            SpanWithDoc(
+                text=span.text,
+                doc_index=positions[span.chunk_id],
+                doc_text=chunks[positions[span.chunk_id]].text,
+            )
+            for span in spans
+        ]
         return spans_with_docs, docs
 
     def _format_spans_local(self, spans: List[SpanWithDoc], params: Dict[str, Any]) -> str:
@@ -212,21 +222,24 @@ class VerbatimDOC:
     Returns QueryResponse with global citation numbering and document attribution.
 
     Usage:
-        doc = VerbatimDOC(rag)
+        doc = VerbatimDOC(rag, k=3)
         response = await doc.process(template, auto_approve=True)
         # response.answer = filled document
         # response.documents = source documents
         # response.structured_answer.citations = citations with doc_index
     """
 
-    def __init__(self, rag, use_context: bool = True):
+    def __init__(self, rag, use_context: bool = True, *, k: Optional[int] = None):
         """
         :param rag: VerbatimRAG instance
         :param use_context: Include section context in queries
+        :param k: The number of chunks each query retrieves. Without it, ``rag.k``: 5, or the
+            deprecated ``VerbatimRAG(k=...)``.
+        :raises ConfigurationError: If k is not a positive integer
         """
         self.rag = rag
         self.parser = Parser()
-        self.processor = Processor(rag, use_context=use_context)
+        self.processor = Processor(rag, use_context=use_context, k=k)
         self.replacer = Replacer()
 
     async def process(self, text: str, auto_approve: bool = False) -> QueryResponse:
@@ -236,6 +249,8 @@ class VerbatimDOC:
         :param text: Template with [!query=...] expressions
         :param auto_approve: Auto-approve all queries
         :return: QueryResponse with filled document and citations
+        :raises UpstreamError: If a query fails because a service the extractor calls fails
+        :raises ConfigurationError: If a service rejects its key, model or quota
         """
         queries = self.parser.extract_queries(text)
         results = await self.processor.process_queries(queries, template=text)

@@ -66,8 +66,23 @@ def chunk_with_text_for(text, chunk_text, chunk_id="c1"):
     return old_extractor({chunk_text: [text]}), chunk
 
 
-@pytest.mark.filterwarnings("ignore::verbatim_core.VerbatimDeprecationWarning")
 class TestOldInterfaceSubclass:
+    """The old interface keeps working. Its calls warn, which TestOldInterfaceWarning checks."""
+
+    @pytest.fixture(autouse=True)
+    def old_interface_warnings(self):
+        """Record the deprecation warnings: only the old interface's may be among them."""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", VerbatimDeprecationWarning)
+            yield
+        others = [
+            str(w.message)
+            for w in caught
+            if issubclass(w.category, VerbatimDeprecationWarning)
+            and not str(w.message).startswith("Implementing only extract_spans()")
+        ]
+        assert not others
+
     def test_extract_locates_each_span_text_in_its_chunk(self):
         height = Chunk(id="height", text="The arch rises 134 metres above the water.")
         tolls = Chunk(id="tolls", text="Tolls are collected in both directions.")

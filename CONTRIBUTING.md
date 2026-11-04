@@ -147,6 +147,10 @@ Errors:
   documented with its warning code. `ConfigurationError`, `InvalidInputError`
   and bugs never trigger one.
 - `warnings.warn` is only for deprecations, with `VerbatimDeprecationWarning`.
+- Library code never calls a deprecated name. The test suite turns
+  `VerbatimDeprecationWarning` into an error, so a test that calls an old entry
+  point expects the warning with `pytest.warns`. A new deprecation adds its
+  entry point to the catalogue in `tests/test_deprecation.py`.
 
 Logging:
 

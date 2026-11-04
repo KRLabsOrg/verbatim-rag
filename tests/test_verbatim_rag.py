@@ -5,7 +5,6 @@ import re
 import sys
 import time
 import types
-import warnings
 
 import pytest
 from verbatim_core import (
@@ -90,13 +89,6 @@ def build(index=None, extractor=None, **settings):
     return verbatim_rag.VerbatimRAG(index or RecordingIndex(), transformer=transformer, **settings)
 
 
-@pytest.fixture
-def no_deprecation_warnings():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", VerbatimDeprecationWarning)
-        yield
-
-
 CALLS = pytest.mark.parametrize("call", ["query", "query_async", "query_stream"])
 
 
@@ -111,7 +103,7 @@ async def query(rag, call, *args, **settings):
 
 
 class TestConstruction:
-    def test_with_a_transformer_nothing_warns(self, no_deprecation_warnings):
+    def test_with_a_transformer_nothing_warns(self):
         transformer = Transformer(OpenedExtractor(), TemplateManager())
 
         rag = verbatim_rag.VerbatimRAG(RecordingIndex(), transformer=transformer)
@@ -122,12 +114,12 @@ class TestConstruction:
             transformer.templates,
         )
 
-    def test_the_transformer_may_be_passed_by_position(self, no_deprecation_warnings):
+    def test_the_transformer_may_be_passed_by_position(self):
         transformer = Transformer(OpenedExtractor(), TemplateManager())
 
         assert verbatim_rag.VerbatimRAG(RecordingIndex(), transformer).transformer is transformer
 
-    def test_the_arguments_may_follow_the_transformer_by_position(self, no_deprecation_warnings):
+    def test_the_arguments_may_follow_the_transformer_by_position(self):
         transformer = Transformer(OpenedExtractor(), TemplateManager())
         llm_client, detector, reranker = StructuredLLM(), object(), ReversingReranker()
 
@@ -645,6 +637,83 @@ class TestStreamingRAG:
         assert logged_traceback(caplog).count("KeyError") == 2
 
 
+class TestVerbatimDOC:
+    async def test_each_query_is_filled_with_the_spans_of_its_chunks(self):
+        from verbatim_rag.verbatim_doc import VerbatimDOC
+
+        extractor = OpenedExtractor()
+        template = "## Opening\n[!query=When did they open?]\n"
+
+        response = await VerbatimDOC(build(extractor=extractor)).process(
+            template, auto_approve=True
+        )
+
+        assert response.answer == (
+            "## Opening\n[1] The bridge opened in 1932.\n\n[2] The tunnel opened in 1992.\n"
+        )
+        assert [(c.text, c.doc_index) for c in response.structured_answer.citations] == [
+            ("The bridge opened in 1932.", 0),
+            ("The tunnel opened in 1992.", 1),
+        ]
+        assert [chunk.id for chunk in extractor.chunks] == ["row-7", "row-3", "row-5"]
+
+    async def test_the_spans_are_in_the_order_of_their_chunks(self):
+        from verbatim_rag.verbatim_doc import VerbatimDOC
+
+        class LastChunkFirst(OpenedExtractor):
+            def extract(self, question, chunks, *, config=None):
+                extraction = super().extract(question, chunks, config=config)
+                return Extraction(spans=list(reversed(extraction.spans)))
+
+        doc = VerbatimDOC(build(extractor=LastChunkFirst()))
+
+        _, [result] = await doc.process_interactive("[!query=When did they open?]")
+
+        assert [(span.text, span.doc_index) for span in result.spans] == [
+            ("The bridge opened in 1932.", 0),
+            ("The tunnel opened in 1992.", 1),
+        ]
+
+    async def test_documents_sharing_a_rag_retrieve_with_their_own_k(self):
+        from verbatim_rag.verbatim_doc import VerbatimDOC
+
+        index = RecordingIndex()
+        rag = build(index)
+        template = "[!query=When did they open?]"
+
+        await VerbatimDOC(rag, k=2).process(template)
+        await VerbatimDOC(rag).process(template)
+
+        assert [query["k"] for query in index.queries] == [2, 5]
+
+    async def test_without_k_the_deprecated_k_of_the_rag_applies(self):
+        from verbatim_rag.verbatim_doc import VerbatimDOC
+
+        index = RecordingIndex()
+        with pytest.warns(VerbatimDeprecationWarning):
+            rag = build(index, k=3)
+
+        await VerbatimDOC(rag).process("[!query=When did they open?]")
+
+        assert [query["k"] for query in index.queries] == [3]
+
+    @pytest.mark.parametrize("k", [0, -1, 2.5, "3", True])
+    def test_k_must_be_a_positive_integer(self, k):
+        from verbatim_rag.verbatim_doc import VerbatimDOC
+
+        with pytest.raises(ConfigurationError):
+            VerbatimDOC(build(), k=k)
+
+    async def test_a_failed_query_raises(self):
+        from verbatim_rag.verbatim_doc import VerbatimDOC
+
+        error = UpstreamError("The LLM service failed.", code="server_error", service="llm")
+        doc = VerbatimDOC(build(extractor=OpenedExtractor(error=error)))
+
+        with pytest.raises(UpstreamError):
+            await doc.process("## Opening\n[!query=When did they open?]\n", auto_approve=True)
+
+
 def test_a_search_result_becomes_a_chunk_of_its_row():
     [row] = rows()[:1]
 
@@ -664,7 +733,7 @@ class TestDocumentChunk:
         assert old is document.DocumentChunk
         assert warned[0].filename == __file__
 
-    def test_a_document_with_chunks_round_trips(self, no_deprecation_warnings):
+    def test_a_document_with_chunks_round_trips(self):
         from verbatim_rag.document import Document, DocumentChunk
 
         doc = Document(title="Bridge")
