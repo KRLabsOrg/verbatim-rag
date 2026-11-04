@@ -2,7 +2,6 @@
 
 import json
 import logging
-import warnings
 
 import pytest
 from verbatim_core import ConfigurationError, UpstreamError, VerbatimDeprecationWarning
@@ -12,13 +11,6 @@ from verbatim_core.templates.manager import TemplateManager
 from verbatim_core.templates.random import RandomTemplate
 from verbatim_core.templates.static import StaticTemplate
 from verbatim_core.templates.structured import StructuredTemplate
-
-
-@pytest.fixture
-def no_deprecation_warnings():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", VerbatimDeprecationWarning)
-        yield
 
 
 class TestTemplateFiller:
@@ -210,14 +202,14 @@ class TestTemplateManagerSettings:
 
         assert tm.current_mode == "structured"
 
-    def test_use_structured_mode_does_not_warn(self, no_deprecation_warnings):
+    def test_use_structured_mode_does_not_warn(self):
         # Structured mode is deprecated in one step when structured answers replace it (ADR 0004).
         tm = TemplateManager(llm_client=None)
 
         assert tm.use_structured_mode(template="## Results\n[RESULTS]") is True
         assert tm.current_mode == "structured"
 
-    def test_switching_mode_with_its_setup_method_does_not_warn(self, no_deprecation_warnings):
+    def test_switching_mode_with_its_setup_method_does_not_warn(self):
         tm = TemplateManager(llm_client=None)
 
         assert tm.use_random_mode() is True
@@ -271,7 +263,7 @@ class TestTemplateManagerSettings:
 
         assert tm.config.citation_mode == "hidden"
 
-    def test_random_mode_chooses_by_the_question(self, no_deprecation_warnings):
+    def test_random_mode_chooses_by_the_question(self):
         # The same hash of the question as the Transformer's random mode (ADR 0005).
         tm = TemplateManager(llm_client=None)
         tm.use_random_mode()
@@ -298,7 +290,7 @@ class TestTemplateManagerSettings:
 
 
 class TestTemplateManagerFiles:
-    def test_a_saved_setup_loads_without_warnings(self, tmp_path, no_deprecation_warnings):
+    def test_a_saved_setup_loads_without_warnings(self, tmp_path):
         saved = TemplateManager(llm_client=None)
         saved.use_random_mode(templates=["One: [DISPLAY_SPANS]", "Two: [DISPLAY_SPANS]"])
         saved.save(str(tmp_path / "templates.json"))
@@ -496,7 +488,7 @@ class TestStructuredModeCallbacks:
 
         assert answer == "The structured answer."
 
-    def test_a_rag_system_given_to_the_constructor_does_not_warn(self, no_deprecation_warnings):
+    def test_a_rag_system_given_to_the_constructor_does_not_warn(self):
         rag = FakeRAG()
         tm = TemplateManager(llm_client=None, rag_system=rag)
 

@@ -4,7 +4,6 @@ import json
 import logging
 import sys
 import types
-import warnings
 
 import pytest
 from verbatim_core import ConfigurationError, VerbatimDeprecationWarning
@@ -31,13 +30,6 @@ class WordEmbedder:
 
 
 @pytest.fixture
-def no_deprecation_warnings():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", VerbatimDeprecationWarning)
-        yield
-
-
-@pytest.fixture
 def sentence_transformers(monkeypatch):
     """A fake sentence-transformers. Its models record how they were loaded."""
     loaded = []
@@ -55,9 +47,7 @@ def sentence_transformers(monkeypatch):
 
 
 class TestChoosingATemplate:
-    def test_the_question_chooses_the_template_of_the_closest_example(
-        self, no_deprecation_warnings
-    ):
+    def test_the_question_chooses_the_template_of_the_closest_example(self):
         strategy = QuestionSpecificTemplate(TEMPLATES, embedder=WordEmbedder())
 
         assert strategy.generate("When did the bridge open?", [], 0) == TEMPLATES[0]["template"]
@@ -91,12 +81,12 @@ class TestChoosingATemplate:
 
         assert strategy.generate("How tall is it?", [], 0) == TEMPLATES[0]["template"]
 
-    def test_without_templates_the_default_template_is_used(self, no_deprecation_warnings):
+    def test_without_templates_the_default_template_is_used(self):
         assert QuestionSpecificTemplate().generate("Q?", [], 0) == (
             QuestionSpecificTemplate.DEFAULT_TEMPLATE
         )
 
-    def test_the_template_manager_takes_the_embedder(self, no_deprecation_warnings):
+    def test_the_template_manager_takes_the_embedder(self):
         templates = TemplateManager()
 
         assert templates.use_question_specific_mode(TEMPLATES, embedder=WordEmbedder()) is True
@@ -184,7 +174,7 @@ class TestLoadingByName:
 
 
 class TestSavedTemplates:
-    def test_loading_a_saved_setup_reuses_the_embedder(self, tmp_path, no_deprecation_warnings):
+    def test_loading_a_saved_setup_reuses_the_embedder(self, tmp_path):
         saved = TemplateManager()
         saved.use_question_specific_mode(TEMPLATES, embedder=WordEmbedder())
         saved.save(str(tmp_path / "templates.json"))

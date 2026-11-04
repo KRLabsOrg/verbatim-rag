@@ -13,7 +13,6 @@ import logging
 import os
 import re
 import sys
-import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -28,6 +27,7 @@ from verbatim_core.extractors import (
 from verbatim_core.llm_client import LLMClient
 from verbatim_core.providers import RAGProvider
 from verbatim_core.templates import TemplateManager
+from verbatim_core.templates.random import RandomTemplate
 
 RECORDINGS = Path(__file__).parent / "recordings"
 
@@ -125,6 +125,10 @@ def test_no_chunk_repeats_the_text_of_its_spans():
 # The fake OpenAI client
 
 
+# What the fake LLM writes when asked for random templates
+# One per line, as the prompt asks
+GENERATED_TEMPLATES = ["**What the sources say:** [DISPLAY_SPANS]", "### In short: [DISPLAY_SPANS]"]
+
 DOCUMENT_ENTRY = re.compile(r'"(doc(?:_\d+)?)": ("(?:[^"\\]|\\.)*")')
 SPAN_PLACEHOLDERS = re.compile(r"\[SPAN_1\]\.\.\[SPAN_(\d+)\]")
 
@@ -134,6 +138,8 @@ def complete(messages, response_format=None, **settings):
     if response_format:
         documents = DOCUMENT_ENTRY.findall(prompt)
         content = json.dumps({key: QUOTES[json.loads(text)] for key, text in documents})
+    elif "diverse answer templates" in prompt:
+        content = "\n".join(GENERATED_TEMPLATES)
     else:
         count = int(SPAN_PLACEHOLDERS.search(prompt).group(1))
         content = "The sources say:\n" + "\n".join(f"- [SPAN_{i}]" for i in range(1, count + 1))
@@ -366,12 +372,6 @@ class TestVerbatimTransform:
 
 
 class TestEnhance:
-    @pytest.fixture(autouse=True)
-    def no_deprecation_warnings(self):
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", VerbatimDeprecationWarning)
-            yield
-
     def test_decorator(self):
         from verbatim_core.enhance import verbatim_enhance
 
@@ -656,3 +656,145 @@ class TestAPIStreamRoute:
             if not record.name.endswith(".content"):
                 logged = caplog.handler.format(record)
                 assert not [text for text in customer_texts if text in logged]
+
+
+# The verbatim-rag CLI, whose embedding model and Milvus store stand in for the in-memory index
+
+
+class ChunkStore:
+    def __init__(self, **settings):
+        pass
+
+    def query(self, *args, top_k=5, **settings):
+        return InMemoryIndex().query(k=top_k)
+
+
+class OneDimensionEmbedder:
+    def __init__(self, **settings):
+        pass
+
+    def embed_text(self, text):
+        return [1.0]
+
+    def get_dimension(self):
+        return 1
+
+
+class TestVerbatimRAGCLI:
+    @pytest.fixture
+    def run(self, monkeypatch):
+        cli = pytest.importorskip("verbatim_rag.cli")
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        # The CLI loads an embedding model and opens a Milvus file itself
+        monkeypatch.setattr(
+            "verbatim_rag.embedding_providers.SentenceTransformersProvider", OneDimensionEmbedder
+        )
+        monkeypatch.setattr("verbatim_rag.vector_stores.LocalMilvusStore", ChunkStore)
+
+        def _run(*arguments):
+            cli.main(list(arguments))
+
+        return _run
+
+    @pytest.mark.parametrize(
+        "template_mode, options", [("static", []), ("contextual", ["--contextual-templates"])]
+    )
+    def test_query(self, run, tmp_path, template_mode, options):
+        output = tmp_path / "response.json"
+
+        run(
+            "query",
+            *("--index", str(tmp_path / "index.db"), "--question", QUESTION),
+            *("--num-docs", "4", "--max-display", "3", "--output", str(output), *options),
+        )
+
+        assert_recorded(f"verbatim_rag_query_{template_mode}", json.loads(output.read_text()))
+
+    def test_query_answers_with_the_templates_of_the_template_command(self, run, tmp_path, capsys):
+        templates, output = tmp_path / "templates.json", tmp_path / "response.json"
+
+        run("template", "--questions", QUESTION, "--output", str(templates))
+        defaults = len(RandomTemplate.DEFAULT_TEMPLATES)
+        assert f"Added 2 templates to the {defaults} default ones" in capsys.readouterr().out
+        run(
+            "query",
+            *("--index", str(tmp_path / "index.db"), "--question", QUESTION),
+            *("--templates", str(templates), "--output", str(output)),
+        )
+
+        saved = json.loads(templates.read_text())
+        assert saved["current_mode"] == "random"
+        pool = saved["strategies"]["random"]["templates"]
+        assert set(GENERATED_TEMPLATES) <= set(pool)
+        # Written with one of the saved templates, not the static one
+        answer = json.loads(output.read_text())["answer"]
+        assert answer.startswith(tuple(template.split("[DISPLAY_SPANS]")[0] for template in pool))
+
+    def test_query_prints_the_citations_by_their_type(self, run, tmp_path, capsys):
+        # A template that shows the first of the three displayed spans: the others are references
+        templates, output = tmp_path / "templates.json", tmp_path / "response.json"
+        one_span = TemplateManager()
+        one_span.use_random_mode(["Only this: [SPAN_1]"])
+        one_span.save(str(templates))
+
+        run(
+            "query",
+            *("--index", str(tmp_path / "index.db"), "--question", QUESTION, "--verbose"),
+            *("--max-display", "3", "--templates", str(templates), "--output", str(output)),
+        )
+
+        printed = capsys.readouterr().out
+        types = [
+            c["type"] for c in json.loads(output.read_text())["structured_answer"]["citations"]
+        ]
+        displayed, references = types.count("display"), types.count("reference")
+        assert displayed == 1
+        assert f"({displayed} displayed, {references} as references)" in printed
+        assert printed.count("(displayed):") == displayed
+        assert printed.count("(reference):") == references
+
+    def test_a_negative_number_of_displayed_spans_is_an_error(self, run, tmp_path, capsys):
+        output = tmp_path / "response.json"
+
+        run(
+            "query",
+            *("--index", str(tmp_path / "index.db"), "--question", QUESTION),
+            *("--max-display", "-1", "--output", str(output)),
+        )
+
+        assert "Error:" in capsys.readouterr().out
+        assert not output.exists()
+
+    def test_num_docs_is_the_k_of_the_query(self, run, tmp_path):
+        output = tmp_path / "response.json"
+
+        run(
+            "query",
+            *("--index", str(tmp_path / "index.db"), "--question", QUESTION),
+            *("--num-docs", "2", "--output", str(output)),
+        )
+
+        assert len(json.loads(output.read_text())["documents"]) == 2
+
+    @pytest.mark.parametrize("mode, calls", [("batch", 1), ("individual", 4)])
+    def test_the_extraction_mode_applies(self, run, tmp_path, monkeypatch, mode, calls):
+        extraction_prompts = []
+
+        def recording(messages, response_format=None, **settings):
+            if response_format:
+                extraction_prompts.append(messages[-1]["content"])
+            return complete(messages, response_format, **settings)
+
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=SimpleNamespace(create=recording))
+        )
+        openai = SimpleNamespace(OpenAI=lambda **settings: client, AsyncOpenAI=FakeAsyncOpenAI)
+        monkeypatch.setattr("verbatim_core.llm_client.openai", openai)
+
+        run(
+            "query",
+            *("--index", str(tmp_path / "index.db"), "--question", QUESTION),
+            *("--num-docs", "4", "--extraction-mode", mode),
+        )
+
+        assert len(extraction_prompts) == calls

@@ -104,3 +104,5 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Library code must not call deprecated names; tests that do expect the warning with pytest.warns
+filterwarnings = ["error::verbatim_core.VerbatimDeprecationWarning"]

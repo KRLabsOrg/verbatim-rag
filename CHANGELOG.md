@@ -104,6 +104,8 @@ All notable changes to this project will be documented in this file.
   which take a loaded embedding model (#94). The template examples are embedded when the
   templates are built, and each question with the same model, so no call loads a model.
   `from_pretrained` logs the event `model_loaded` at INFO.
+- `VerbatimDOC(rag, k=...)`, the number of chunks each query retrieves (#98). Without it,
+  `VerbatimDOC` retrieves `rag.k` chunks as before: 5, or the deprecated `VerbatimRAG(k=...)`.
 
 ### Changed
 - A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
@@ -203,6 +205,11 @@ All notable changes to this project will be documented in this file.
   `ValueError`, before any LLM call. This includes metadata that isn't a dict with string keys,
   and a title or source that isn't a string. `InvalidInputError` is a `ValueError`, but
   `except TypeError` no longer catches a context item that isn't a dict (#95).
+- `VerbatimDOC` extracts with `aextract`, from the chunks of the retrieved rows (#98). An
+  extractor that implements only `extract_spans` still works and warns. A query that fails makes
+  `process`, `process_interactive` and `stream_process` raise its error, such as an
+  `UpstreamError` for a failed LLM call (ADR 0006). Before, the document said "No relevant
+  information found." in its place.
 
 ### Deprecated
 - Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
@@ -240,7 +247,7 @@ All notable changes to this project will be documented in this file.
   `QuestionSpecificTemplate.from_pretrained(model_name)` or pass `embedder` (#94).
 - `VerbatimRAG` without a `transformer`, and its arguments `model`, `k`, `template_manager`,
   `extractor`, `max_display_spans`, `template_mode` and `extraction_mode`. Pass a `Transformer`,
-  and `k` to `query` (#96).
+  and `k` to `query` (#96), or to `VerbatimDOC(rag, k=...)` (#98).
 - Assigning `VerbatimRAG.extractor`, `template_manager` or `max_display_spans`. Pass a
   `Transformer` with the extractor, templates and config (#96).
 - `verbatim_rag.document.Chunk`. Use `DocumentChunk` (#96).
@@ -254,6 +261,11 @@ All notable changes to this project will be documented in this file.
   `verbatim_core` (#95).
 
 ### Fixed
+- The `verbatim-rag` CLI's `query` and `template` commands, which failed with a `TypeError`
+  (#98). `query` answers with a `Transformer`: `--max-display`, `--extraction-mode` and
+  `--contextual-templates` apply, `--num-docs` is the `k` of the query, and the citations are
+  counted as displayed or as references by their type. `template` saves the random templates
+  the LLM writes, and `query --templates` answers with them.
 - `VerbatimRAG.query` and `query_async` mark as `display` exactly the citations whose spans
   the answer shows, as the streaming path already did. They counted the retrieved chunks
   instead, so with more chunks than shown spans, cited-only spans were marked as displayed,

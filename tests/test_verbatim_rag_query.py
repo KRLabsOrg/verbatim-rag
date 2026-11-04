@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
-from verbatim_core import Transformer
+from verbatim_core import ExtractedSpan, Extraction, Transformer
 from verbatim_core.extractors import SpanExtractor
 from verbatim_core.templates import TemplateManager
 
@@ -20,8 +20,17 @@ CITED_ONLY_SPANS = ["Beta three.", "Gamma one.", "Gamma two."]
 
 
 class FixedSpanExtractor(SpanExtractor):
-    def extract_spans(self, question, search_results):
-        return {result.text: CHUNK_SPANS[result.text] for result in search_results}
+    def extract(self, question, chunks, *, config=None):
+        spans = []
+        for chunk in chunks:
+            for text in CHUNK_SPANS[chunk.text]:
+                start = chunk.text.index(text)
+                spans.append(
+                    ExtractedSpan(
+                        chunk_id=chunk.id, start=start, end=start + len(text), text=text, score=1.0
+                    )
+                )
+        return Extraction(spans=spans)
 
 
 class InMemoryIndex:

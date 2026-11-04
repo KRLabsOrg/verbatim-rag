@@ -87,7 +87,7 @@ class VerbatimRAGProvider(RAGProvider):
     """Adapter that treats VerbatimRAG as a retrieval provider.
 
     It delegates retrieval to the underlying index; generation is intentionally
-    not implemented here (verbatim transformation is handled by VerbatimTransform).
+    not implemented here (a Transformer writes the verbatim answer).
     """
 
     def __init__(self, rag: VerbatimRAG):
