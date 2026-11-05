@@ -14,6 +14,7 @@ import asyncio
 from verbatim_core import Transformer
 from verbatim_core.extractors import LLMSpanExtractor
 from verbatim_core.templates import TemplateManager
+
 from verbatim_rag import Document, VerbatimIndex, VerbatimRAG
 from verbatim_rag.core import LLMClient
 from verbatim_rag.document import ChunkType, DocumentChunk, DocumentType, ProcessedChunk
@@ -54,7 +55,7 @@ async def demo_verbatim_doc():
         
         The main conclusion is that combining enhanced attention mechanisms with contrastive learning
         creates a robust framework for language understanding with broad applicability.
-        """,
+        """,  # noqa: W291, W293
     )
 
     # Process into chunks
@@ -127,7 +128,7 @@ The system achieved [!query=what accuracy was achieved] showing significant adva
 
 ---
 *Generated using VerbatimDOC with embedded RAG queries*
-"""
+"""  # noqa: W291
 
     print("-" * 60)
     print(template)
@@ -172,7 +173,7 @@ The system achieved [!query=what accuracy was achieved] showing significant adva
             qr.approved = True  # Auto-approve for demo
 
         # Generate final document
-        final_doc = doc_processor.finalize(original_text, query_results)
+        final_doc = doc_processor.finalize(original_text, query_results)  # noqa: F841
 
         approved_count = sum(1 for r in query_results if r.approved)
         print(

@@ -6,25 +6,29 @@ import sys
 import types
 
 import pytest
-import verbatim_core.extractor_models
+import verbatim_core
 from verbatim_core.extractors import ModelSpanExtractor
 
-DATASET_MODULE = "verbatim_core.extractor_models.dataset"
+PACKAGE = "verbatim_core.extractor_models"
+DATASET_MODULE = f"{PACKAGE}.dataset"
 
 
 @pytest.fixture
 def import_dataset_module():
-    """Imports the dataset module against the packages a test fakes, and forgets it afterwards."""
-    package = verbatim_core.extractor_models
-    saved_module = sys.modules.pop(DATASET_MODULE, None)
-    saved_attribute = vars(package).pop("dataset", None)
+    """Imports the dataset module against the packages a test fakes, and forgets it afterwards.
+
+    The package imports the dataset module and binds its classes, so the package goes too.
+    """
+    names = (PACKAGE, DATASET_MODULE)
+    saved_modules = {name: sys.modules.pop(name) for name in names if name in sys.modules}
+    saved_attribute = vars(verbatim_core).pop("extractor_models", None)
     yield lambda: importlib.import_module(DATASET_MODULE)
-    sys.modules.pop(DATASET_MODULE, None)
-    vars(package).pop("dataset", None)
-    if saved_module is not None:
-        sys.modules[DATASET_MODULE] = saved_module
+    for name in names:
+        sys.modules.pop(name, None)
+    vars(verbatim_core).pop("extractor_models", None)
+    sys.modules.update(saved_modules)
     if saved_attribute is not None:
-        package.dataset = saved_attribute
+        verbatim_core.extractor_models = saved_attribute
 
 
 class TestModelSpanExtractorWarnings:

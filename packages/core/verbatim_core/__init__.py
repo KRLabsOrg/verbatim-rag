@@ -1,5 +1,4 @@
-"""
-Lightweight, RAG-agnostic core for verbatim transformation.
+"""Lightweight, RAG-agnostic core for verbatim transformation.
 
 This subpackage provides:
 - Transformer: question + chunks -> cited answer built from the chunks' text (sync/async/streaming)
@@ -10,47 +9,38 @@ This subpackage provides:
 - CLI: `verbatim-enhance` for batch processing JSON(L)
 """
 
-from ._deprecation import VerbatimDeprecationWarning
-from .enhance import verbatim_enhance
-from .errors import ConfigurationError, InvalidInputError, UpstreamError, VerbatimError
-from .providers import RAGProvider
-from .transform import VerbatimTransform, verbatim_query, verbatim_query_async
-from .transformer import AnswerEvent, SpansEvent, TransformConfig, Transformer, TransformEvent
-from .types import (
-    Answer,
-    AnswerCitation,
-    Chunk,
-    ExtractedSpan,
-    Extraction,
-    ResultWarning,
-    Span,
-    Usage,
-)
-from .universal_document import UniversalDocument
+from verbatim_core._deprecation import VerbatimDeprecationWarning
+from verbatim_core.enhance import verbatim_enhance
+from verbatim_core.errors import ConfigurationError, InvalidInputError, UpstreamError, VerbatimError
+from verbatim_core.providers import RAGProvider
+from verbatim_core.transform import VerbatimTransform, verbatim_query, verbatim_query_async
+from verbatim_core.transformer import AnswerEvent, SpansEvent, TransformConfig, Transformer, TransformEvent
+from verbatim_core.types import Answer, AnswerCitation, Chunk, ExtractedSpan, Extraction, ResultWarning, Span, Usage
+from verbatim_core.universal_document import UniversalDocument
 
 __all__ = [
-    "Transformer",
+    "Answer",
+    "AnswerCitation",
+    "AnswerEvent",
+    "Chunk",
+    "ConfigurationError",
+    "ExtractedSpan",
+    "Extraction",
+    "InvalidInputError",
+    "RAGProvider",
+    "ResultWarning",
+    "Span",
+    "SpansEvent",
     "TransformConfig",
     "TransformEvent",
-    "SpansEvent",
-    "AnswerEvent",
+    "Transformer",
+    "UniversalDocument",
+    "UpstreamError",
+    "Usage",
+    "VerbatimDeprecationWarning",
+    "VerbatimError",
     "VerbatimTransform",
+    "verbatim_enhance",
     "verbatim_query",
     "verbatim_query_async",
-    "RAGProvider",
-    "UniversalDocument",
-    "verbatim_enhance",
-    "VerbatimError",
-    "InvalidInputError",
-    "ConfigurationError",
-    "UpstreamError",
-    "Chunk",
-    "Span",
-    "ExtractedSpan",
-    "Usage",
-    "ResultWarning",
-    "Extraction",
-    "AnswerCitation",
-    "Answer",
-    "VerbatimDeprecationWarning",
 ]

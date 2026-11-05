@@ -118,6 +118,10 @@ replacement.
   `VerbatimDOC` retrieves `rag.k` chunks as before: 5, or the deprecated `VerbatimRAG(k=...)`.
 - The documentation has a migration page from each 0.2 entry point to its replacement, and a
   reference of the error codes, result warning codes and log events the library emits (#99).
+- [prek](https://prek.j178.dev) git hooks (`prek.toml`): builtin file checks, Ruff
+  check/format and `uv-lock`/`uv-export` run on pre-commit; pytest, package build with
+  `twine check`, and `pip-audit` run on pre-push. `api/`, `frontend/` and `docs/` are excluded
+  for now. Install with `uv tool install prek && prek install` (see `CONTRIBUTING.md`).
 
 ### Changed
 - One span gives one highlight and one citation: text that repeats in a chunk is highlighted and
@@ -234,6 +238,10 @@ replacement.
   `process`, `process_interactive` and `stream_process` raise its error, such as an
   `UpstreamError` for a failed LLM call (ADR 0006). Before, the document said "No relevant
   information found." in its place.
+- CI now runs the prek hooks (`j178/prek-action`) instead of separate Ruff, package-build and
+  `pip-audit` jobs; the Python 3.10–3.12 test matrix is unchanged.
+- `verbatim-core` lint cleanup (#80): the package has its own `ruff.toml`, imports in
+  `llm_client` moved to module level, and out-of-scope rules are suppressed inline.
 
 ### Deprecated
 

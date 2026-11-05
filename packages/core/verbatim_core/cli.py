@@ -1,19 +1,26 @@
+"""Command-line interface for enhancing JSON(L) records with verbatim transforms."""
+
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
-from typing import Any, Dict, Iterable, List
+from pathlib import Path
+from typing import IO, TYPE_CHECKING, Any
 
-from ._context import _default_transformer, _query_response
-from .llm_client import LLMClient
+from verbatim_core._context import _default_transformer, _query_response
+from verbatim_core.llm_client import LLMClient
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
-def _iter_records(fp) -> Iterable[Dict[str, Any]]:
+def _iter_records(fp: IO[str]) -> Iterable[dict[str, Any]]:
     """Yield JSON objects from a file path or stdin. Supports JSONL or JSON array."""
     try:
         data = fp.read()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # unreadable input yields no records
         print(f"Error reading input: {e}", file=sys.stderr)
         return
     data = (data or "").strip()
@@ -22,48 +29,44 @@ def _iter_records(fp) -> Iterable[Dict[str, Any]]:
     # Try JSONL first
     if "\n" in data and not data.startswith("["):
         for line in data.splitlines():
-            line = line.strip()
-            if not line:
+            stripped = line.strip()
+            if not stripped:
                 continue
             try:
-                yield json.loads(line)
-            except Exception as e:
+                yield json.loads(stripped)
+            except Exception as e:  # noqa: BLE001  # a malformed line is skipped
                 print(f"Skipping malformed JSONL line: {e}", file=sys.stderr)
     else:
         try:
             obj = json.loads(data)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # invalid JSON yields no records
             print(f"Malformed JSON input: {e}", file=sys.stderr)
             return
         if isinstance(obj, list):
-            for item in obj:
-                yield item
+            yield from obj
         else:
             yield obj
 
 
-def main(argv: List[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
+    """Run the CLI and return the process exit code."""
     p = argparse.ArgumentParser(description="Verbatim enhance JSON(L) records")
     p.add_argument("--input", "-i", help="Input file (JSON or JSONL). Defaults to stdin.")
     p.add_argument("--output", "-o", help="Output file (JSONL). Defaults to stdout.")
     p.add_argument("--max-spans", type=int, default=5, help="Max display spans")
     args = p.parse_args(argv)
 
-    fin = open(args.input, "r", encoding="utf-8") if args.input else sys.stdin
-    fout = open(args.output, "w", encoding="utf-8") if args.output else sys.stdout
+    with contextlib.ExitStack() as stack:
+        fin = stack.enter_context(Path(args.input).open(encoding="utf-8")) if args.input else sys.stdin
+        fout = stack.enter_context(Path(args.output).open("w", encoding="utf-8")) if args.output else sys.stdout
 
-    transformer = _default_transformer(LLMClient(), args.max_spans)
+        transformer = _default_transformer(LLMClient(), args.max_spans)
 
-    for rec in _iter_records(fin) or []:
-        question = rec.get("question") or ""
-        context = rec.get("context") or rec.get("sources") or []
-        resp = _query_response(transformer, question, context)
-        fout.write(json.dumps(resp.model_dump()) + "\n")
-
-    if fin is not sys.stdin:
-        fin.close()
-    if fout is not sys.stdout:
-        fout.close()
+        for rec in _iter_records(fin) or []:
+            question = rec.get("question") or ""
+            context = rec.get("context") or rec.get("sources") or []
+            resp = _query_response(transformer, question, context)
+            fout.write(json.dumps(resp.model_dump()) + "\n")
     return 0
 
 

@@ -1,5 +1,4 @@
-"""
-Contextual template strategy for the Verbatim RAG system.
+"""Contextual template strategy for the Verbatim RAG system.
 
 Provides LLM-powered template generation that creates contextually appropriate
 templates based on the question and available spans. Supports both per-span
@@ -7,22 +6,25 @@ and aggregate placeholders.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+from typing_extensions import override
 
 from verbatim_core._logging import content_logger
 from verbatim_core.errors import UpstreamError
 from verbatim_core.llm_client import Completion, LLMClient, _replaces
+from verbatim_core.templates.base import TemplateResult, TemplateStrategy
+from verbatim_core.templates.filler import TemplateFiller
 from verbatim_core.types import ResultWarning, Usage
-
-from .base import TemplateResult, TemplateStrategy
-from .filler import TemplateFiller
 
 logger = logging.getLogger(__name__)
 
+# Per-span placeholders are used for at most this many spans, aggregate placeholders for more.
+_MAX_PER_FACT_SPANS = 8
+
 
 class ContextualTemplate(TemplateStrategy):
-    """
-    Contextual template strategy using LLM generation.
+    """Contextual template strategy using LLM generation.
 
     This strategy generates templates dynamically based on the question,
     available spans, and citation count.
@@ -34,29 +36,32 @@ class ContextualTemplate(TemplateStrategy):
         use_per_fact: bool = True,
         citation_mode: str = "inline",
         citation_format: str = "[{number}]",
-        template_preview_chars: Optional[int] = 100,
+        template_preview_chars: int | None = 100,
         preserve_span_newlines: bool = False,
-        template_prompt: Optional[str] = None,
-        system_prompt: Optional[str] = None,
-    ):
-        """
-        :param llm_client: LLM client for template generation.
-        :param use_per_fact: Whether to prefer per-span placeholders (≤8 spans).
-        :param citation_mode: "inline" or "hidden".
-        :param citation_format: Marker format string; see TemplateFiller.
-        :param template_preview_chars: Max chars shown per span in the
-            template-generation prompt. None = full span, no truncation.
-            Default 100 reproduces pre-0.2.8 behaviour.
-        :param preserve_span_newlines: When False (default), newlines inside
-            spans are collapsed to a space before the template LLM sees them.
-            Set True to let the template LLM see multi-line structure.
-        :param template_prompt: Custom Jinja2 template string used instead of
-            the bundled per_fact.txt / aggregate.txt prompt. Receives the same
-            variables: question, n_spans, citation_count, and either
-            spans_block (per-fact) or span_preview (aggregate) depending on
-            use_per_fact. None → use bundled prompts.
-        :param system_prompt: Optional system message passed to the LLM during
-            template generation. None → no system message.
+        template_prompt: str | None = None,
+        system_prompt: str | None = None,
+    ) -> None:
+        """Initialize the contextual template strategy.
+
+        Args:
+            llm_client: LLM client for template generation.
+            use_per_fact: Whether to prefer per-span placeholders (≤8 spans).
+            citation_mode: "inline" or "hidden".
+            citation_format: Marker format string; see TemplateFiller.
+            template_preview_chars: Max chars shown per span in the
+                template-generation prompt. None = full span, no truncation.
+                Default 100 reproduces pre-0.2.8 behaviour.
+            preserve_span_newlines: When False (default), newlines inside
+                spans are collapsed to a space before the template LLM sees them.
+                Set True to let the template LLM see multi-line structure.
+            template_prompt: Custom Jinja2 template string used instead of
+                the bundled per_fact.txt / aggregate.txt prompt. Receives the same
+                variables: question, n_spans, citation_count, and either
+                spans_block (per-fact) or span_preview (aggregate) depending on
+                use_per_fact. None → use bundled prompts.
+            system_prompt: Optional system message passed to the LLM during
+                template generation. None → no system message.
+
         """
         self.llm_client = llm_client
         self.use_per_fact = use_per_fact
@@ -68,18 +73,44 @@ class ContextualTemplate(TemplateStrategy):
         self.system_prompt = system_prompt
         self.filler = TemplateFiller(citation_mode=citation_mode, citation_format=citation_format)
 
-        self._template_cache: Dict[str, str] = {}
+        self._template_cache: dict[str, str] = {}
         self._max_cache_size = 100
 
     def set_citation_mode(self, citation_mode: str) -> None:
+        """Set how the filled templates render citations.
+
+        Args:
+            citation_mode: "inline" or "hidden".
+
+        """
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
     def set_citation_format(self, citation_format: str) -> None:
+        """Set the citation marker of the filled templates.
+
+        Args:
+            citation_format: Marker format string; see TemplateFiller.
+
+        """
         self.citation_format = citation_format
         self.filler.citation_format = citation_format
 
-    def generate(self, question: str, spans: List[str], citation_count: int = 0) -> str:
+    def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
+        """Generate a template with the LLM, cached by the question and the spans.
+
+        Without spans, or when the LLM call fails with an `UpstreamError`, the template is the
+        fallback template.
+
+        Args:
+            question: The user's question.
+            spans: The span texts that will fill the template.
+            citation_count: Number of citation-only spans.
+
+        Returns:
+            Template string with placeholders.
+
+        """
         if not spans:
             return self._get_fallback_template(citation_count > 0)
 
@@ -88,19 +119,19 @@ class ContextualTemplate(TemplateStrategy):
             return self._template_cache[cache_key]
 
         try:
-            template = self.llm_client.generate_template(
-                **self._template_request(question, spans, citation_count)
-            )
+            template = self.llm_client.generate_template(**self._template_request(question, spans, citation_count))
 
             template = self._post_process_template(template, citation_count)
             self._cache_template(cache_key, template)
-            return template
 
         except UpstreamError as e:
             _log_fallback(e.code)
             return self._get_fallback_template(citation_count > 0)
+        else:
+            return template
 
-    async def generate_async(self, question: str, spans: List[str], citation_count: int = 0) -> str:
+    async def generate_async(self, question: str, spans: list[str], citation_count: int = 0) -> str:
+        """Async version of `generate`."""
         if not spans:
             return self._get_fallback_template(citation_count > 0)
 
@@ -115,17 +146,18 @@ class ContextualTemplate(TemplateStrategy):
 
             template = self._post_process_template(template, citation_count)
             self._cache_template(cache_key, template)
-            return template
 
         except UpstreamError as e:
             _log_fallback(e.code)
             return self._get_fallback_template(citation_count > 0)
+        else:
+            return template
 
+    @override
     def generate_result(
-        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+        self, question: str, spans: list[str], citation_count: int = 0, *, seed: int | None = None
     ) -> TemplateResult:
-        """
-        Ask the LLM for a template, without the cache.
+        """Ask the LLM for a template, without the cache.
 
         When the LLM call fails with an `UpstreamError`, or the LLM sends an empty template, the
         result is the fallback template with the warning `template_fallback`. Other errors
@@ -145,8 +177,9 @@ class ContextualTemplate(TemplateStrategy):
             return self._fallback_result(citation_count, error.code)
         return self._template_result(completion, spans, citation_count)
 
+    @override
     async def generate_result_async(
-        self, question: str, spans: List[str], citation_count: int = 0, *, seed: int | None = None
+        self, question: str, spans: list[str], citation_count: int = 0, *, seed: int | None = None
     ) -> TemplateResult:
         """Async version of `generate_result`."""
         if not spans:
@@ -161,32 +194,26 @@ class ContextualTemplate(TemplateStrategy):
             return self._fallback_result(citation_count, error.code)
         return self._template_result(completion, spans, citation_count)
 
-    def _template_request(
-        self, question: str, spans: List[str], citation_count: int
-    ) -> Dict[str, Any]:
+    def _template_request(self, question: str, spans: list[str], citation_count: int) -> dict[str, Any]:
         return {
             "question": question,
             "spans": spans,
             "citation_count": citation_count,
-            "use_per_fact": self.use_per_fact and len(spans) <= 8,
+            "use_per_fact": self.use_per_fact and len(spans) <= _MAX_PER_FACT_SPANS,
             "template_preview_chars": self.template_preview_chars,
             "preserve_span_newlines": self.preserve_span_newlines,
             "template_prompt": self.template_prompt,
             "system_prompt": self.system_prompt,
         }
 
-    def _template_result(
-        self, completion: Completion, spans: List[str], citation_count: int
-    ) -> TemplateResult:
+    def _template_result(self, completion: Completion, spans: list[str], citation_count: int) -> TemplateResult:
         units = {
             "llm_calls": 1,
             "spans": len(spans),
             "characters": sum(len(span) for span in spans),
         }
         if completion.input_tokens is not None and completion.output_tokens is not None:
-            units.update(
-                input_tokens=completion.input_tokens, output_tokens=completion.output_tokens
-            )
+            units.update(input_tokens=completion.input_tokens, output_tokens=completion.output_tokens)
         usage = Usage(
             model_id=getattr(self.llm_client, "model", None),
             model_version=completion.model,
@@ -200,9 +227,7 @@ class ContextualTemplate(TemplateStrategy):
         content_logger.debug("Template: %r", template)
         return TemplateResult(text=template, usage=[usage])
 
-    def _fallback_result(
-        self, citation_count: int, error_code: str, usage: Usage | None = None
-    ) -> TemplateResult:
+    def _fallback_result(self, citation_count: int, error_code: str, usage: Usage | None = None) -> TemplateResult:
         _log_fallback(error_code)
         warning = ResultWarning(
             code="template_fallback",
@@ -217,12 +242,28 @@ class ContextualTemplate(TemplateStrategy):
     def fill(
         self,
         template: str,
-        display_spans: List[Dict[str, Any]],
-        citation_spans: List[Dict[str, Any]],
+        display_spans: list[dict[str, Any]],
+        citation_spans: list[dict[str, Any]],
     ) -> str:
+        """Fill the template's placeholders with the spans and their citations.
+
+        Args:
+            template: Template string with placeholders.
+            display_spans: Spans to display with full text.
+            citation_spans: Spans for citation reference only.
+
+        Returns:
+            The filled template.
+
+        """
         return self.filler.fill(template, display_spans, citation_spans)
 
-    def save_state(self) -> Dict[str, Any]:
+    def save_state(self) -> dict[str, Any]:
+        """Return the settings to save, which `load_state` restores.
+
+        The state also names the model and temperature of the LLM client, which `load_state`
+        doesn't change.
+        """
         return {
             "type": "contextual",
             "use_per_fact": self.use_per_fact,
@@ -233,7 +274,16 @@ class ContextualTemplate(TemplateStrategy):
             "preserve_span_newlines": self.preserve_span_newlines,
         }
 
-    def load_state(self, state: Dict[str, Any]) -> None:
+    def load_state(self, state: dict[str, Any]) -> None:
+        """Restore the settings of a saved state.
+
+        The model and temperature of the saved state are only logged: they belong to the LLM
+        client, which the saved state doesn't change.
+
+        Args:
+            state: A state that `save_state` returned.
+
+        """
         self.use_per_fact = state.get("use_per_fact", True)
         if "citation_format" in state:
             self.set_citation_format(state["citation_format"])
@@ -250,13 +300,20 @@ class ContextualTemplate(TemplateStrategy):
             )
 
     def set_per_fact_mode(self, use_per_fact: bool) -> None:
+        """Choose between per-span and aggregate placeholders, and clear the template cache.
+
+        Args:
+            use_per_fact: Whether to prefer per-span placeholders (≤8 spans).
+
+        """
         self.use_per_fact = use_per_fact
         self._template_cache.clear()
 
     def clear_cache(self) -> None:
+        """Clear the cache of generated templates."""
         self._template_cache.clear()
 
-    def _create_cache_key(self, question: str, spans: List[str], citation_count: int) -> str:
+    def _create_cache_key(self, question: str, spans: list[str], citation_count: int) -> str:
         import hashlib
 
         span_sample = " | ".join(span[:30] for span in spans[:3])
@@ -264,7 +321,7 @@ class ContextualTemplate(TemplateStrategy):
             f"{question[:100]}|{span_sample}|{len(spans)}|{citation_count}|{self.use_per_fact}"
             f"|{self.template_preview_chars}|{self.preserve_span_newlines}"
         )
-        return hashlib.md5(key_string.encode()).hexdigest()[:12]
+        return hashlib.md5(key_string.encode()).hexdigest()[:12]  # noqa: S324  # template cache key, not for security
 
     def _cache_template(self, key: str, template: str) -> None:
         if len(self._template_cache) >= self._max_cache_size:

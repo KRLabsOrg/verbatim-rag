@@ -5,11 +5,10 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import List
 
 from rapidfuzz.fuzz import partial_ratio_alignment
 
-from .types import Chunk, ExtractedSpan
+from verbatim_core.types import Chunk, ExtractedSpan
 
 # The score of a span located from its text alone: "extracted without a score".
 UNSCORED = 1.0
@@ -42,16 +41,14 @@ def locate(text: str, chunk: Chunk, *, fuzzy_threshold: float | None = 0.8) -> E
             return None
         _, start, end = match
 
-    return ExtractedSpan(
-        chunk_id=chunk.id, start=start, end=end, text=chunk.text[start:end], score=UNSCORED
-    )
+    return ExtractedSpan(chunk_id=chunk.id, start=start, end=end, text=chunk.text[start:end], score=UNSCORED)
 
 
 @dataclass(frozen=True)
 class _NormalizedTokenText:
     text: str
-    original_token_offsets: List[tuple[int, int]]
-    normalized_token_offsets: List[tuple[int, int]]
+    original_token_offsets: list[tuple[int, int]]
+    normalized_token_offsets: list[tuple[int, int]]
 
 
 def find_fuzzy_match(quote: str, text: str) -> tuple[float, int, int] | None:
@@ -71,6 +68,9 @@ def find_fuzzy_match(quote: str, text: str) -> tuple[float, int, int] | None:
         return None
 
     result = partial_ratio_alignment(normalized_quote.text, normalized_text.text)
+    # RapidFuzz returns None only below a score cutoff, and there is none here.
+    if result is None:
+        return None
     offsets = _original_offsets(normalized_text, result.dest_start, result.dest_end)
     if offsets is None:
         return None
@@ -78,9 +78,9 @@ def find_fuzzy_match(quote: str, text: str) -> tuple[float, int, int] | None:
 
 
 def _normalize(text: str) -> _NormalizedTokenText:
-    parts: List[str] = []
-    original_token_offsets: List[tuple[int, int]] = []
-    normalized_token_offsets: List[tuple[int, int]] = []
+    parts: list[str] = []
+    original_token_offsets: list[tuple[int, int]] = []
+    normalized_token_offsets: list[tuple[int, int]] = []
     normalized_pos = 0
 
     for match in _FUZZY_TOKEN_RE.finditer(text):

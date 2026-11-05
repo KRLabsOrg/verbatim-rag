@@ -1,8 +1,7 @@
-"""
-Types shared by the stateless interfaces of verbatim_core.
+"""Types shared by the stateless interfaces of verbatim_core.
 
 Where they live is provisional: they may move to a package shared with other libraries.
-"""
+"""  # noqa: A005  # the module name is public API
 
 from __future__ import annotations
 
@@ -12,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, model_validat
 
 
 class HasText(Protocol):
+    """An object with a `text` attribute."""
+
     text: str
 
 
@@ -28,12 +29,10 @@ class Chunk(BaseModel):
 
     @model_validator(mode="after")
     def validate_source_offsets_in_order(self) -> Chunk:
-        if (
-            self.source_start is not None
-            and self.source_end is not None
-            and self.source_end < self.source_start
-        ):
-            raise ValueError("source_end must not precede source_start")
+        """Check that `source_end` doesn't precede `source_start`."""
+        if self.source_start is not None and self.source_end is not None and self.source_end < self.source_start:
+            msg = "source_end must not precede source_start"
+            raise ValueError(msg)
         return self
 
 
@@ -53,10 +52,13 @@ class Span(BaseModel):
 
     @model_validator(mode="after")
     def validate_text_fits_offsets(self) -> Span:
+        """Check that `end` is after `start` and that `text` is exactly as long as the offsets say."""
         if self.end <= self.start:
-            raise ValueError("end must be greater than start")
+            msg = "end must be greater than start"
+            raise ValueError(msg)
         if len(self.text) != self.end - self.start:
-            raise ValueError("text must be exactly as long as the span from start to end")
+            msg = "text must be exactly as long as the span from start to end"
+            raise ValueError(msg)
         return self
 
 
