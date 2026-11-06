@@ -13,7 +13,7 @@ from typing import Any, AsyncIterator, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict
 from verbatim_core import Answer, Chunk, ResultWarning, SpansEvent, TransformConfig, Transformer
-from verbatim_core._deprecation import _UNSET, warn_deprecated
+from verbatim_core._deprecation import warn_deprecated
 from verbatim_core.errors import ConfigurationError, UpstreamError
 from verbatim_core.templates import TemplateManager
 
@@ -53,6 +53,9 @@ Mark the relevant text:
 
 
 logger = logging.getLogger(__name__)
+
+# Marks the deprecated arguments that the caller didn't pass.
+_UNSET: Any = object()
 
 
 _USE_TRANSFORMER = "VerbatimRAG(index, transformer=Transformer(extractor, templates))"

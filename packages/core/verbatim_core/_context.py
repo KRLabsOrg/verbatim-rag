@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from verbatim_core.models import QueryResponse
 
 
+# The API server uses this: keep it within a minor version (tests/test_core_dependency.py).
 def _chunks_from_context(context: Iterable[Any]) -> list[Chunk]:
     """Build chunks with positional ids (ctx_0, ctx_1, ...) from context items.
 

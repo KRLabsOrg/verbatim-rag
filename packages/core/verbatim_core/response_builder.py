@@ -192,6 +192,7 @@ class ResponseBuilder:
         return answer.strip()
 
 
+# verbatim-rag's streaming module uses this: keep it within a minor version (tests/test_core_dependency.py).
 def _documents_and_citations(
     answer_citations: Sequence[AnswerCitation], chunks: Sequence[Chunk]
 ) -> tuple[list[DocumentWithHighlights], list[Citation]]:

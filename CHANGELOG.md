@@ -143,7 +143,8 @@ replacement.
   `ValueError`, before any LLM call. This includes metadata that isn't a dict with string keys,
   and a title or source that isn't a string. `InvalidInputError` is a `ValueError`, but
   `except TypeError` no longer catches a context item that isn't a dict (#95).
-- `verbatim-rag` now requires `verbatim-core>=0.3.0`.
+- `verbatim-rag` now requires `verbatim-core>=0.3.0,<0.4`, the core's minor version: it uses a few
+  private names of the core, which the core keeps within a minor version.
 - A `SpanExtractor` subclass that implements neither `extract` nor `extract_spans` raises
   `TypeError` when it is defined, not when it is instantiated (#90).
 - `LLMClient` translates the errors of the OpenAI client (#91). A rejected API key, model or

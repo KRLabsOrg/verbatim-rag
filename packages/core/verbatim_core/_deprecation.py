@@ -1,4 +1,8 @@
-"""Deprecation warnings for the public API of verbatim_core and verbatim_rag."""
+"""Deprecation warnings for the public API of verbatim_core and verbatim_rag.
+
+verbatim-rag uses `deprecated` and `warn_deprecated`: keep them within a minor version
+(tests/test_core_dependency.py).
+"""
 
 from __future__ import annotations
 
