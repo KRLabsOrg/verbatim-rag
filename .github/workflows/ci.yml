@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, stateless_core]
+    branches: [main]
   pull_request:
-    branches: [main, stateless_core]
+    branches: [main]
 
 permissions:
   contents: read
