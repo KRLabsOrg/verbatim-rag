@@ -114,25 +114,47 @@ class TestConstruction:
             transformer.templates,
         )
 
-    def test_the_transformer_may_be_passed_by_position(self):
+    @pytest.mark.parametrize(
+        "keywords",
+        [{}, {"k": 2}, {"extractor": OpenedExtractor()}, {"template_manager": TemplateManager()}],
+        ids=["alone", "k", "extractor", "template_manager"],
+    )
+    def test_a_transformer_passed_by_position_is_a_configuration_error(self, keywords):
+        # Behind it, the old arguments' keywords would be read as the new arguments' positions
         transformer = Transformer(OpenedExtractor(), TemplateManager())
 
-        assert verbatim_rag.VerbatimRAG(RecordingIndex(), transformer).transformer is transformer
+        with pytest.raises(ConfigurationError, match=r"transformer=") as raised:
+            verbatim_rag.VerbatimRAG(RecordingIndex(), transformer, **keywords)
 
-    def test_the_arguments_may_follow_the_transformer_by_position(self):
+        assert raised.value.code == "invalid_value"
+
+    def test_the_arguments_follow_a_transformer_by_keyword(self):
         transformer = Transformer(OpenedExtractor(), TemplateManager())
         llm_client, detector, reranker = StructuredLLM(), object(), ReversingReranker()
 
         rag = verbatim_rag.VerbatimRAG(
-            RecordingIndex(), transformer, llm_client, detector, reranker
+            RecordingIndex(),
+            transformer=transformer,
+            llm_client=llm_client,
+            intent_detector=detector,
+            reranker=reranker,
         )
 
-        assert (rag.llm_client, rag.intent_detector, rag.reranker, rag.k) == (
+        assert (rag.transformer, rag.llm_client, rag.intent_detector, rag.reranker, rag.k) == (
+            transformer,
             llm_client,
             detector,
             reranker,
             5,
         )
+
+    def test_k_next_to_a_transformer_keeps_its_meaning(self):
+        transformer = Transformer(OpenedExtractor(), TemplateManager())
+
+        with pytest.warns(VerbatimDeprecationWarning, match=r"VerbatimRAG\(k=\.\.\.\)"):
+            rag = verbatim_rag.VerbatimRAG(RecordingIndex(), transformer=transformer, k=2)
+
+        assert (rag.k, rag.llm_client) == (2, None)
 
     def test_without_a_transformer_it_builds_todays_and_warns(self):
         llm_client = types.SimpleNamespace(model="fake-llm", temperature=0.0)

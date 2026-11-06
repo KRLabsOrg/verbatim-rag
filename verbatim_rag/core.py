@@ -63,22 +63,6 @@ def _argument_or(value: Any, default: Any = None) -> Any:
     return default if value is _UNSET or value is None else value
 
 
-def _after_transformer(value: Any, keyword_value: Any, name: str) -> Any:
-    """An argument that followed a transformer passed by position, which arrives in the place of
-    an old argument.
-
-    :raises ConfigurationError: If the caller also passed it by keyword
-    """
-    if value is _UNSET:
-        return keyword_value
-    if keyword_value is not None:
-        raise ConfigurationError(
-            f"VerbatimRAG got {name} twice, by position and by keyword. Pass it once.",
-            code="invalid_value",
-        )
-    return value
-
-
 def _reranker_fallback(error: UpstreamError) -> ResultWarning:
     """Log that the reranker's service failed, and the warning of the response."""
     logger.warning(
@@ -125,7 +109,7 @@ class VerbatimRAG:
     def __init__(
         self,
         index: VerbatimIndex,
-        model: str | Transformer = _UNSET,
+        model: str = _UNSET,
         k: int = _UNSET,
         template_manager: TemplateManager = _UNSET,
         extractor: SpanExtractor = _UNSET,
@@ -142,8 +126,7 @@ class VerbatimRAG:
         Initialize the Verbatim RAG system.
 
         :param index: The index to search for relevant documents
-        :param transformer: Writes the answers from the retrieved chunks. It may also be passed
-            second, by position.
+        :param transformer: Writes the answers from the retrieved chunks. Pass it by keyword.
         :param llm_client: The LLM client of structured template mode, which answers without the
             transformer (ADR 0004)
         :param intent_detector: Optional detector that answers some questions without retrieval
@@ -152,18 +135,17 @@ class VerbatimRAG:
         :param k: Deprecated. Pass k to query.
         :param template_manager: Deprecated, with extractor, max_display_spans, template_mode and
             extraction_mode: without a transformer, VerbatimRAG builds one from them.
-        :raises ConfigurationError: If a transformer comes with the arguments that build one
+        :raises ConfigurationError: If a transformer comes by position, or with the arguments that
+            build one
         """
         if isinstance(model, Transformer):
-            # VerbatimRAG(index, transformer, llm_client, intent_detector, reranker), by position:
-            # the arguments after the transformer arrive in the old ones' places.
-            transformer, model = model, _UNSET
-            llm_client = _after_transformer(k, llm_client, "llm_client")
-            intent_detector = _after_transformer(
-                template_manager, intent_detector, "intent_detector"
+            # By position, the old arguments' places come first, so the arguments after a
+            # transformer can't be told from the old arguments' keywords.
+            raise ConfigurationError(
+                "VerbatimRAG got a transformer by position. Pass it by keyword: "
+                "VerbatimRAG(index, transformer=...).",
+                code="invalid_value",
             )
-            reranker = _after_transformer(extractor, reranker, "reranker")
-            k, template_manager, extractor = _UNSET, _UNSET, _UNSET
         if k is not _UNSET:
             warn_deprecated("VerbatimRAG(k=...)", use="query(question, k=...)")
         self.index = index
