@@ -25,8 +25,8 @@ selecting and displaying passages from retrieved context.
 Built-in verified extraction paths return evidence text from the supplied
 source. This is a provenance guarantee, not a truth guarantee: retrieval may be
 incomplete, a source may be wrong, and an extractor may choose an irrelevant or
-incomplete passage. The default contextual template may also generate
-presentation text around cited excerpts; use `template_mode="static"` when the
+incomplete passage. Contextual templates may also generate presentation text
+around cited excerpts; use static templates, `TemplateManager()`, when the
 framing must be fixed and deterministic.
 
 On the paper's 100-row ACL-Verbatim benchmark, the 150M-parameter
@@ -127,20 +127,45 @@ pip install verbatim-core
 ```
 
 ```python
-from verbatim_core import VerbatimTransform
+from verbatim_core import Chunk, Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates import TemplateManager
 
-vt = VerbatimTransform()
-response = vt.transform(
-    question="What is the main finding?",
-    context=[
-        {"content": "The study found that X leads to Y.", "title": "Paper A"},
-        {"content": "Results show Z is significant.", "title": "Paper B"},
-    ],
+client = LLMClient("gpt-4o-mini")
+transformer = Transformer(
+    LLMSpanExtractor(client),
+    TemplateManager(llm_client=client, default_mode="contextual"),
 )
-print(response.answer)
+
+question = "What is the main finding?"
+chunks = [
+    Chunk(id="paper-a", text="The study found that X leads to Y.", metadata={"title": "Paper A"}),
+    Chunk(
+        id="paper-b",
+        text="Results show Z is statistically significant.",
+        metadata={"title": "Paper B"},
+    ),
+]
+
+answer = transformer.transform(question, chunks)
+print(answer.text)
+
+# Each citation points at a span of a chunk, by id and offsets
+for citation in answer.citations:
+    print(citation.number, citation.chunk_id, citation.start, citation.end)
+
+# A QueryResponse, with the highlights of each document
+response = ResponseBuilder().build_from_answer(question, answer, chunks)
+for doc in response.documents:
+    for highlight in doc.highlights:
+        print(f"  [{highlight.start}:{highlight.end}] {highlight.text}")
 ```
 
-Dependencies: only `openai`, `pydantic`, `rapidfuzz`, and `jinja2`.
+Dependencies: only `openai`, `pydantic`, `rapidfuzz`, `jinja2` and `typing_extensions`.
+
+Upgrading from 0.2.x? The [migration guide](https://krlabsorg.github.io/verbatim-rag/migration/) maps each deprecated entry point to its replacement.
 
 ## Repository map
 
@@ -155,6 +180,10 @@ Dependencies: only `openai`, `pydantic`, `rapidfuzz`, and `jinja2`.
 ## Quick Start
 
 ```python
+from verbatim_core import Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.templates import TemplateManager
 from verbatim_rag import VerbatimIndex, VerbatimRAG
 from verbatim_rag.ingestion import DocumentProcessor
 from verbatim_rag.vector_stores import LocalMilvusStore
@@ -185,10 +214,15 @@ vector_store = LocalMilvusStore(
 index = VerbatimIndex(vector_store=vector_store, sparse_provider=sparse_provider)
 index.add_documents([document])
 
-# Then query the index
-rag = VerbatimRAG(index)
+# Then query the index: the Transformer writes the answers from the retrieved chunks
+client = LLMClient("gpt-4o-mini")
+transformer = Transformer(
+    LLMSpanExtractor(client),
+    TemplateManager(llm_client=client, default_mode="contextual"),
+)
+rag = VerbatimRAG(index, transformer=transformer)
 
-response = rag.query("What is the main contribution of the paper?")
+response = rag.query("What is the main contribution of the paper?", k=5)
 print(response.answer)
 ```
 
@@ -362,21 +396,21 @@ The linked model card reports higher micro Word-F1 than the evaluated Zilliz
 Semantic Highlight and Provence baselines on ACL, RAGBench, Squeez, and QASPER
 slices. These are extractor evaluations, not end-to-end hallucination rates.
 
-`ModelSpanExtractor` defaults to this model:
+Load it with `ModelSpanExtractor.from_pretrained`:
 
 ```python
+from verbatim_core import Transformer
+from verbatim_core.templates import TemplateManager
 from verbatim_rag.core import VerbatimRAG
 from verbatim_rag.index import VerbatimIndex
-from verbatim_rag.extractors import ModelSpanExtractor
+from verbatim_rag.extractors import ModelExtractConfig, ModelSpanExtractor
 from verbatim_rag.vector_stores import LocalMilvusStore
 from verbatim_rag.embedding_providers import SpladeProvider
 
-extractor = ModelSpanExtractor(
-    model_path="KRLabsOrg/verbatim-rag-modern-bert-v2",  # default
-    threshold=0.2,
-    min_span_chars=30,
-    merge_gap_chars=20,
+extractor = ModelSpanExtractor.from_pretrained(
+    "KRLabsOrg/verbatim-rag-modern-bert-v2",
     device=None,  # auto-detects cuda, mps, cpu
+    config=ModelExtractConfig(threshold=0.2, min_span_chars=30, merge_gap_chars=20),
 )
 
 sparse_provider = SpladeProvider(
@@ -390,13 +424,9 @@ vector_store = LocalMilvusStore(
 )
 index = VerbatimIndex(vector_store=vector_store, sparse_provider=sparse_provider)
 
-rag_system = VerbatimRAG(
-    index=index,
-    extractor=extractor,
-    template_mode="static",  # no generated contextual framing
-    k=5,
-)
-response = rag_system.query("Main findings of the paper?")
+# Static templates: no generated contextual framing, and no LLM call
+rag_system = VerbatimRAG(index, transformer=Transformer(extractor, TemplateManager()))
+response = rag_system.query("Main findings of the paper?", k=5)
 print(response.answer)
 ```
 

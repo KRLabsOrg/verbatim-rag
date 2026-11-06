@@ -38,7 +38,8 @@ pip install -e packages/core/
 pip install -e ".[dev]"
 ```
 
-The core runtime depends on `openai`, `pydantic`, `rapidfuzz`, and `jinja2`.
+The core runtime depends on `openai`, `pydantic`, `rapidfuzz`, `jinja2`, and
+`typing_extensions`.
 The optional model extra and full RAG package add substantially heavier ML,
 document-processing, and vector-store dependencies.
 
@@ -105,6 +106,12 @@ ruff format --check packages/core/verbatim_core/ verbatim_rag/ api/ tests/
 ruff check packages/core/verbatim_core/ verbatim_rag/ api/ tests/
 ```
 
+`tests/test_recorded_outputs.py` compares the output of the public entry points
+with recordings in `tests/recordings/`. If your change alters that output on
+purpose, rewrite the recordings with
+`RECORD_OUTPUTS=1 pytest tests/test_recorded_outputs.py`, with the full
+verbatim-rag package installed, and explain the diff in your pull request.
+
 For packaging changes:
 
 ```bash
@@ -158,7 +165,62 @@ investigation, post the evidence before expanding the PR.
    defaults, or compatibility.
 4. Update public documentation and `CHANGELOG.md` for user-facing behavior.
 5. Remove credentials and private document text from tests, logs, and fixtures.
-6. Complete the contribution-rights checkbox in the PR template. CI enforces it.
+6. Follow the rules in [Errors and logging](#errors-and-logging).
+7. Complete the contribution-rights checkbox in the PR template. CI enforces it.
+
+## Errors and logging
+
+These rules apply to library code in `verbatim_core` and `verbatim_rag`. The
+API server, the CLIs and the training code in `extractor_models/` are
+applications: they configure logging in their entry point and may print.
+
+Errors:
+
+- A call returns a correct result or raises. A result that is degraded but
+  still correct says so in its `warnings`. A result that looks complete while
+  part of the work failed is a bug.
+- The error class follows where the bad value came from:
+  - `InvalidInputError` for an argument of the call, with `param` naming it
+    (`chunks[3].id`)
+  - `ConfigurationError` for a constructor argument, a setting, an environment
+    variable or a missing package
+  - `UpstreamError` for a failed or missing reply from a service
+  - errors in our own code (`KeyError`, `TypeError`, ...) propagate unwrapped.
+- Every error and every result warning has a stable snake_case `code`. Codes
+  are public API.
+- Messages name the problem and the fix. They never contain secrets or customer
+  text: no question, chunk, quote, span text, chunk id or metadata value. Refer
+  to items by position (`chunks[3]`). Pydantic models that hold such data set
+  `hide_input_in_errors=True`.
+- Adapters translate foreign errors with `raise ... from e`. Log or raise,
+  never both. Don't write `except Exception`, except at an application boundary
+  or around code we don't control, with a comment that says why.
+- A fallback catches only `UpstreamError`, adds a warning to the result and is
+  documented with its warning code. `ConfigurationError`, `InvalidInputError`
+  and bugs never trigger one.
+- `warnings.warn` is only for deprecations, with `VerbatimDeprecationWarning`.
+- Library code never calls a deprecated name. The test suite turns
+  `VerbatimDeprecationWarning` into an error, so a test that calls an old entry
+  point expects the warning with `pytest.warns`. A new deprecation adds its
+  entry point to the catalogue in `tests/test_deprecation.py`.
+
+Logging:
+
+- Each module logs through `logging.getLogger(__name__)`. Library code never
+  prints, never draws a progress bar the caller didn't ask for, and never
+  configures logging: no handlers, levels or `basicConfig`.
+- Messages use %-style arguments, never f-strings, and fit on one line. Key
+  events add `extra={"event": ...}`: `model_loaded`, `documents_ingested`,
+  `fallback_used` (with `warning_code`) and `item_failed` (with `error_code`).
+- Levels:
+  - DEBUG for the steps of a call
+  - INFO for what an operator wants in a healthy log: a model loaded, documents
+    ingested, a retry
+  - WARNING for a degraded result
+  - ERROR only where no caller can receive the exception.
+- Customer text is logged only on `verbatim_core.content` or
+  `verbatim_rag.content`, and only at DEBUG. The module loggers carry counts
+  and positions.
 
 ## Contribution rights
 

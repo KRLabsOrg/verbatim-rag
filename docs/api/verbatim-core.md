@@ -1,5 +1,13 @@
 # verbatim_core API Reference
 
+## Transformer
+
+::: verbatim_core.transformer.Transformer
+
+## TransformConfig
+
+::: verbatim_core.transformer.TransformConfig
+
 ## VerbatimTransform
 
 ::: verbatim_core.transform.VerbatimTransform
@@ -24,9 +32,25 @@
 
 ::: verbatim_core.templates.manager.TemplateManager
 
+## QuestionSpecificTemplate
+
+::: verbatim_core.templates.question_specific.QuestionSpecificTemplate
+
 ## Models
 
 ::: verbatim_core.models
+
+## Shared types
+
+::: verbatim_core.types
+
+## Errors
+
+::: verbatim_core.errors
+
+## Deprecation warning
+
+::: verbatim_core._deprecation.VerbatimDeprecationWarning
 
 ## UniversalDocument
 

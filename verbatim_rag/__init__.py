@@ -1,7 +1,16 @@
 """Provenance-first RAG with verbatim evidence spans and citations."""
 
-__version__ = "0.2.9"
+__version__ = "0.3.0"
 
+from verbatim_core import SpansEvent as SpansEvent
+from verbatim_core import VerbatimDeprecationWarning as VerbatimDeprecationWarning
+from verbatim_core.transform import VerbatimTransform as VerbatimTransform
+from verbatim_core.transform import verbatim_query as verbatim_query
+from verbatim_core.transform import verbatim_query_async as verbatim_query_async
+
+from verbatim_rag.core import DocumentsEvent as DocumentsEvent
+from verbatim_rag.core import QueryStreamEvent as QueryStreamEvent
+from verbatim_rag.core import ResponseEvent as ResponseEvent
 from verbatim_rag.core import VerbatimRAG as VerbatimRAG
 from verbatim_rag.document import Document as Document
 from verbatim_rag.extractors import LLMSpanExtractor as LLMSpanExtractor
@@ -30,9 +39,6 @@ from verbatim_rag.rerankers import SentenceTransformersReranker as SentenceTrans
 from verbatim_rag.schema import DocumentSchema as DocumentSchema
 from verbatim_rag.streaming import StreamingRAG as StreamingRAG
 from verbatim_rag.templates import TemplateManager as TemplateManager
-from verbatim_rag.transform import VerbatimTransform as VerbatimTransform
-from verbatim_rag.transform import verbatim_query as verbatim_query
-from verbatim_rag.transform import verbatim_query_async as verbatim_query_async
 from verbatim_rag.universal_document import UniversalDocument as UniversalDocument
 from verbatim_rag.verbatim_doc import VerbatimDOC as VerbatimDOC
 

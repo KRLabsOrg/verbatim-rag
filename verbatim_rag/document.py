@@ -3,7 +3,7 @@ Document classes for the Verbatim RAG system.
 
 This module provides a hierarchical document structure:
 - Document: Original user-uploaded content (PDF, text, etc.)
-- Chunk: Raw portions of the document after chunking
+- DocumentChunk: Raw portions of the document after chunking
 - ProcessedChunk: Enhanced chunks with metadata and embeddings for retrieval
 """
 
@@ -13,6 +13,8 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from verbatim_core._deprecation import warn_deprecated
 
 
 class DocumentType(Enum):
@@ -67,7 +69,7 @@ class Document:
     processing_config: Dict[str, Any] = field(default_factory=dict)
 
     # Relationships
-    chunks: List["Chunk"] = field(default_factory=list)
+    chunks: List["DocumentChunk"] = field(default_factory=list)
 
     # Timestamps
     created_at: datetime = field(default_factory=datetime.now)
@@ -105,20 +107,20 @@ class Document:
         elif self.source.startswith(("http://", "https://")):
             self.content_type = DocumentType.WEB_PAGE
 
-    def add_chunk(self, chunk: "Chunk"):
+    def add_chunk(self, chunk: "DocumentChunk"):
         """Add a chunk to this document."""
         chunk.document_id = self.id
         self.chunks.append(chunk)
         self.updated_at = datetime.now()
 
-    def get_chunk_by_id(self, chunk_id: str) -> Optional["Chunk"]:
+    def get_chunk_by_id(self, chunk_id: str) -> Optional["DocumentChunk"]:
         """Get a specific chunk by ID."""
         for chunk in self.chunks:
             if chunk.id == chunk_id:
                 return chunk
         return None
 
-    def get_chunks_by_type(self, chunk_type: ChunkType) -> List["Chunk"]:
+    def get_chunks_by_type(self, chunk_type: ChunkType) -> List["DocumentChunk"]:
         """Get all chunks of a specific type."""
         return [chunk for chunk in self.chunks if chunk.chunk_type == chunk_type]
 
@@ -148,13 +150,13 @@ class Document:
         # Convert chunks
         chunks_data = data.pop("chunks", [])
         doc = cls(**data)
-        doc.chunks = [Chunk.from_dict(chunk_data) for chunk_data in chunks_data]
+        doc.chunks = [DocumentChunk.from_dict(chunk_data) for chunk_data in chunks_data]
 
         return doc
 
 
 @dataclass
-class Chunk:
+class DocumentChunk:
     """
     Represents a chunk of text from a document.
 
@@ -212,7 +214,7 @@ class Chunk:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Chunk":
+    def from_dict(cls, data: Dict[str, Any]) -> "DocumentChunk":
         """Create chunk from dictionary representation."""
         data["created_at"] = datetime.fromisoformat(data["created_at"])
         data["chunk_type"] = ChunkType(data["chunk_type"])
@@ -286,3 +288,11 @@ class ProcessedChunk:
         """Create processed chunk from dictionary representation."""
         data["created_at"] = datetime.fromisoformat(data["created_at"])
         return cls(**data)
+
+
+def __getattr__(name: str) -> Any:
+    # The record was renamed so that "chunk" means one thing: the Chunk of verbatim_core.
+    if name == "Chunk":
+        warn_deprecated("verbatim_rag.document.Chunk", use="DocumentChunk")
+        return DocumentChunk
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

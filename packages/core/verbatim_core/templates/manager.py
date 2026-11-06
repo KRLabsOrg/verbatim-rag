@@ -4,22 +4,22 @@ Provides a unified interface for managing different template strategies,
 including mode selection, persistence, and processing workflows.
 """
 
-import contextlib
 import json
 import logging
+import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, cast
 
+from verbatim_core._checks import _config_from_settings
+from verbatim_core._deprecation import deprecated, warn_contextual_without_client, warn_deprecated
+from verbatim_core._transform_config import TransformConfig
 from verbatim_core.llm_client import LLMClient
+from verbatim_core.templates.base import TemplateStrategy
 from verbatim_core.templates.contextual import ContextualTemplate
 from verbatim_core.templates.question_specific import QuestionSpecificTemplate
 from verbatim_core.templates.random import RandomTemplate
 from verbatim_core.templates.static import StaticTemplate
 from verbatim_core.templates.structured import StructuredTemplate
-
-if TYPE_CHECKING:
-    from verbatim_core.templates.base import TemplateStrategy
-
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,8 @@ class TemplateManager:
     Manages different template strategies and provides a unified interface
     for template generation and filling. Supports persistence of configuration
     across sessions.
+
+    Its settings, `config`, are the default settings of a `Transformer` built with it.
     """
 
     def __init__(
@@ -46,49 +48,94 @@ class TemplateManager:
         """
         self.llm_client = llm_client
         self.rag_system = rag_system
-        self.current_mode = default_mode
-        self.citation_mode = "inline"
 
         # Initialize strategies
-        self.strategies: dict[str, TemplateStrategy] = {
-            "static": StaticTemplate(citation_mode=self.citation_mode),
-            "contextual": ContextualTemplate(llm_client, citation_mode=self.citation_mode) if llm_client else None,
-            "random": RandomTemplate(llm_client=llm_client, citation_mode=self.citation_mode),
-            "question_specific": QuestionSpecificTemplate(citation_mode=self.citation_mode),
-            "structured": StructuredTemplate(
-                rag_system=rag_system,
-                citation_mode=self.citation_mode,
-            ),
+        self.strategies: dict[str, TemplateStrategy | None] = {
+            "static": StaticTemplate(),
+            "contextual": ContextualTemplate(llm_client) if llm_client else None,
+            "random": RandomTemplate(llm_client=llm_client),
+            "question_specific": QuestionSpecificTemplate(),
+            "structured": StructuredTemplate(rag_system=rag_system),
         }
 
         # Validate initial mode
-        if self.current_mode not in self.strategies:
-            self.current_mode = "static"
+        mode = default_mode if default_mode in self.strategies else "static"
+        if self.strategies[mode] is None:
+            warn_contextual_without_client()
+            mode = "static"
 
-        if self.strategies[self.current_mode] is None:
-            self.current_mode = "static"
+        self.config = TransformConfig.model_validate({"template_mode": mode})
+
+    @property
+    def current_mode(self) -> str:
+        """The template mode of `config`."""
+        return self.config.template_mode
+
+    @current_mode.setter
+    def current_mode(self, mode: str) -> None:
+        warn_deprecated("Assigning TemplateManager.current_mode", use=_mode_replacement(mode))
+        self._switch_mode(mode)
+
+    @property
+    def citation_mode(self) -> str:
+        """The citation mode of `config`."""
+        return self.config.citation_mode
+
+    @citation_mode.setter
+    def citation_mode(self, mode: str) -> None:
+        warn_deprecated("Assigning TemplateManager.citation_mode", use="TransformConfig(citation_mode=...)")
+        self._set_citations(citation_mode=mode)
 
     def set_mode(self, mode: str) -> bool:
         """Switch to a different template mode.
 
+        Deprecated: pass `TransformConfig(template_mode=...)` to the `Transformer` or its call.
+
         :param mode: Template mode to switch to
         :return: True if mode was switched successfully
         """
+        warn_deprecated("TemplateManager.set_mode", use=_mode_replacement(mode))
+        return self._switch_mode(mode)
+
+    def _switch_mode(self, mode: str) -> bool:
         if mode not in self.strategies:
+            logger.warning(
+                "Unknown template mode %s. The template mode stays %s.",
+                mode,
+                self.config.template_mode,
+            )
             return False
 
         if self.strategies[mode] is None:
+            warn_contextual_without_client()
             return False
 
-        self.current_mode = mode
+        self._replace_config(template_mode=mode)
         return True
+
+    def _replace_config(self, **settings: object) -> None:
+        """Replace settings of `config`.
+
+        :raises ConfigurationError: If a setting is invalid
+        """
+        # Only the settings set before stay set, so a call can tell them from the defaults.
+        self.config = _config_from_settings(TransformConfig, {**self.config.model_dump(exclude_unset=True), **settings})
 
     def get_current_mode(self) -> str:
         """Get the current template mode.
 
         :return: Current mode name
         """
-        return self.current_mode
+        return self.config.template_mode
+
+    def strategy(self, mode: str) -> TemplateStrategy | None:
+        """Return the strategy of a template mode, without switching to it.
+
+        :param mode: Template mode
+        :return: The strategy, or None if the mode needs an LLM client the manager doesn't have
+        :raises KeyError: If there is no such mode
+        """
+        return self.strategies[mode]
 
     def get_available_modes(self) -> list[str]:
         """Get list of available template modes.
@@ -113,7 +160,7 @@ class TemplateManager:
         all_spans, citation_count = self._get_template_inputs(display_spans, citation_spans)
 
         # Generate template
-        strategy = self.strategies[self.current_mode]
+        strategy = self._current_strategy()
         template = strategy.generate(question, all_spans, citation_count)
 
         # Fill template
@@ -134,15 +181,22 @@ class TemplateManager:
         """
         all_spans, citation_count = self._get_template_inputs(display_spans, citation_spans)
 
-        strategy = self.strategies[self.current_mode]
+        strategy = self._current_strategy()
 
         # Use async generation if available
-        if hasattr(strategy, "generate_async") and self.current_mode == "contextual":
-            template = await strategy.generate_async(question, all_spans, citation_count)
+        if hasattr(strategy, "generate_async") and self.config.template_mode == "contextual":
+            template = await cast("ContextualTemplate", strategy).generate_async(question, all_spans, citation_count)
         else:
             template = strategy.generate(question, all_spans, citation_count)
 
         return strategy.fill(template, display_spans, citation_spans)
+
+    def _current_strategy(self) -> TemplateStrategy:
+        """Return the strategy of the template mode of `config`.
+
+        Switching modes skips a mode without a strategy, so the mode of `config` has one.
+        """
+        return cast("TemplateStrategy", self.strategies[self.config.template_mode])
 
     @staticmethod
     def _get_template_inputs(
@@ -155,12 +209,7 @@ class TemplateManager:
 
         return [span["text"] for span in display_spans + citation_spans], len(citation_spans)
 
-    def get_template(
-        self,
-        question: str = "",
-        spans: list[str] | None = None,
-        citation_count: int = 0,
-    ) -> str:
+    def get_template(self, question: str = "", spans: list[str] | None = None, citation_count: int = 0) -> str:
         """Generate a template without filling it.
 
         :param question: The user's question
@@ -169,7 +218,7 @@ class TemplateManager:
         :return: Template string with placeholders
         """
         spans = spans or []
-        strategy = self.strategies[self.current_mode]
+        strategy = self._current_strategy()
         return strategy.generate(question, spans, citation_count)
 
     def fill_template(
@@ -185,7 +234,7 @@ class TemplateManager:
         :param citation_spans: Spans for citation reference only
         :return: Filled template
         """
-        strategy = self.strategies[self.current_mode]
+        strategy = self._current_strategy()
         return strategy.fill(template, display_spans, citation_spans)
 
     def save(self, filepath: str) -> None:
@@ -193,7 +242,12 @@ class TemplateManager:
 
         :param filepath: Path to save configuration
         """
-        data = {"current_mode": self.current_mode, "strategies": {}}
+        data = {
+            "current_mode": self.config.template_mode,
+            "citation_mode": self.config.citation_mode,
+            "citation_format": self.config.citation_format,
+            "strategies": {},
+        }
 
         # Save state for each available strategy
         for mode, strategy in self.strategies.items():
@@ -201,10 +255,9 @@ class TemplateManager:
                 data["strategies"][mode] = strategy.save_state()
 
         # Create directory if it doesn't exist
-        path = Path(filepath)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)  # noqa: PTH103, PTH120  # for a bare file name, Path.parent is "." where dirname is ""
 
-        with path.open("w") as f:
+        with Path(filepath).open("w") as f:
             json.dump(data, f, indent=2)
 
     def load(self, filepath: str) -> bool:
@@ -213,28 +266,46 @@ class TemplateManager:
         :param filepath: Path to load configuration from
         :return: True if loaded successfully
         """
-        path = Path(filepath)
-        if not path.exists():
+        if not os.path.exists(filepath):  # noqa: PTH110  # unlike Path.exists, an unreadable path is "not found"
+            logger.warning("Template config file not found: %s", filepath)
             return False
 
         try:
-            with path.open() as f:
+            with Path(filepath).open() as f:
                 data = json.load(f)
 
             # Load mode
             if "current_mode" in data:
                 mode = data["current_mode"]
                 if self.strategies.get(mode) is not None:
-                    self.current_mode = mode
+                    self._replace_config(template_mode=mode)
 
             # Load strategy states
             strategies_data = data.get("strategies", {})
             for mode, state in strategies_data.items():
-                if mode in self.strategies and self.strategies[mode] is not None:
-                    with contextlib.suppress(Exception):
-                        self.strategies[mode].load_state(state)
+                strategy = self.strategies.get(mode)
+                if strategy is not None:
+                    # A saved state of the wrong shape doesn't stop the other strategies.
+                    try:
+                        strategy.load_state(state)
+                    except (KeyError, TypeError, ValueError):
+                        logger.warning(
+                            "Could not load the saved state of the %s templates",
+                            mode,
+                            exc_info=True,
+                        )
 
-        except Exception:  # noqa: BLE001  # unreadable or malformed config is reported as False
+            # Before 0.3.0 only the contextual templates saved the citation format.
+            citations = {key: data[key] for key in ("citation_mode", "citation_format") if key in data}
+            contextual_state = strategies_data.get("contextual") or {}
+            if "citation_format" not in citations and "citation_format" in contextual_state:
+                citations["citation_format"] = contextual_state["citation_format"]
+            if citations:
+                self._set_citations(**citations)
+
+        # A file that can't be read, or isn't JSON
+        except (OSError, ValueError):
+            logger.warning("Could not load the template config %s", filepath, exc_info=True)
             return False
         else:
             return True
@@ -245,16 +316,16 @@ class TemplateManager:
         :return: Dictionary with current state info
         """
         info_data = {
-            "current_mode": self.current_mode,
+            "current_mode": self.config.template_mode,
             "available_modes": self.get_available_modes(),
             "has_llm_client": self.llm_client is not None,
         }
 
         # Add mode-specific info
-        if self.current_mode == "random":
+        if self.config.template_mode == "random":
             random_strategy = self.strategies["random"]
             if hasattr(random_strategy, "get_template_count"):
-                info_data["random_template_count"] = random_strategy.get_template_count()
+                info_data["random_template_count"] = cast("RandomTemplate", random_strategy).get_template_count()
 
         return info_data
 
@@ -269,7 +340,7 @@ class TemplateManager:
             static_strategy = StaticTemplate(template)
             self.strategies["static"] = static_strategy
 
-        self.set_mode("static")
+        self._switch_mode("static")
 
     def use_contextual_mode(
         self,
@@ -290,22 +361,20 @@ class TemplateManager:
         :return: True if switched successfully
         """
         if not self.llm_client:
+            warn_contextual_without_client()
             return False
 
         if self.strategies["contextual"] is None:
-            self.strategies["contextual"] = ContextualTemplate(
-                self.llm_client,
-                citation_mode=self.citation_mode,
-            )
+            self.strategies["contextual"] = ContextualTemplate(self.llm_client, citation_mode=self.config.citation_mode)
 
-        contextual_strategy = self.strategies["contextual"]
+        contextual_strategy = cast("ContextualTemplate", self.strategies["contextual"])
         contextual_strategy.set_per_fact_mode(use_per_fact)
         contextual_strategy.template_preview_chars = template_preview_chars
         contextual_strategy.preserve_span_newlines = preserve_span_newlines
         contextual_strategy.template_prompt = template_prompt
         contextual_strategy.system_prompt = system_prompt
 
-        return self.set_mode("contextual")
+        return self._switch_mode("contextual")
 
     def use_random_mode(self, templates: list[str] | None = None) -> bool:
         """Switch to random mode with optional template pool.
@@ -317,7 +386,7 @@ class TemplateManager:
             random_strategy = RandomTemplate(templates, self.llm_client)
             self.strategies["random"] = random_strategy
 
-        return self.set_mode("random")
+        return self._switch_mode("random")
 
     def generate_random_templates(self, count: int = 10) -> bool:
         """Generate diverse random templates if in random mode.
@@ -325,15 +394,19 @@ class TemplateManager:
         :param count: Number of templates to generate
         :return: True if generation was attempted
         """
-        if self.current_mode != "random":
+        if self.config.template_mode != "random":
+            logger.warning(
+                "Generating templates needs random template mode, not %s",
+                self.config.template_mode,
+            )
             return False
 
         random_strategy = self.strategies["random"]
         if hasattr(random_strategy, "generate_diverse_templates"):
             try:
-                random_strategy.generate_diverse_templates(count)
-            except Exception:
-                logger.debug("Random template generation failed", exc_info=True)
+                cast("RandomTemplate", random_strategy).generate_diverse_templates(count)
+            except ValueError as e:
+                logger.warning("Could not generate templates: %s", e)
             else:
                 return True
 
@@ -341,25 +414,25 @@ class TemplateManager:
 
     def use_question_specific_mode(
         self,
-        templates: dict[str, dict[str, Any]] | None = None,
+        templates: list[dict[str, Any]] | None = None,
+        *,
+        embedder: Any = None,  # noqa: ANN401  # duck-typed embedder with encode(texts), such as a SentenceTransformer
     ) -> bool:
         """Switch to question-specific mode with optional template definitions.
 
-        :param templates: Optional dictionary mapping category names to template configs
-                          Format: {
-                              "category_name": {
-                                  "template": "Template with [RELEVANT_SENTENCES]",
-                                  "examples": ["Example question 1", "Example question 2"]
-                              }
-                          }
+        :param templates: Optional list of template configs, each with a "template" and its
+                          "examples": [{
+                              "template": "Template with [RELEVANT_SENTENCES]",
+                              "examples": ["Example question 1", "Example question 2"]
+                          }]
+        :param embedder: A loaded embedding model, such as a SentenceTransformer, that embeds the
+            examples and questions. See `QuestionSpecificTemplate`.
         :return: True if switched successfully
         """
-        if templates:
-            question_specific_strategy = QuestionSpecificTemplate()
-            question_specific_strategy.set_question_templates(templates)
-            self.strategies["question_specific"] = question_specific_strategy
+        if templates or embedder is not None:
+            self.strategies["question_specific"] = QuestionSpecificTemplate(templates, embedder=embedder)
 
-        return self.set_mode("question_specific")
+        return self._switch_mode("question_specific")
 
     def use_structured_mode(
         self,
@@ -379,20 +452,19 @@ class TemplateManager:
             )
 
         """
-        structured_strategy = self.strategies.get("structured")
+        structured_strategy = cast("StructuredTemplate | None", self.strategies.get("structured"))
 
         if structured_strategy is None:
             structured_strategy = StructuredTemplate(
-                rag_system=self.rag_system,
-                citation_mode=self.citation_mode,
+                rag_system=self.rag_system, citation_mode=self.config.citation_mode
             )
             self.strategies["structured"] = structured_strategy
         else:
-            structured_strategy.set_citation_mode(self.citation_mode)
+            structured_strategy.set_citation_mode(self.config.citation_mode)
 
         # Update RAG system if not set
         if self.rag_system and not structured_strategy.rag_system:
-            structured_strategy.set_rag_system(self.rag_system)
+            structured_strategy.rag_system = self.rag_system
 
         # Set template if provided
         if template:
@@ -403,18 +475,24 @@ class TemplateManager:
             for placeholder, query in placeholder_mappings.items():
                 structured_strategy.add_placeholder_mapping(placeholder, query)
 
-        return self.set_mode("structured")
+        return self._switch_mode("structured")
 
+    @deprecated("TemplateManager.set_rag_system", use="VerbatimRAG.query_async")
     def set_rag_system(self, rag_system: Any) -> None:  # noqa: ANN401  # duck-typed RAG system
         """Set the RAG system for modes that need it (structured).
 
         :param rag_system: RAG system instance
         """
+        self._attach_rag_system(rag_system)
+
+    def _attach_rag_system(self, rag_system: Any) -> None:  # noqa: ANN401  # duck-typed RAG system
+        """Let structured mode call back into the RAG system, until #74 replaces it (ADR 0004)."""
         self.rag_system = rag_system
 
         # Update strategies that need RAG system
-        if self.strategies.get("structured"):
-            self.strategies["structured"].set_rag_system(rag_system)
+        structured_strategy = cast("StructuredTemplate | None", self.strategies.get("structured"))
+        if structured_strategy:
+            structured_strategy.rag_system = rag_system
 
     async def process_structured_async(
         self,
@@ -422,15 +500,12 @@ class TemplateManager:
         template: str | None = None,
         placeholder_mappings: dict[str, str] | None = None,
     ) -> str:
-        """Run structured extraction as a convenience helper.
+        """Run structured extraction, as a convenience helper.
 
         Note: Prefer calling rag.query_async() directly after setting up
         structured mode. This method is kept for convenience.
         """
-        if not self.use_structured_mode(
-            template=template,
-            placeholder_mappings=placeholder_mappings,
-        ):
+        if not self.use_structured_mode(template=template, placeholder_mappings=placeholder_mappings):
             msg = "Structured mode unavailable"
             raise ValueError(msg)
 
@@ -443,25 +518,48 @@ class TemplateManager:
         return response.answer
 
     def set_citation_mode(self, mode: str) -> None:
-        """Configure how citations are rendered inside filled templates ("inline" or "hidden")."""
+        """Configure how citations are rendered inside filled templates ("inline" or "hidden").
+
+        Deprecated: pass `TransformConfig(citation_mode=...)` to the `Transformer` or its call.
+        """
+        warn_deprecated("TemplateManager.set_citation_mode", use="TransformConfig(citation_mode=...)")
         allowed = {"inline", "hidden"}
         if mode not in allowed:
             msg = f"Unsupported citation mode: {mode}"
             raise ValueError(msg)
 
-        self.citation_mode = mode
-
-        for strategy in self.strategies.values():
-            if strategy and hasattr(strategy, "set_citation_mode"):
-                strategy.set_citation_mode(mode)
+        self._set_citations(citation_mode=mode)
 
     def set_citation_format(self, citation_format: str) -> None:
         """Configure citation marker format for all strategies.
 
+        Deprecated: pass `TransformConfig(citation_format=...)` to the `Transformer` or its call.
+
         :param citation_format: str.format template with {number} and {span_id} variables.
             Default "[{number}]". Example: "[{span_id}]" renders "[cite1]" when
             span data includes {"span_id": "cite1"}.
+        :raises ConfigurationError: If the format uses other variables
         """
+        warn_deprecated("TemplateManager.set_citation_format", use="TransformConfig(citation_format=...)")
+        self._set_citations(citation_format=citation_format)
+
+    def _set_citations(self, **settings: str) -> None:
+        """Replace the citation settings of `config` and of every strategy.
+
+        `process` fills templates with the settings of the strategies.
+        """
+        self._replace_config(**settings)
+
         for strategy in self.strategies.values():
-            if strategy and hasattr(strategy, "set_citation_format"):
-                strategy.set_citation_format(citation_format)
+            # Each strategy takes the settings it has a setter for.
+            if strategy and "citation_mode" in settings and hasattr(strategy, "set_citation_mode"):
+                cast("Any", strategy).set_citation_mode(settings["citation_mode"])
+            if strategy and "citation_format" in settings and hasattr(strategy, "set_citation_format"):
+                cast("Any", strategy).set_citation_format(settings["citation_format"])
+
+
+def _mode_replacement(mode: str) -> str:
+    """Return what replaces switching the templates to a mode."""
+    if mode == "structured":
+        return "TemplateManager.use_structured_mode()"
+    return "TransformConfig(template_mode=...)"

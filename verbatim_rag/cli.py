@@ -6,11 +6,15 @@ import argparse
 import json
 import os
 
+from verbatim_core import TransformConfig, Transformer
+from verbatim_core.extractors import LLMExtractConfig, LLMSpanExtractor
+
 from verbatim_rag import (
     TemplateManager,
     VerbatimIndex,
     VerbatimRAG,
 )
+from verbatim_rag.llm_client import LLMClient
 
 try:
     from verbatim_rag.ingestion import DocumentProcessor
@@ -21,7 +25,7 @@ except ImportError:
     DOCUMENT_PROCESSING_AVAILABLE = False
 
 
-def main():
+def main(argv=None):
     if not os.getenv("OPENAI_API_KEY"):
         print("Error: OPENAI_API_KEY environment variable not set.")
         print("Please set your OpenAI API key using:")
@@ -83,7 +87,7 @@ def main():
         help="Show detailed output with all citations",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.command == "index":
         if not DOCUMENT_PROCESSING_AVAILABLE:
@@ -129,16 +133,14 @@ def main():
         print("Indexing complete")
 
     elif args.command == "template":
-        print(f"Generating {len(args.questions)} random templates...")
-        template_manager = TemplateManager(model=args.model)
-
-        # Generate random templates
-        template_manager.generate_random_templates(count=20)  # Generate diverse templates
-
-        # Save templates to file
+        print("Generating random templates...")
+        template_manager = TemplateManager(llm_client=LLMClient(args.model), default_mode="random")
+        before = template_manager.info()["random_template_count"]
+        template_manager.generate_random_templates(count=20)
         template_manager.save(args.output)
 
-        print(f"\nGenerated {len(template_manager._random_templates)} templates")
+        count = template_manager.info()["random_template_count"]
+        print(f"\nAdded {count - before} templates to the {before} default ones")
         print(f"Templates saved to: {args.output}")
 
     elif args.command == "query":
@@ -167,7 +169,8 @@ def main():
             print(f"Error loading index: {e}")
             return
 
-        template_manager = TemplateManager(model=args.model)
+        llm_client = LLMClient(args.model)
+        template_manager = TemplateManager(llm_client=llm_client)
         if args.templates:
             print(f"Loading templates from: {args.templates}")
             try:
@@ -175,15 +178,20 @@ def main():
             except Exception as e:
                 print(f"Warning: Could not load templates: {e}")
 
-        rag = VerbatimRAG(
-            index,
-            model=args.model,
-            k=args.num_docs,
-            template_manager=template_manager,
-            max_display_spans=args.max_display,
-            use_contextual_templates=args.contextual_templates,
-            extraction_mode=args.extraction_mode,
+        # The loaded templates' settings, unless the options say otherwise
+        settings = {"max_display_spans": args.max_display}
+        if args.contextual_templates:
+            settings["template_mode"] = "contextual"
+        try:
+            config = TransformConfig(**{**template_manager.config.model_dump(), **settings})
+        except ValueError as e:
+            print(f"Error: {e}")
+            return
+        extractor = LLMSpanExtractor(
+            llm_client, config=LLMExtractConfig(extraction_mode=args.extraction_mode)
         )
+        transformer = Transformer(extractor, template_manager, config=config)
+        rag = VerbatimRAG(index, transformer=transformer, llm_client=llm_client)
 
         print("Configuration:")
         print(f"  Model: {args.model}")
@@ -192,14 +200,15 @@ def main():
         print(f"  Contextual templates: {args.contextual_templates}")
         print(f"  Extraction mode: {args.extraction_mode}")
 
-        response = rag.query(args.question)
+        response = rag.query(args.question, k=args.num_docs)
 
         print("\nQuestion:", response.question)
         print("\nAnswer:", response.answer)
 
-        total_citations = len(response.structured_answer.citations)
-        display_count = min(args.max_display, total_citations)
-        reference_count = max(0, total_citations - display_count)
+        citations = response.structured_answer.citations
+        total_citations = len(citations)
+        display_count = sum(citation.type == "display" for citation in citations)
+        reference_count = total_citations - display_count
 
         print(
             f"\nCitations: {total_citations} total ({display_count} displayed, {reference_count} as references)"
@@ -208,7 +217,7 @@ def main():
         if args.verbose and response.structured_answer.citations:
             print("\nDetailed citations:")
             for i, citation in enumerate(response.structured_answer.citations, 1):
-                citation_type = "displayed" if i <= args.max_display else "reference"
+                citation_type = "displayed" if citation.type == "display" else "reference"
                 print(
                     f"  [{i}] ({citation_type}): {citation.text[:100]}{'...' if len(citation.text) > 100 else ''}"
                 )

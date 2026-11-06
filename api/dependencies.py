@@ -5,7 +5,9 @@ Dependency injection setup for FastAPI
 import logging
 from typing import Annotated
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
+from verbatim_core import Transformer
+from verbatim_core.extractors import LLMSpanExtractor
 from verbatim_core.templates import TemplateManager
 
 from api.config import APIConfig, get_config
@@ -19,6 +21,21 @@ logger = logging.getLogger(__name__)
 _rag_instance: VerbatimRAG = None
 _template_manager: TemplateManager = None
 _api_service: APIService = None
+
+
+def build_transformer(llm_client: LLMClient | None = None) -> Transformer:
+    """A Transformer with LLM extraction and contextual templates. Startup builds the transform
+    route's, and the RAG gets its own."""
+    llm_client = llm_client or LLMClient()
+    return Transformer(
+        LLMSpanExtractor(llm_client),
+        TemplateManager(llm_client=llm_client, default_mode="contextual"),
+    )
+
+
+def get_transformer(request: Request) -> Transformer:
+    """The Transformer that startup built for the transform route."""
+    return request.app.state.transformer
 
 
 def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> VerbatimRAG:
@@ -55,10 +72,7 @@ def get_rag_instance(config: Annotated[APIConfig, Depends(get_config)]) -> Verba
 
             # Create RAG instance with the index
             _rag_instance = VerbatimRAG(
-                index=index,
-                k=5,
-                template_mode="contextual",
-                llm_client=llm_client,
+                index, transformer=build_transformer(llm_client), llm_client=llm_client
             )
             logger.info(f"RAG instance created with index path: {config.index_path}")
         except Exception as e:

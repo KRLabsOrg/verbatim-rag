@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "verbatim-rag"
-version = "0.2.9"
+version = "0.3.0"
 description = "Provenance-first extractive RAG with verbatim source spans and citations"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,7 +18,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "verbatim-core>=0.2.8",
+    "verbatim-core>=0.3.0,<0.4",
 
     # Core ML/AI dependencies
     "openai>=1.3.0",
@@ -109,3 +109,5 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Library code must not call deprecated names; tests that do expect the warning with pytest.warns
+filterwarnings = ["error::verbatim_core.VerbatimDeprecationWarning"]

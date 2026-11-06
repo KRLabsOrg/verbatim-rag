@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from verbatim_core import ExtractedSpan, Extraction, Transformer
 from verbatim_core.extractors import SpanExtractor
 from verbatim_core.templates import TemplateManager
 
@@ -19,8 +20,17 @@ CITED_ONLY_SPANS = ["Beta three.", "Gamma one.", "Gamma two."]
 
 
 class FixedSpanExtractor(SpanExtractor):
-    def extract_spans(self, question, search_results):
-        return {result.text: CHUNK_SPANS[result.text] for result in search_results}
+    def extract(self, question, chunks, *, config=None):
+        spans = []
+        for chunk in chunks:
+            for text in CHUNK_SPANS[chunk.text]:
+                start = chunk.text.index(text)
+                spans.append(
+                    ExtractedSpan(
+                        chunk_id=chunk.id, start=start, end=start + len(text), text=text, score=1.0
+                    )
+                )
+        return Extraction(spans=spans)
 
 
 class InMemoryIndex:
@@ -36,14 +46,15 @@ class InMemoryIndex:
 
 @pytest.fixture
 def rag():
-    return verbatim_rag.VerbatimRAG(
-        InMemoryIndex(),
-        k=3,
-        extractor=FixedSpanExtractor(),
-        template_manager=TemplateManager(default_mode="static"),
-        max_display_spans=5,
-        llm_client=MagicMock(),
-    )
+    with pytest.warns(verbatim_rag.VerbatimDeprecationWarning):
+        return verbatim_rag.VerbatimRAG(
+            InMemoryIndex(),
+            k=3,
+            extractor=FixedSpanExtractor(),
+            template_manager=TemplateManager(default_mode="static"),
+            max_display_spans=5,
+            llm_client=MagicMock(),
+        )
 
 
 def citation_texts(response, citation_type):
@@ -65,11 +76,23 @@ class TestDisplayCitations:
         assert citation_texts(response, "display") == SHOWN_SPANS
         assert citation_texts(response, "reference") == CITED_ONLY_SPANS
 
-    def test_query_and_the_streamed_answer_mark_the_same_citations(self, rag):
-        streamed = verbatim_rag.StreamingRAG(rag).stream_query_sync("What is listed?")
-        [final] = [stage for stage in streamed if stage["type"] == "answer"]
-        streamed_types = [c["type"] for c in final["data"]["structured_answer"]["citations"]]
+    async def test_query_and_the_streamed_answer_mark_the_same_citations(self, rag):
+        events = [event async for event in rag.query_stream("What is listed?")]
+        streamed = events[-1].response.structured_answer.citations
 
         response = rag.query("What is listed?")
 
-        assert [c.type for c in response.structured_answer.citations] == streamed_types
+        assert [c.type for c in response.structured_answer.citations] == [c.type for c in streamed]
+
+
+def test_structured_mode_can_call_back_into_it_without_a_deprecation_warning(recwarn):
+    templates = TemplateManager(default_mode="static")
+
+    rag = verbatim_rag.VerbatimRAG(
+        InMemoryIndex(), transformer=Transformer(FixedSpanExtractor(), templates)
+    )
+
+    assert templates.strategies["structured"].rag_system is rag
+    assert not [
+        w for w in recwarn if issubclass(w.category, verbatim_rag.VerbatimDeprecationWarning)
+    ]

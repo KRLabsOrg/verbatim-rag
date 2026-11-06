@@ -11,9 +11,13 @@ Usage:
 
 import asyncio
 
+from verbatim_core import Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.templates import TemplateManager
+
 from verbatim_rag import Document, VerbatimIndex, VerbatimRAG
 from verbatim_rag.core import LLMClient
-from verbatim_rag.document import Chunk, ChunkType, DocumentType, ProcessedChunk
+from verbatim_rag.document import ChunkType, DocumentChunk, DocumentType, ProcessedChunk
 from verbatim_rag.embedding_providers import SentenceTransformersProvider
 from verbatim_rag.vector_stores import LocalMilvusStore
 from verbatim_rag.verbatim_doc import VerbatimDOC
@@ -57,7 +61,7 @@ async def demo_verbatim_doc():
     # Process into chunks
     paragraphs = [p.strip() for p in doc.raw_content.split("\n") if p.strip()]
     for i, paragraph in enumerate(paragraphs):
-        chunk = Chunk(
+        chunk = DocumentChunk(
             document_id=doc.id,
             content=paragraph,
             chunk_number=i,
@@ -90,7 +94,11 @@ async def demo_verbatim_doc():
         model="moonshotai/kimi-k2-instruct-0905",
         api_base="https://api.groq.com/openai/v1/",
     )
-    rag = VerbatimRAG(index, llm_client=llm_client)
+    transformer = Transformer(
+        LLMSpanExtractor(llm_client),
+        TemplateManager(llm_client=llm_client, default_mode="contextual"),
+    )
+    rag = VerbatimRAG(index, transformer=transformer, llm_client=llm_client)
 
     # Create VerbatimDOC processor - pass VerbatimRAG directly
     doc_processor = VerbatimDOC(rag)

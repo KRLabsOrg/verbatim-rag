@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
+from verbatim_core.types import ResultWarning  # noqa: TC001  # pydantic resolves the annotation at runtime
+
 
 class Highlight(BaseModel):
     """A highlighted character span within a document."""
@@ -60,6 +62,8 @@ class QueryResponse(BaseModel):
     answer: str = Field(..., min_length=1)
     structured_answer: StructuredAnswer
     documents: list[DocumentWithHighlights] = Field(default_factory=list)
+    # How the answer is degraded but still correct, such as quotes that couldn't be located
+    warnings: list[ResultWarning] = Field(default_factory=list)
 
 
 class StreamingResponseType(Enum):

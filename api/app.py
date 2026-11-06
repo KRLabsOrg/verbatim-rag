@@ -3,6 +3,7 @@ Clean FastAPI server for the Verbatim RAG system.
 Decoupled from RAG logic with proper dependency injection.
 """
 
+import json
 import logging
 import os
 import sys
@@ -23,7 +24,6 @@ if "OPENAI_API_KEY" not in os.environ:
 try:
     from verbatim_rag import (
         QueryResponse,
-        StreamingRAG,
         TemplateManager,
         VerbatimRAG,
     )
@@ -31,14 +31,21 @@ except ImportError as e:
     print(f"Error importing verbatim_rag: {e}")
     sys.exit(1)
 
+from verbatim_core import InvalidInputError, Transformer
+from verbatim_core._context import _chunks_from_context
+from verbatim_core.response_builder import ResponseBuilder
+
 from api.config import APIConfig, get_config
 from api.dependencies import (
+    build_transformer,
     check_system_ready,
     get_api_service,
     get_rag_instance,
     get_template_manager,
+    get_transformer,
 )
 from api.services.rag_service import APIService
+from verbatim_rag.streaming import _dict_events
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -93,8 +100,9 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     logger.info("Starting Verbatim RAG API server...")
 
-    # Dependencies will be initialized on first request
-    # No global state initialization needed
+    # The transform route's Transformer serves every request. The other dependencies are
+    # initialized on first request.
+    app.state.transformer = build_transformer()
 
     yield
 
@@ -253,25 +261,24 @@ async def query_async_endpoint(
 
 
 @app.post("/api/transform/verbatim", response_model=QueryResponse)
-async def verbatim_transform_endpoint(request: VerbatimTransformRequest):
+async def verbatim_transform_endpoint(
+    request: VerbatimTransformRequest,
+    transformer: Annotated[Transformer, Depends(get_transformer)],
+):
     """RAG-agnostic verbatim transform: question + context -> verbatim answer.
 
-    The optional `answer` field is currently ignored.
+    The optional `answer` field is ignored.
     """
-    from verbatim_rag.transform import VerbatimTransform
-
     try:
-        vt = VerbatimTransform()
-        # Convert Pydantic models to dicts expected by the transform
-        context_dicts = [c.model_dump() for c in request.context]
-        resp = await vt.transform_async(
-            question=request.question, context=context_dicts, answer=request.answer
-        )
-        return resp
-    except ValueError as e:
+        # The same conversion as VerbatimTransform's, so a context item gets the same checks
+        chunks = _chunks_from_context([item.model_dump() for item in request.context])
+        answer = await transformer.atransform(request.question, chunks)
+        return ResponseBuilder().build_from_answer(request.question, answer, chunks)
+    except InvalidInputError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Verbatim transform failed: {e}")
+    except Exception as e:  # the application boundary: any other failure is a 500
+        # The error code or class only: a message may quote the request.
+        logger.error("Verbatim transform failed: %s", getattr(e, "code", None) or type(e).__name__)
         raise HTTPException(status_code=500, detail="Verbatim transform failed")
 
 
@@ -334,78 +341,34 @@ async def query_stream_endpoint(
     _: Annotated[bool, Depends(check_system_ready)],
 ):
     """
-    Stream a query response in stages using the package's streaming interface
-
-    Args:
-        request: Stream query request with question and optional num_docs
-
-    Returns:
-        Streaming response with documents, highlights, and final answer
+    Stream a query as newline-delimited JSON events: documents, progress, highlights, then the
+    answer, or an error as the last event.
     """
     try:
-        # Validate request
         api_service.validate_query_request(request.question)
-
-        # Create streaming RAG instance
-        streaming_rag = StreamingRAG(rag)
-
-        async def generate_clean_response():
-            """Clean response generator using the package's streaming interface"""
-            import json
-
-            logger.info(f"Starting streaming query for: {request.question}")
-
-            try:
-                stage_count = 0
-                async for stage in streaming_rag.stream_query(
-                    request.question,
-                    request.num_docs,
-                    filter=request.filter,
-                    hybrid_weights=request.hybrid_weights,
-                    rrf_k=request.rrf_k,
-                    search_params=request.search_params,
-                ):
-                    stage_count += 1
-                    logger.info(f"Yielding stage {stage_count}: {stage.get('type', 'unknown')}")
-                    yield json.dumps(stage) + "\n"
-
-                if stage_count == 0:
-                    logger.warning("No stages yielded from streaming query")
-                    yield (
-                        json.dumps(
-                            {
-                                "type": "error",
-                                "error": "No data returned from RAG system",
-                                "done": True,
-                            }
-                        )
-                        + "\n"
-                    )
-
-            except Exception as e:
-                logger.error(f"Streaming error: {e}")
-                import traceback
-
-                traceback.print_exc()
-                yield (json.dumps({"type": "error", "error": str(e), "done": True}) + "\n")
-
-        # Return streaming response with proper headers
-        return FastAPIStreamingResponse(
-            generate_clean_response(),
-            media_type="application/x-ndjson",
-            headers={
-                "Content-Type": "application/x-ndjson",
-                "Cache-Control": "no-cache, no-transform",
-                "X-Accel-Buffering": "no",
-                "Transfer-Encoding": "chunked",
-            },
-        )
-
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Stream query failed: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+
+    events = rag.query_stream(
+        request.question,
+        k=request.num_docs,
+        filter=request.filter,
+        hybrid_weights=request.hybrid_weights,
+        rrf_k=request.rrf_k,
+        search_params=request.search_params,
+    )
+    # StreamingRAG's conversion, which logs a failure and sends it as the last event
+    lines = (json.dumps(event) + "\n" async for event in _dict_events(events))
+    return FastAPIStreamingResponse(
+        lines,
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Transfer-Encoding": "chunked",
+        },
+    )
 
 
 # Serve static frontend files for production deployment (mounted last to not interfere with API routes)

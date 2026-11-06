@@ -1,15 +1,21 @@
 """Random template strategy for the Verbatim RAG system.
 
-Provides random template selection from a pool of diverse templates.
+Provides template selection from a pool of diverse templates, by the question.
 Templates can be generated using LLM or manually curated.
 """
 
-import random
+import hashlib
+import logging
 from typing import Any, ClassVar
 
+from typing_extensions import override
+
+from verbatim_core.errors import UpstreamError
 from verbatim_core.llm_client import LLMClient
-from verbatim_core.templates.base import TemplateStrategy
+from verbatim_core.templates.base import TemplateResult, TemplateStrategy
 from verbatim_core.templates.filler import TemplateFiller
+
+logger = logging.getLogger(__name__)
 
 
 class RandomTemplate(TemplateStrategy):
@@ -69,7 +75,7 @@ The relevant information from the documents includes:
         :param templates: Optional list of templates (uses defaults if None)
         :param llm_client: Optional LLM client for generating more templates
         """
-        self.templates = templates or self.DEFAULT_TEMPLATES.copy()
+        self.templates: list[str] = templates or self.DEFAULT_TEMPLATES.copy()
         self.llm_client = llm_client
         self.citation_mode = citation_mode
         self.filler = TemplateFiller(citation_mode=citation_mode)
@@ -79,22 +85,41 @@ The relevant information from the documents includes:
             self.validate_template(template)
 
     def set_citation_mode(self, citation_mode: str) -> None:
-        """Set the citation mode and propagate it to the filler."""
+        """Set how the filled templates render citations.
+
+        Args:
+            citation_mode: "inline" or "hidden".
+
+        """
         self.citation_mode = citation_mode
         self.filler.set_citation_mode(citation_mode)
 
     def generate(self, question: str, spans: list[str], citation_count: int = 0) -> str:
-        """Randomly select a template from the pool.
+        """Choose a template from the pool by the question (ADR 0005).
 
-        :param question: User's question (not used for selection)
+        :param question: User's question, which chooses the template
         :param spans: List of spans (not used for selection)
         :param citation_count: Number of citation spans (not used for selection)
-        :return: Randomly selected template
+        :return: The template the question chooses
         """
+        return self._choose(question, seed=None)
+
+    @override
+    def generate_result(
+        self, question: str, spans: list[str], citation_count: int = 0, *, seed: int | None = None
+    ) -> TemplateResult:
+        """Choose a template from the pool by the question and the seed (ADR 0005).
+
+        The same question and seed choose the same template in every process.
+        """
+        return TemplateResult(text=self._choose(question, seed))
+
+    def _choose(self, question: str, seed: int | None) -> str:
         if not self.templates:
             return self._get_fallback_template()
-
-        return random.choice(self.templates)  # noqa: S311  # non-cryptographic template selection
+        key = question if seed is None else f"{seed}\n{question}"
+        digest = hashlib.sha256(key.encode("utf-8")).digest()
+        return self.templates[int.from_bytes(digest[:8], "big") % len(self.templates)]
 
     def fill(
         self,
@@ -124,13 +149,18 @@ The relevant information from the documents includes:
         :param state: Dictionary with template pool configuration
         """
         if "templates" in state:
-            self.templates = state["templates"]
+            self.templates = []
             # Validate all loaded templates
-            for template in self.templates:
+            for position, template in enumerate(state["templates"]):
                 try:
                     self.validate_template(template)
-                except ValueError:  # noqa: PERF203  # per-item validation; keep behavior
-                    self.templates.remove(template)
+                except ValueError:
+                    logger.warning(
+                        "Removed template %d of the saved pool: it has no span placeholder",
+                        position,
+                    )
+                    continue
+                self.templates.append(template)
 
     def add_template(self, template: str) -> None:
         """Add a new template to the pool.
@@ -206,7 +236,14 @@ Return only the templates, one per line. No numbering or explanations."""
                 except ValueError:  # noqa: PERF203  # per-item validation
                     continue  # Skip invalid templates
 
-        except Exception:  # noqa: BLE001  # any LLM failure falls back to default templates
+            logger.info("Generated and added %d new templates to the pool", added_count)
+
+        except UpstreamError as e:
+            logger.warning(
+                "Adding the fallback templates to the pool, because the LLM wrote none (%s)",
+                e.code,
+                extra={"event": "fallback_used", "warning_code": "template_fallback"},
+            )
             # Add some fallback templates if generation fails
             fallback_templates = [
                 "Here's what the documents reveal:\n\n[DISPLAY_SPANS]",

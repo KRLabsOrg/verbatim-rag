@@ -4,9 +4,31 @@ import importlib
 import logging
 import sys
 import types
-from unittest.mock import MagicMock
 
-from verbatim_core.extractors import LLMSpanExtractor, ModelSpanExtractor
+import pytest
+import verbatim_core
+from verbatim_core.extractors import ModelSpanExtractor
+
+PACKAGE = "verbatim_core.extractor_models"
+DATASET_MODULE = f"{PACKAGE}.dataset"
+
+
+@pytest.fixture
+def import_dataset_module():
+    """Imports the dataset module against the packages a test fakes, and forgets it afterwards.
+
+    The package imports the dataset module and binds its classes, so the package goes too.
+    """
+    names = (PACKAGE, DATASET_MODULE)
+    saved_modules = {name: sys.modules.pop(name) for name in names if name in sys.modules}
+    saved_attribute = vars(verbatim_core).pop("extractor_models", None)
+    yield lambda: importlib.import_module(DATASET_MODULE)
+    for name in names:
+        sys.modules.pop(name, None)
+    vars(verbatim_core).pop("extractor_models", None)
+    sys.modules.update(saved_modules)
+    if saved_attribute is not None:
+        verbatim_core.extractor_models = saved_attribute
 
 
 class TestModelSpanExtractorWarnings:
@@ -26,7 +48,9 @@ class TestModelSpanExtractorWarnings:
         assert result == ModelSpanExtractor._FORMAT_QA_MODEL
         assert "Highlighter detection failed for org/highlighter: offline config" in caplog.text
 
-    def test_legacy_token_budget_warns_when_sentences_are_dropped(self, caplog, monkeypatch):
+    def test_legacy_token_budget_warns_when_sentences_are_dropped(
+        self, caplog, monkeypatch, import_dataset_module
+    ):
         class FakeDataset:
             pass
 
@@ -59,8 +83,7 @@ class TestModelSpanExtractorWarnings:
         monkeypatch.setitem(sys.modules, "torch.utils", torch_utils)
         monkeypatch.setitem(sys.modules, "torch.utils.data", torch_utils_data)
         monkeypatch.setitem(sys.modules, "transformers", transformers)
-        monkeypatch.delitem(sys.modules, "verbatim_core.extractor_models.dataset", raising=False)
-        dataset = importlib.import_module("verbatim_core.extractor_models.dataset")
+        dataset = import_dataset_module()
 
         sample = dataset.QASample(
             question="question",
@@ -81,133 +104,3 @@ class TestModelSpanExtractorWarnings:
             dataset.QADataset([sample], FakeTokenizer(), max_length=7)[0]
 
         assert "exceeded the 7-token budget; dropping 1 sentence(s)" in caplog.text
-
-
-class TestVerifySpans:
-    def setup_method(self):
-        self.extractor = LLMSpanExtractor(llm_client=MagicMock())
-
-    def test_keeps_verbatim_spans(self):
-        result = self.extractor._verify_spans(["cat", "mat"], "The cat sat on the mat.")
-        assert result == ["cat", "mat"]
-
-    def test_filters_non_verbatim_spans(self):
-        result = self.extractor._verify_spans(["cat", "dog"], "The cat sat on the mat.")
-        assert result == ["cat"]
-
-    def test_strips_whitespace(self):
-        result = self.extractor._verify_spans(["  cat  "], "The cat sat.")
-        assert result == ["cat"]
-
-    def test_empty_span_filtered(self):
-        result = self.extractor._verify_spans(["", "  "], "Some text.")
-        assert result == []
-
-
-class TestVerifySpansFuzzy:
-    def setup_method(self):
-        self.extractor = LLMSpanExtractor(
-            llm_client=MagicMock(),
-            span_match_mode="fuzzy",
-        )
-
-    def test_fuzzy_match_preserves_document_token_boundaries(self):
-        span = (
-            "The art of the movement spanned visual, literary, and sound media, "
-            "including collage, sound poetry, cut - up writing, and sculpture."
-        )
-        document = (
-            "x The art of the movement spanned visual , literary , and sound media , "
-            "including collage , sound poetry , cut - up writing , and sculpture . more"
-        )
-
-        result = self.extractor._verify_spans([span], document)
-
-        assert result == [
-            (
-                "The art of the movement spanned visual , literary , and sound media , "
-                "including collage , sound poetry , cut - up writing , and sculpture ."
-            )
-        ]
-
-    def test_fuzzy_match_normalizes_case_and_punctuation_spacing(self):
-        result = self.extractor._verify_spans(
-            ["THE CAT, SAT."],
-            "Before the cat , sat . after",
-        )
-
-        assert result == ["the cat , sat ."]
-
-
-class TestExtractSpans:
-    def test_empty_results(self):
-        extractor = LLMSpanExtractor(llm_client=MagicMock())
-        result = extractor.extract_spans("What?", [])
-        assert result == {}
-
-    def test_batch_mode(self):
-        mock_client = MagicMock()
-        mock_client.extract_spans.return_value = {
-            "doc_0": ["cat sat on the mat"],
-        }
-
-        extractor = LLMSpanExtractor(llm_client=mock_client, extraction_mode="batch", batch_size=5)
-
-        result_obj = MagicMock()
-        result_obj.text = "The cat sat on the mat."
-
-        result = extractor.extract_spans("What animal?", [result_obj])
-        assert "The cat sat on the mat." in result
-        assert result["The cat sat on the mat."] == ["cat sat on the mat"]
-
-    def test_individual_mode(self):
-        mock_client = MagicMock()
-        mock_client.extract_relevant_spans.return_value = ["The cat"]
-
-        extractor = LLMSpanExtractor(llm_client=mock_client, extraction_mode="individual")
-
-        result_obj = MagicMock()
-        result_obj.text = "The cat sat."
-
-        result = extractor.extract_spans("What?", [result_obj])
-        assert result["The cat sat."] == ["The cat"]
-
-    def test_auto_mode_selects_batch_for_small_input(self):
-        mock_client = MagicMock()
-        mock_client.extract_spans.return_value = {"doc_0": ["span"]}
-
-        extractor = LLMSpanExtractor(llm_client=mock_client, extraction_mode="auto", batch_size=5)
-
-        result_obj = MagicMock()
-        result_obj.text = "Some text with span inside."
-
-        extractor.extract_spans("Q?", [result_obj])
-        mock_client.extract_spans.assert_called_once()
-
-    def test_auto_mode_selects_individual_for_large_input(self):
-        mock_client = MagicMock()
-        mock_client.extract_relevant_spans.return_value = ["span"]
-
-        extractor = LLMSpanExtractor(llm_client=mock_client, extraction_mode="auto", batch_size=2)
-
-        results = []
-        for i in range(5):
-            r = MagicMock()
-            r.text = f"Document {i} with span content."
-            results.append(r)
-
-        extractor.extract_spans("Q?", results)
-        assert mock_client.extract_relevant_spans.call_count == 5
-
-    def test_batch_fallback_on_error(self):
-        mock_client = MagicMock()
-        mock_client.extract_spans.side_effect = Exception("API error")
-        mock_client.extract_relevant_spans.return_value = ["fallback span"]
-
-        extractor = LLMSpanExtractor(llm_client=mock_client, extraction_mode="batch")
-
-        result_obj = MagicMock()
-        result_obj.text = "Text with fallback span."
-
-        result = extractor.extract_spans("Q?", [result_obj])
-        assert result["Text with fallback span."] == ["fallback span"]

@@ -43,9 +43,11 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quickstart: getting-started/quickstart.md
+  - Migrating to 0.3.0: migration.md
   - Guide:
     - Verbatim Core (Extractor): guide/verbatim-core.md
     - Full RAG System: guide/verbatim-rag.md
+    - Errors, warnings and logs: guide/errors-and-logs.md
   - API Reference:
     - verbatim_core: api/verbatim-core.md
     - verbatim_rag: api/verbatim-rag.md

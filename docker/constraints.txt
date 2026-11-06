@@ -512,6 +512,7 @@ typing-extensions==4.16.0
     #   starlette
     #   torch
     #   typing-inspection
+    #   verbatim-core
 typing-inspection==0.4.2
     # via
     #   fastapi
@@ -525,7 +526,7 @@ urllib3==2.7.0
     # via requests
 uvicorn==0.51.0
     # via verbatim-rag (pyproject.toml)
-verbatim-core==0.2.9
+verbatim-core==0.3.0
     # via verbatim-rag (pyproject.toml)
 websockets==16.1.1
     # via docling-slim

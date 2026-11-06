@@ -7,12 +7,17 @@ limit) expand to a numbered reference token (e.g. "[6]") without verbatim text.
 """
 
 import asyncio
+import copy
 import logging
-from typing import Any, Optional
+from typing import Any, AsyncIterator, List, Literal, Optional, Union
 
+from pydantic import BaseModel, ConfigDict
+from verbatim_core import Answer, Chunk, ResultWarning, SpansEvent, TransformConfig, Transformer
+from verbatim_core._deprecation import warn_deprecated
+from verbatim_core.errors import ConfigurationError, UpstreamError
 from verbatim_core.templates import TemplateManager
 
-from verbatim_rag.extractors import LLMSpanExtractor, SpanExtractor
+from verbatim_rag.extractors import LLMExtractConfig, LLMSpanExtractor, SpanExtractor
 from verbatim_rag.index import VerbatimIndex
 from verbatim_rag.ingestion import schema_to_document
 from verbatim_rag.llm_client import LLMClient
@@ -47,6 +52,55 @@ Mark the relevant text:
 """
 
 
+logger = logging.getLogger(__name__)
+
+# Marks the deprecated arguments that the caller didn't pass.
+_UNSET: Any = object()
+
+
+_USE_TRANSFORMER = "VerbatimRAG(index, transformer=Transformer(extractor, templates))"
+
+
+def _argument_or(value: Any, default: Any = None) -> Any:
+    """A deprecated argument's value, or the default when the caller left it out."""
+    return default if value is _UNSET or value is None else value
+
+
+def _reranker_fallback(error: UpstreamError) -> ResultWarning:
+    """Log that the reranker's service failed, and the warning of the response."""
+    logger.warning(
+        "Keeping the retrieval order, because the reranker failed (%s)",
+        error.code,
+        extra={"event": "fallback_used", "warning_code": "reranker_fallback"},
+    )
+    return ResultWarning(
+        code="reranker_fallback",
+        message="The reranker failed, so the results keep the order of the retrieval.",
+    )
+
+
+class DocumentsEvent(BaseModel):
+    """The first event of a streamed query: the retrieved chunks, before their spans are
+    extracted."""
+
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
+
+    type: Literal["documents"] = "documents"
+    chunks: List[Chunk]
+
+
+class ResponseEvent(BaseModel):
+    """The last event of a streamed query: the response `query` returns for the same input."""
+
+    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
+
+    type: Literal["response"] = "response"
+    response: QueryResponse
+
+
+QueryStreamEvent = Union[DocumentsEvent, SpansEvent, ResponseEvent]
+
+
 class VerbatimRAG:
     """Retrieve documents and compose cited source excerpts.
 
@@ -58,54 +112,139 @@ class VerbatimRAG:
     def __init__(
         self,
         index: VerbatimIndex,
-        model: str = "gpt-4o-mini",
-        k: int = 5,
-        template_manager: TemplateManager = None,
-        extractor: SpanExtractor = None,
-        max_display_spans: int = 5,
-        template_mode: str = "contextual",  # "static", "contextual", "random"
-        extraction_mode: str = "auto",  # "batch", "individual", "auto"
-        llm_client: LLMClient = None,
+        model: str = _UNSET,
+        k: int = _UNSET,
+        template_manager: TemplateManager = _UNSET,
+        extractor: SpanExtractor = _UNSET,
+        max_display_spans: int = _UNSET,
+        template_mode: str = _UNSET,
+        extraction_mode: str = _UNSET,
+        llm_client: LLMClient | None = None,
         intent_detector=None,
         reranker=None,
+        *,
+        transformer: Transformer | None = None,
     ):
         """
-        Initialize the Verbatim RAG system with clean architecture.
+        Initialize the Verbatim RAG system.
 
         :param index: The index to search for relevant documents
-        :param model: The LLM model to use (if creating new LLM client)
-        :param k: The number of documents to retrieve
-        :param template_manager: Optional template manager (creates one if None)
-        :param extractor: Optional custom extractor (creates LLM extractor if None)
-        :param max_display_spans: Maximum number of spans to display verbatim
-        :param template_mode: Template mode ("static", "contextual", "random")
-        :param extraction_mode: Extraction mode ("batch", "individual", "auto")
-        :param llm_client: Optional LLM client (creates one if None)
+        :param transformer: Writes the answers from the retrieved chunks. Pass it by keyword.
+        :param llm_client: The LLM client of structured template mode, which answers without the
+            transformer (ADR 0004)
+        :param intent_detector: Optional detector that answers some questions without retrieval
+        :param reranker: Optional reranker of the retrieved results
+        :param model: Deprecated. Without a transformer, the LLM model of the client it builds.
+        :param k: Deprecated. Pass k to query.
+        :param template_manager: Deprecated, with extractor, max_display_spans, template_mode and
+            extraction_mode: without a transformer, VerbatimRAG builds one from them.
+        :raises ConfigurationError: If a transformer comes by position, or with the arguments that
+            build one
         """
+        if isinstance(model, Transformer):
+            # By position, the old arguments' places come first, so the arguments after a
+            # transformer can't be told from the old arguments' keywords.
+            raise ConfigurationError(
+                "VerbatimRAG got a transformer by position. Pass it by keyword: "
+                "VerbatimRAG(index, transformer=...).",
+                code="invalid_value",
+            )
+        if k is not _UNSET:
+            warn_deprecated("VerbatimRAG(k=...)", use="query(question, k=...)")
         self.index = index
-        self.k = k
-        self.max_display_spans = max_display_spans
+        self.k = 5 if k is _UNSET else k
         self.intent_detector = intent_detector
         self.reranker = reranker
-
-        # Centralized LLM client
-        self.llm_client = llm_client or LLMClient(model)
-
-        # Initialize components with clean dependency injection
-        self.extractor = extractor or LLMSpanExtractor(
-            llm_client=self.llm_client,
-            extraction_mode=extraction_mode,
-            max_display_spans=max_display_spans,
-        )
-
-        self.template_manager = template_manager or TemplateManager(
-            llm_client=self.llm_client, default_mode=template_mode
-        )
-
-        # Ensure template manager has access to RAG system for structured mode
-        self.template_manager.set_rag_system(self)
-
         self.response_builder = ResponseBuilder()
+
+        # The old arguments that build a transformer
+        builders = {
+            "model": model,
+            "template_manager": template_manager,
+            "extractor": extractor,
+            "max_display_spans": max_display_spans,
+            "template_mode": template_mode,
+            "extraction_mode": extraction_mode,
+        }
+        builders_given = [name for name, value in builders.items() if value not in (_UNSET, None)]
+        if transformer is not None:
+            if builders_given:
+                raise ConfigurationError(
+                    f"VerbatimRAG got a transformer and {', '.join(builders_given)}, which build "
+                    "one. Pass the transformer alone.",
+                    code="invalid_value",
+                )
+            self.llm_client = llm_client
+            self.transformer = transformer
+            # The transformer's settings apply
+            self._max_display_spans = None
+        else:
+            warn_deprecated("VerbatimRAG without a transformer", use=_USE_TRANSFORMER)
+            self.llm_client = llm_client or LLMClient(_argument_or(model, "gpt-4o-mini"))
+            self.transformer = Transformer(
+                _argument_or(extractor)
+                or LLMSpanExtractor(
+                    self.llm_client,
+                    config=LLMExtractConfig(extraction_mode=_argument_or(extraction_mode, "auto")),
+                ),
+                _argument_or(template_manager)
+                or TemplateManager(
+                    llm_client=self.llm_client,
+                    default_mode=_argument_or(template_mode, "contextual"),
+                ),
+            )
+            self._max_display_spans = _argument_or(max_display_spans, 5)
+
+        # Structured mode's helpers call back into this object, until #74 replaces them (ADR 0004)
+        self.template_manager._attach_rag_system(self)
+
+    @property
+    def extractor(self) -> SpanExtractor:
+        """The extractor of the transformer."""
+        return self.transformer.extractor
+
+    @extractor.setter
+    def extractor(self, extractor: SpanExtractor) -> None:
+        warn_deprecated("Assigning VerbatimRAG.extractor", use=_USE_TRANSFORMER)
+        # A copy, so a transformer shared with other code keeps its extractor
+        self.transformer = copy.copy(self.transformer)
+        self.transformer.extractor = extractor
+
+    @property
+    def template_manager(self) -> TemplateManager:
+        """The templates of the transformer."""
+        return self.transformer.templates
+
+    @template_manager.setter
+    def template_manager(self, templates: TemplateManager) -> None:
+        warn_deprecated("Assigning VerbatimRAG.template_manager", use=_USE_TRANSFORMER)
+        self.transformer = copy.copy(self.transformer)
+        self.transformer.templates = templates
+        templates._attach_rag_system(self)
+
+    @property
+    def max_display_spans(self) -> int:
+        """The number of spans an answer shows."""
+        if self._max_display_spans is not None:
+            return self._max_display_spans
+        return self.transformer.config.max_display_spans
+
+    @max_display_spans.setter
+    def max_display_spans(self, max_display_spans: int) -> None:
+        warn_deprecated(
+            "Assigning VerbatimRAG.max_display_spans",
+            use="Transformer(..., config=TransformConfig(max_display_spans=...))",
+        )
+        self._max_display_spans = max_display_spans
+
+    def _transform_config(self) -> TransformConfig | None:
+        """The config of a transformer call: the transformer's settings with the old
+        max_display_spans, or None for the transformer's settings alone."""
+        if self._max_display_spans is None:
+            return None
+        return self.transformer.config.model_copy(
+            update={"max_display_spans": self._max_display_spans}
+        )
 
     def _build_short_circuit_response(self, question: str, answer: str) -> QueryResponse:
         cleaned = self.response_builder.clean_answer(answer or "")
@@ -122,25 +261,28 @@ class VerbatimRAG:
             return decision.get(field, default)
         return getattr(decision, field, default)
 
-    def _apply_reranker(self, question: str, results: list):
+    def _apply_reranker(self, question: str, results: list) -> tuple[list, list[ResultWarning]]:
+        """The reranked results, or the retrieval order with a warning when the reranker's
+        service fails."""
         if not self.reranker:
-            return results
+            return results, []
         try:
-            return self.reranker.rerank(question, results)
-        except Exception as exc:
-            logging.warning(f"Reranker failed, using original order: {exc}")
-            return results
+            return self.reranker.rerank(question, results), []
+        except UpstreamError as error:
+            return results, [_reranker_fallback(error)]
 
-    async def _apply_reranker_async(self, question: str, results: list):
+    async def _apply_reranker_async(
+        self, question: str, results: list
+    ) -> tuple[list, list[ResultWarning]]:
+        """Async version of `_apply_reranker`."""
         if not self.reranker:
-            return results
+            return results, []
         try:
             if hasattr(self.reranker, "rerank_async"):
-                return await self.reranker.rerank_async(question, results)
-            return await asyncio.to_thread(self.reranker.rerank, question, results)
-        except Exception as exc:
-            logging.warning(f"Async reranker failed, using original order: {exc}")
-            return results
+                return await self.reranker.rerank_async(question, results), []
+            return await asyncio.to_thread(self.reranker.rerank, question, results), []
+        except UpstreamError as error:
+            return results, [_reranker_fallback(error)]
 
     def _detect_intent(self, question: str):
         if not self.intent_detector:
@@ -157,55 +299,6 @@ class VerbatimRAG:
         if hasattr(self.intent_detector, "detect"):
             return await asyncio.to_thread(self.intent_detector.detect, question)
         return None
-
-    def _generate_template(
-        self, question: str, display_spans: list[str] = None, citation_count: int = 0
-    ) -> str:
-        """
-        Generate or select a template for the response.
-
-        :param question: The user's question
-        :param display_spans: Spans that will be displayed (for contextual templates)
-        :param citation_count: Number of additional citations
-        :return: A template string with placeholders
-        """
-        return self.template_manager.get_template(question, display_spans or [], citation_count)
-
-    def _rank_and_split_spans(
-        self, relevant_spans: dict[str, list[str]]
-    ) -> tuple[list[dict], list[dict]]:
-        """
-        Split spans into display vs citation-only, trusting the extractor's ordering.
-
-        :param relevant_spans: Dictionary mapping doc text to span lists (already ordered by relevance)
-        :return: Tuple of (display_spans, citation_spans) with minimal metadata
-        """
-        # Flatten spans, preserving the order from the extractors
-        all_spans = []
-        for doc_text, spans in relevant_spans.items():
-            for span in spans:
-                all_spans.append({"text": span, "doc_text": doc_text})
-
-        # Split into display and citation-only (trust the extractor's relevance ordering)
-        display_spans = all_spans[: self.max_display_spans]
-        citation_spans = all_spans[self.max_display_spans :]
-
-        return display_spans, citation_spans
-
-    def _fill_template_enhanced(
-        self, template: str, display_spans: list[dict], citation_spans: list[dict]
-    ) -> str:
-        """
-        Fill the template with display spans and citation references.
-
-        Now delegates to the template manager's fill functionality.
-
-        :param template: The template string with placeholders
-        :param display_spans: Spans to display verbatim with metadata
-        :param citation_spans: Spans for citation reference only
-        :return: The filled template
-        """
-        return self.template_manager.fill_template(template, display_spans, citation_spans)
 
     def query(
         self,
@@ -244,35 +337,22 @@ class VerbatimRAG:
             rrf_k=rrf_k,
             search_params=search_params,
         )
-        search_results = self._apply_reranker(question, search_results)
+        logger.debug("Retrieved %d results", len(search_results))
+        search_results, warnings = self._apply_reranker(question, search_results)
 
-        # Step 2: Check mode and extract accordingly
+        # Step 2: Structured mode answers by itself (ADR 0004), the other modes with the transformer
         if self.template_manager.current_mode == "structured":
-            answer, all_relevant_spans = self._process_structured(question, search_results)
-            # Structured mode keeps its count until structured answers are redesigned (#74)
-            display_span_count = len(all_relevant_spans)
+            response = self._structured_response(
+                question,
+                search_results,
+                *self._process_structured(question, search_results),
+                warnings,
+            )
         else:
-            # Standard extraction flow
-            print("Extracting relevant spans...")
-            all_relevant_spans = self.extractor.extract_spans(question, search_results)
-
-            print("Processing spans...")
-            display_spans, citation_spans = self._rank_and_split_spans(all_relevant_spans)
-            display_span_count = len(display_spans)
-
-            print("Generating response...")
-            answer = self.template_manager.process(question, display_spans, citation_spans)
-
-        # Clean up and build response
-        answer = self.response_builder.clean_answer(answer)
-
-        response = self.response_builder.build_response(
-            question=question,
-            answer=answer,
-            search_results=search_results,
-            relevant_spans=all_relevant_spans,
-            display_span_count=display_span_count,
-        )
+            chunks = [result.to_chunk() for result in search_results]
+            logger.debug("Answering from %d chunks", len(chunks))
+            answer = self.transformer.transform(question, chunks, config=self._transform_config())
+            response = self._response(question, answer, chunks, warnings)
 
         if return_search_results:
             return response, search_results
@@ -287,6 +367,7 @@ class VerbatimRAG:
         :param search_results: Retrieved documents
         :return: Tuple of (filled_answer, spans_dict in response_builder format)
         """
+        self._check_structured_client()
         strategy = self.template_manager.strategies["structured"]
         template = strategy.template
         placeholders = strategy.get_placeholder_hints()
@@ -324,56 +405,113 @@ class VerbatimRAG:
         :param rrf_k: RRF constant for hybrid search (default: 60)
         :return: A QueryResponse object containing the structured response
         """
-        # Step 0: Optional intent detection
+        events = [
+            event
+            async for event in self.query_stream(
+                question,
+                k=k,
+                filter=filter,
+                hybrid_weights=hybrid_weights,
+                rrf_k=rrf_k,
+                search_params=search_params,
+            )
+        ]
+        return events[-1].response
+
+    async def query_stream(
+        self,
+        question: str,
+        k: Optional[int] = None,
+        filter: Optional[str] = None,
+        hybrid_weights: Optional[dict[str, float]] = None,
+        rrf_k: int = 60,
+        search_params: Optional[dict[str, Any]] = None,
+    ) -> AsyncIterator[QueryStreamEvent]:
+        """
+        Answer the question as events: the retrieved chunks, their spans, then the response.
+
+        The last event carries the response that `query` returns for the same input. A question
+        the intent detector answers yields that event alone. Structured template mode yields no
+        spans event, because it extracts without the transformer (ADR 0004).
+
+        :param question: The user's question
+        :param k: The number of chunks to retrieve (uses self.k if not provided)
+        :param filter: Optional filter to narrow document search
+        :param hybrid_weights: Optional dict mapping method names to weights
+        :param rrf_k: RRF constant for hybrid search (default: 60)
+        :param search_params: Optional parameters of the vector search
+        :raises UpstreamError: If a service the extractor or the templates call fails
+        :raises ConfigurationError: If a service rejects its key, model or quota, or structured
+            template mode has no LLM client
+        """
         decision = await self._detect_intent_async(question)
         route = self._decision_field(decision, "route")
         if decision and route and route != "continue":
             answer = self._decision_field(decision, "answer", "") or ""
-            return self._build_short_circuit_response(question, answer)
+            yield ResponseEvent(response=self._build_short_circuit_response(question, answer))
+            return
 
-        # Step 1: Retrieve documents
-        k = k or self.k
         search_results = self.index.query(
             text=question,
-            k=k,
+            k=k or self.k,
             filter=filter,
             hybrid_weights=hybrid_weights,
             rrf_k=rrf_k,
             search_params=search_params,
         )
-        search_results = await self._apply_reranker_async(question, search_results)
+        logger.debug("Retrieved %d results", len(search_results))
+        search_results, warnings = await self._apply_reranker_async(question, search_results)
+        chunks = [result.to_chunk() for result in search_results]
+        yield DocumentsEvent(chunks=chunks)
 
-        # Step 2: Check mode and extract accordingly
+        # Structured mode answers by itself (ADR 0004), the other modes with the transformer
         if self.template_manager.current_mode == "structured":
-            answer, all_relevant_spans = await self._process_structured_async(
-                question, search_results
+            response = self._structured_response(
+                question,
+                search_results,
+                *await self._process_structured_async(question, search_results),
+                warnings,
             )
-            # Structured mode keeps its count until structured answers are redesigned (#74)
-            display_span_count = len(all_relevant_spans)
-        else:
-            # Standard extraction flow
-            print("Extracting relevant spans (async)...")
-            all_relevant_spans = await self.extractor.extract_spans_async(question, search_results)
+            yield ResponseEvent(response=response)
+            return
+        logger.debug("Answering from %d chunks", len(chunks))
+        async for event in self.transformer.astream(
+            question, chunks, config=self._transform_config()
+        ):
+            if isinstance(event, SpansEvent):
+                yield event
+            else:
+                yield ResponseEvent(
+                    response=self._response(question, event.answer, chunks, warnings)
+                )
 
-            print("Processing spans...")
-            display_spans, citation_spans = self._rank_and_split_spans(all_relevant_spans)
-            display_span_count = len(display_spans)
+    def _response(
+        self, question: str, answer: Answer, chunks: list[Chunk], warnings: list[ResultWarning]
+    ) -> QueryResponse:
+        """The QueryResponse of the transformer's answer. The warnings of the retrieval join the
+        answer's."""
+        answer = answer.model_copy(update={"warnings": [*warnings, *answer.warnings]})
+        logger.debug("Answered with %d citations", len(answer.citations))
+        return self.response_builder.build_from_answer(question, answer, chunks)
 
-            print("Generating response (async)...")
-            answer = await self.template_manager.process_async(
-                question, display_spans, citation_spans
-            )
-
-        # Clean up and build response
-        answer = self.response_builder.clean_answer(answer)
-
-        return self.response_builder.build_response(
+    def _structured_response(
+        self,
+        question: str,
+        search_results: list,
+        answer: str,
+        relevant_spans: dict,
+        warnings: list[ResultWarning],
+    ) -> QueryResponse:
+        """The QueryResponse of a structured answer, with the warnings of the retrieval."""
+        response = self.response_builder.build_response(
             question=question,
-            answer=answer,
+            answer=self.response_builder.clean_answer(answer),
             search_results=search_results,
-            relevant_spans=all_relevant_spans,
-            display_span_count=display_span_count,
+            relevant_spans=relevant_spans,
+            # Structured mode keeps its count until structured answers are redesigned (#74)
+            display_span_count=len(relevant_spans),
         )
+        return response.model_copy(update={"warnings": warnings})
 
     async def _process_structured_async(
         self, question: str, search_results: list
@@ -385,6 +523,7 @@ class VerbatimRAG:
         :param search_results: Retrieved documents
         :return: Tuple of (filled_answer, spans_dict in response_builder format)
         """
+        self._check_structured_client()
         strategy = self.template_manager.strategies["structured"]
         template = strategy.template
         placeholders = strategy.get_placeholder_hints()
@@ -404,6 +543,15 @@ class VerbatimRAG:
         relevant_spans = self._convert_structured_to_doc_spans(span_map, doc_texts)
 
         return answer, relevant_spans
+
+    def _check_structured_client(self) -> None:
+        """Structured mode answers with VerbatimRAG's own client (ADR 0004)."""
+        if self.llm_client is None:
+            raise ConfigurationError(
+                "Structured template mode needs an LLM client: "
+                "VerbatimRAG(index, transformer=..., llm_client=...).",
+                code="missing_llm_client",
+            )
 
     def _convert_structured_to_doc_spans(self, span_map: dict, doc_texts: list) -> dict:
         """

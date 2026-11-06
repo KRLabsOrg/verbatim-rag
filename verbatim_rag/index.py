@@ -127,7 +127,7 @@ class VerbatimIndex:
 
     def _chunk_document(self, doc: Document) -> List[Tuple[Any, Any]]:
         """
-        Chunk a Document into Chunk and ProcessedChunk objects.
+        Chunk a Document into DocumentChunk and ProcessedChunk objects.
 
         Uses chunker provider for structural chunking, then adds document metadata.
         Does not add chunks to document or generate embeddings.
@@ -136,9 +136,9 @@ class VerbatimIndex:
             doc: Document to chunk
 
         Returns:
-            List of (Chunk, ProcessedChunk) tuples
+            List of (DocumentChunk, ProcessedChunk) tuples
         """
-        from verbatim_rag.document import Chunk, ChunkType, ProcessedChunk
+        from verbatim_rag.document import ChunkType, DocumentChunk, ProcessedChunk
 
         # Use chunker provider to get structural chunks (with heading hierarchy)
         chunk_tuples = self.chunker_provider.chunk(doc.raw_content)
@@ -148,8 +148,8 @@ class VerbatimIndex:
             # Add document metadata to the structurally enhanced text
             final_enhanced = self._add_document_metadata(struct_enhanced, doc)
 
-            # Create basic Chunk with inherited metadata
-            doc_chunk = Chunk(
+            # Create basic DocumentChunk with inherited metadata
+            doc_chunk = DocumentChunk(
                 document_id=doc.id,
                 content=raw_text,  # Original text for extraction
                 chunk_number=i,
@@ -231,7 +231,7 @@ class VerbatimIndex:
 
         Args:
             doc: Document the chunk belongs to
-            chunk: Chunk object
+            chunk: DocumentChunk object
 
         Returns:
             Complete metadata dict for vector store
@@ -244,7 +244,7 @@ class VerbatimIndex:
             "source": doc.source,
             "doc_type": doc.metadata.get("doc_type"),
             "content_type": doc.content_type.value if doc.content_type else None,
-            # Chunk fields
+            # DocumentChunk fields
             "chunk_type": chunk.chunk_type.value,
             "chunk_number": chunk.chunk_number,
             "page_number": chunk.metadata.get("page_number", 0),

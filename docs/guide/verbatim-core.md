@@ -2,28 +2,79 @@
 
 The `verbatim_core` package provides RAG-agnostic verbatim span extraction. It works with any retrieval system -- you provide the question and context, it returns grounded answers with citations.
 
-## VerbatimTransform
+## Transformer
 
-The main entry point. Takes a question and retrieved context, extracts verbatim spans, and produces a cited response.
+Writes a cited answer from a question and chunks you pass in, without an index. Pass the extractor and the templates it uses:
 
 ```python
-from verbatim_core import VerbatimTransform
+from verbatim_core import Chunk, TransformConfig, Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.templates import TemplateManager
 
-vt = VerbatimTransform(
-    template_mode="contextual",  # or "static"
-    extraction_mode="auto",      # "auto", "batch", or "individual"
-    max_display_spans=5,
-    span_match_mode="exact",     # "exact" or "fuzzy"
-    fuzzy_threshold=0.8,         # for fuzzy mode
+client = LLMClient(model="gpt-4o-mini")
+transformer = Transformer(
+    LLMSpanExtractor(client),
+    TemplateManager(llm_client=client),
+    config=TransformConfig(template_mode="contextual", max_display_spans=5),
 )
 
-response = vt.transform(
-    question="What methodology was used?",
-    context=[
-        {"content": "We used a mixed-methods approach combining surveys and interviews."},
-        {"content": "The sample size was 500 participants across 3 hospitals."},
+answer = transformer.transform(
+    "What methodology was used?",
+    [
+        Chunk(id="methods", text="We used a mixed-methods approach combining surveys and interviews."),
+        Chunk(id="sample", text="The sample size was 500 participants across 3 hospitals."),
     ],
 )
+print(answer.text)
+for citation in answer.citations:
+    print(citation.number, citation.type, citation.chunk_id, citation.start, citation.end)
+```
+
+Each span of the answer gets one citation, which points at the span by chunk id and offsets. The first `max_display_spans` spans fill the template, and the citations of the spans the answer shows are marked `display`; the others are cited for reference only. In random template mode the template is chosen by the question and the config's `seed`, so the same question gets the same template. `answer.usage` lists the extractor's work and, when a template LLM ran, the LLM's, and `answer.warnings` says what made the answer less complete, such as a quote that couldn't be located or a template that fell back to the fallback template.
+
+A `config` passed to a call replaces the transformer's default config for that call only, so one transformer can serve concurrent requests. `atransform` is the async version. `stream` and `astream` yield a `spans` event once the spans are extracted, then an `answer` event with the same `Answer` that `transform` returns:
+
+```python
+for event in transformer.stream(question, chunks):
+    if event.type == "spans":
+        show_sources(event.spans)
+    else:
+        show_answer(event.answer)
+```
+
+`ResponseBuilder().build_from_answer(question, answer, chunks)` turns an `Answer` into the `QueryResponse` that `VerbatimTransform` returns, with each cited span highlighted in its chunk.
+
+Structured template mode is not available in the `Transformer`; use `VerbatimRAG` for structured answers.
+
+## VerbatimTransform
+
+Deprecated since 0.3.0, and removed in 0.5.0: use the `Transformer`. [Migrating to 0.3.0](../migration.md) maps each old entry point to its replacement. `VerbatimTransform` turns the context items into chunks with positional ids (`ctx_0`, `ctx_1`, ...), answers with a `Transformer`, and returns the answer as a `QueryResponse`. The same with a `Transformer`:
+
+```python
+from verbatim_core import Chunk, TransformConfig, Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates import TemplateManager
+
+client = LLMClient()
+transformer = Transformer(
+    LLMSpanExtractor(client),
+    TemplateManager(llm_client=client),
+    config=TransformConfig(template_mode="contextual"),
+)
+
+chunks = [
+    Chunk(
+        id=f"ctx_{i}",
+        text=item["content"],
+        metadata={"title": item.get("title", ""), "source": item.get("source", "")},
+    )
+    for i, item in enumerate(context)
+]
+answer = transformer.transform(question, chunks)
+response = ResponseBuilder().build_from_answer(question, answer, chunks)
 ```
 
 ### Context Format
@@ -33,54 +84,66 @@ Context items can be:
 - **Dicts** with `"content"` (or `"text"`), plus optional `"title"`, `"source"`, `"metadata"`
 - **Objects** with a `.text` attribute (e.g., search results from any vector store)
 
+An item of another shape raises `InvalidInputError` with `param` naming it, such as `context[3]`: the code `missing_field` for a dict without `"content"` or `"text"`, and `invalid_value` otherwise.
+
 ## LLMSpanExtractor
 
-Extracts verbatim spans from documents using an LLM. All extracted spans are verified to exist in the original text.
+Extracts verbatim spans from chunks using an LLM. The LLM quotes the text of each chunk that answers the question, and each quote is located in its chunk. A span's text is always the chunk's own text at the span's offsets.
 
 ```python
-from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core import Chunk
+from verbatim_core.extractors import LLMExtractConfig, LLMSpanExtractor
 from verbatim_core.llm_client import LLMClient
 
-client = LLMClient(model="gpt-4o-mini")
 extractor = LLMSpanExtractor(
-    llm_client=client,
-    extraction_mode="auto",  # batch for small inputs, individual for large
-    batch_size=5,
-    span_match_mode="fuzzy",     # "exact" or "fuzzy"
-    fuzzy_threshold=0.8,
+    LLMClient(model="gpt-4o-mini"),
+    config=LLMExtractConfig(
+        extraction_mode="auto",  # batch for small inputs, individual for large
+        batch_size=5,
+        span_match_mode="fuzzy",  # "exact" or "fuzzy"
+        fuzzy_threshold=0.8,
+    ),
 )
 
-spans = extractor.extract_spans("What is X?", search_results)
-# Returns: {"doc text": ["verbatim span 1", "verbatim span 2"], ...}
+extraction = extractor.extract(
+    "What methodology was used?",
+    [
+        Chunk(id="methods", text="We used a mixed-methods approach combining surveys and interviews."),
+        Chunk(id="sample", text="The sample size was 500 participants across 3 hospitals."),
+    ],
+)
+for span in extraction.spans:
+    print(span.chunk_id, span.start, span.end, span.text)
 ```
+
+`extract` returns an `Extraction`: the spans with their chunk ids, offsets and scores, the usage of the call (the model, the chunks and characters, the LLM calls and, where the LLM service reports them, the tokens) and its warnings. `aextract` is the async version and makes its LLM calls concurrently. A `config` passed to `extract` replaces the extractor's default config for that call.
+
+Every span has the score 1.0: the LLM extracts without a score.
+
+A quote that can't be located in its chunk is dropped and reported in `extraction.warnings` with the code `quote_not_found`. A failed LLM call raises, and the whole extraction fails: an `UpstreamError` for a timeout, a connection error, a rate limit, a server error or a reply that can't be read, and a `ConfigurationError` when the LLM service rejects the API key, the model or the account's quota.
+
+`extract_spans`, which returns the span texts keyed by chunk text, is deprecated. Unlike `extract`, it tolerates failed LLM calls: a chunk whose call fails yields no spans.
 
 ## Fuzzy Span Matching
 
-By default, extracted spans must match the source document exactly (substring match). For documents with OCR artifacts, encoding issues (e.g. corrupted umlauts), or minor formatting differences, enable fuzzy matching:
-
-```python
-vt = VerbatimTransform(
-    span_match_mode="fuzzy",
-    fuzzy_threshold=0.8,  # 0-1, higher = stricter matching
-)
-```
-
-Or directly on the extractor:
+By default, a quote must match its chunk exactly. For documents with OCR artifacts, encoding issues (e.g. corrupted umlauts), or minor formatting differences, enable fuzzy matching in the extractor's config:
 
 ```python
 extractor = LLMSpanExtractor(
-    llm_client=client,
-    span_match_mode="fuzzy",
-    fuzzy_threshold=0.8,
+    client,
+    config=LLMExtractConfig(
+        span_match_mode="fuzzy",
+        fuzzy_threshold=0.8,  # 0-1, higher = stricter matching
+    ),
 )
 ```
 
 In fuzzy mode:
 
-- Exact matches are tried first (fast path)
-- If no exact match, `rapidfuzz` finds the best fuzzy alignment in the document
-- The returned span is the **actual text from the document** (not the LLM's version), ensuring correct character offsets for highlighting
-- Spans below the threshold are rejected with a warning
+- The first exact occurrence of a quote is tried first
+- If there is none, `rapidfuzz` finds the best fuzzy alignment in the chunk, the earliest on a tie
+- The span is the **chunk's own text** at that alignment, not the LLM's version
+- Quotes below the threshold are dropped and reported in the warnings
 
 This is particularly useful for medical documents, scanned PDFs, or any text that may have been through lossy format conversions.
 
@@ -98,29 +161,18 @@ Documents:
 
 Return a JSON object mapping doc IDs to span arrays."""
 
-extractor = LLMSpanExtractor(
-    llm_client=client,
-    extraction_prompt=custom_prompt,
-)
+extractor = LLMSpanExtractor(client, config=LLMExtractConfig(extraction_prompt=custom_prompt))
 ```
 
-You can also pass an optional `system_prompt` to set the LLM's persona:
+You can also pass an optional `system_prompt` to set the LLM's persona. It is sent only with a custom extraction prompt:
 
 ```python
 extractor = LLMSpanExtractor(
-    llm_client=client,
-    extraction_prompt=custom_prompt,
-    system_prompt="You are a medical expert extracting clinical information.",
-)
-```
-
-These parameters are also available on `VerbatimTransform`:
-
-```python
-vt = VerbatimTransform(
-    extraction_prompt=custom_prompt,
-    system_prompt="You are a medical expert.",
-    span_match_mode="fuzzy",
+    client,
+    config=LLMExtractConfig(
+        extraction_prompt=custom_prompt,
+        system_prompt="You are a medical expert extracting clinical information.",
+    ),
 )
 ```
 
@@ -151,6 +203,8 @@ All built-in prompts (`LLMClient` extraction, template generation, fallback) loa
 
 Controls how extracted spans are formatted into responses.
 
+A `TemplateManager` holds the templates of each mode. Its constructor arguments, such as `default_mode`, describe its `config`, a `TransformConfig`. A `Transformer` built without a `config` uses the template manager's as its default. To choose the template mode, citation mode or citation format, pass a `TransformConfig` to the `Transformer` or to one call. The setters `set_mode`, `set_citation_mode` and `set_citation_format` are deprecated: they change the manager's config, which every transformer using it without its own config shares.
+
 ### Static Templates
 
 Fast, deterministic -- no LLM calls. Static mode is the recommended choice for pipeline and tool-chain use cases where output is consumed by downstream tools or agents.
@@ -174,6 +228,33 @@ from verbatim_core.llm_client import LLMClient
 client = LLMClient()
 tm = TemplateManager(llm_client=client, default_mode="contextual")
 ```
+
+### Random Templates
+
+Chooses a template from a pool by the question, so the same question always gets the same template. A `seed` in the `TransformConfig` changes the choice:
+
+```python
+from verbatim_core import TransformConfig
+
+transformer.transform(question, chunks, config=TransformConfig(template_mode="random", seed=7))
+```
+
+### Question-Specific Templates
+
+Pairs each template with example questions and chooses the template whose example is closest to the question. An embedding model compares them: pass any loaded model with an `encode(texts)` method, such as a `SentenceTransformer`, as `embedder`:
+
+```python
+from sentence_transformers import SentenceTransformer
+
+templates = [
+    {"template": "## Methods\n\n[RELEVANT_SENTENCES]", "examples": ["What methods were used?"]},
+    {"template": "## Results\n\n[RELEVANT_SENTENCES]", "examples": ["What did they find?"]},
+]
+tm = TemplateManager()
+tm.use_question_specific_mode(templates, embedder=SentenceTransformer("all-MiniLM-L6-v2"))
+```
+
+`QuestionSpecificTemplate.from_pretrained(model_name, templates=templates)` loads the model and builds the templates in one step. The examples are embedded when the templates are built, and each question when it is answered, so no call loads a model.
 
 ### Template Placeholders
 

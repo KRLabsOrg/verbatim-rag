@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
 
-from verbatim_core.transform import VerbatimTransform
+from verbatim_core._context import _default_transformer, _query_response
+from verbatim_core.llm_client import LLMClient
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -33,7 +34,7 @@ def _iter_records(fp: IO[str]) -> Iterable[dict[str, Any]]:
                 continue
             try:
                 yield json.loads(stripped)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001  # a malformed line is skipped
                 print(f"Skipping malformed JSONL line: {e}", file=sys.stderr)
     else:
         try:
@@ -55,17 +56,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-spans", type=int, default=5, help="Max display spans")
     args = p.parse_args(argv)
 
-    vt = VerbatimTransform(max_display_spans=args.max_spans)
-
     with contextlib.ExitStack() as stack:
         fin = stack.enter_context(Path(args.input).open(encoding="utf-8")) if args.input else sys.stdin
         fout = stack.enter_context(Path(args.output).open("w", encoding="utf-8")) if args.output else sys.stdout
 
+        transformer = _default_transformer(LLMClient(), args.max_spans)
+
         for rec in _iter_records(fin) or []:
             question = rec.get("question") or ""
             context = rec.get("context") or rec.get("sources") or []
-            answer = rec.get("answer")
-            resp = vt.transform(question=question, context=context, answer=answer)
+            resp = _query_response(transformer, question, context)
             fout.write(json.dumps(resp.model_dump()) + "\n")
     return 0
 

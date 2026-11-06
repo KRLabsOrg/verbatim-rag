@@ -1,8 +1,8 @@
 """
 Universal document representation for RAG-agnostic workflows.
 
-Lightweight container with helpers to convert from/to dicts used by
-VerbatimTransform and API payloads.
+Lightweight container with helpers to convert from/to the context dicts of
+RAGProvider and API payloads.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ class UniversalDocument:
         )
 
     def to_context(self) -> Dict[str, Any]:
-        """Convert to the dict format accepted by VerbatimTransform."""
+        """Convert to the context dict of a RAGProvider."""
         return {
             "content": self.content,
             "title": self.title,

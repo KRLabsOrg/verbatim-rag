@@ -4,16 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from functools import wraps
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from verbatim_core.transform import VerbatimTransform
+from verbatim_core._context import _default_transformer, _query_response
+from verbatim_core.llm_client import LLMClient
 
-_ANSWER_SOURCES_PAIR_LEN = 2
+if TYPE_CHECKING:
+    from verbatim_core.models import QueryResponse
+
+_ANSWER_SOURCES_PAIR_LEN = 2  # a wrapped function may return an (answer, sources) pair
 
 
-def _to_context_dicts(obj: object) -> list[dict]:
+def _to_context_dicts(obj: object) -> list[dict[str, Any]]:
     """Best-effort conversion of sources/context to context dicts."""
-    ctx: list[dict] = []
+    ctx: list[dict[str, Any]] = []
     if obj is None:
         return ctx
     if isinstance(obj, Mapping):
@@ -26,7 +30,7 @@ def _to_context_dicts(obj: object) -> list[dict]:
                     "title": data.get("title", ""),
                     "source": data.get("source", ""),
                     "metadata": data.get("metadata") or {},
-                },
+                }
             )
         return ctx
     if isinstance(obj, (list, tuple)):
@@ -53,18 +57,16 @@ def verbatim_enhance(
 
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
-        def wrapper(*args: object, **kwargs: object) -> object:  # decorator passthrough
+        def wrapper(*args: Any, **kwargs: Any) -> QueryResponse:  # noqa: ANN401  # passes the wrapped function's arguments through
             result = fn(*args, **kwargs)
             question = kwargs.get("question") or (args[0] if args else "")
-            answer = None
             context: Iterable[dict[str, Any]] = []
 
             if isinstance(result, dict):
-                answer = result.get("answer")
                 context = result.get("context") or result.get("sources") or []
             elif isinstance(result, (list, tuple)):
                 if len(result) == _ANSWER_SOURCES_PAIR_LEN:
-                    answer, context = result
+                    _answer, context = result
                 else:
                     context = result
             else:
@@ -72,8 +74,8 @@ def verbatim_enhance(
 
             context_dicts = _to_context_dicts(context)
 
-            vt = VerbatimTransform(max_display_spans=max_display_spans)
-            return vt.transform(question=question or "", context=context_dicts, answer=answer)
+            transformer = _default_transformer(LLMClient(), max_display_spans)
+            return _query_response(transformer, question or "", context_dicts)
 
         return wrapper
 

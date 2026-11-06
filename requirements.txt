@@ -4474,6 +4474,7 @@ typing-extensions==4.16.0 \
     #   torch
     #   typing-inspection
     #   uvicorn
+    #   verbatim-core
 typing-inspection==0.4.4 \
     --hash=sha256:547274fa6b0a561ccf549cc9524b999a578e737d015d8709d021f9d0d13bea47 \
     --hash=sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147

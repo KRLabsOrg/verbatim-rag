@@ -7,10 +7,12 @@ import pytest
 def mock_openai_response():
     """Factory for creating mock OpenAI completion responses."""
 
-    def _make(content: str):
+    def _make(content: str, model: str = "test-model-2026-01-01", usage=None):
         response = MagicMock()
         response.choices = [MagicMock()]
         response.choices[0].message.content = content
+        response.model = model
+        response.usage = usage
         return response
 
     return _make

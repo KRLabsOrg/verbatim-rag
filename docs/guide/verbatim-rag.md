@@ -87,6 +87,10 @@ sparse = SpladeProvider(
 ## Indexing and Querying
 
 ```python
+from verbatim_core import Transformer
+from verbatim_core.extractors import LLMSpanExtractor
+from verbatim_core.llm_client import LLMClient
+from verbatim_core.templates import TemplateManager
 from verbatim_rag import VerbatimIndex, VerbatimRAG
 
 index = VerbatimIndex(
@@ -99,14 +103,40 @@ index = VerbatimIndex(
 index.add_documents([doc1, doc2])
 
 # Query
-rag = VerbatimRAG(index, k=5)
-response = rag.query("What is the main contribution?")
+client = LLMClient()
+transformer = Transformer(
+    LLMSpanExtractor(client), TemplateManager(llm_client=client, default_mode="contextual")
+)
+rag = VerbatimRAG(index, transformer=transformer)
+response = rag.query("What is the main contribution?", k=5)
 
 print(response.answer)
 for doc in response.documents:
     for h in doc.highlights:
         print(f"  [{h.start}:{h.end}] {h.text}")
 ```
+
+`query` and `query_async` retrieve with `k` and the other retrieval arguments of the call, rerank when a reranker is given, and answer with the `Transformer`. Each retrieved row becomes a chunk whose id is the row's id: it stays the same while its document stays indexed, and changes when the document is indexed again. Nothing is set on `VerbatimRAG` by a call, so one instance can serve concurrent queries.
+
+When the reranker's service fails, the results keep the retrieval order, and the response's `warnings` include `reranker_fallback`. `response.warnings` lists every way an answer is degraded but still correct, such as quotes that couldn't be located in their chunk (`quote_not_found`). Structured template mode answers without the `Transformer`, with the `llm_client` given to `VerbatimRAG`.
+
+`query_stream` takes the arguments of `query_async` and yields the answer as events, so a UI can show the sources before the answer is written:
+
+```python
+async for event in rag.query_stream("What is the main contribution?", k=5):
+    if event.type == "documents":
+        show_sources(event.chunks)
+    elif event.type == "spans":
+        highlight(event.spans)
+    else:
+        show_answer(event.response)
+```
+
+The `documents` event carries the retrieved chunks, the `spans` event the spans extracted from them with their chunk ids and offsets, and the last event, `response`, the `QueryResponse` that `query` returns for the same input. A failure raises the error that `query` raises. A question the intent detector answers yields the `response` event alone, and structured template mode yields no `spans` event.
+
+`StreamingRAG` still works and warns. It sends the events of `query_stream` as the dicts it sent before 0.3.0 (`documents`, `progress`, `highlights` and `answer`), and a failure as a last `error` event with the error's `code`. Its `error` field is the code, or the message of an `InvalidInputError`, never the text of another exception. The failure is logged with its traceback, which shows the messages of verbatim's own errors only, since another exception's message may quote the question or a chunk. The API server's streaming route sends the same events.
+
+`VerbatimRAG(index)` and the arguments `model`, `k`, `template_manager`, `extractor`, `max_display_spans`, `template_mode` and `extraction_mode` still work and warn until 0.5.0: without a transformer, `VerbatimRAG` builds the one it built before 0.3.0. [Migrating to 0.3.0](../migration.md) shows the replacement of each.
 
 ## Span Extractors
 
@@ -119,18 +149,23 @@ Uses OpenAI models for extraction. Requires `OPENAI_API_KEY`.
 ```python
 from verbatim_rag.extractors import ModelSpanExtractor
 
-extractor = ModelSpanExtractor("KRLabsOrg/verbatim-rag-modern-bert-v2")
-rag = VerbatimRAG(index, extractor=extractor, template_mode="static")
+extractor = ModelSpanExtractor.from_pretrained("KRLabsOrg/verbatim-rag-modern-bert-v2")
+rag = VerbatimRAG(index, transformer=Transformer(extractor, TemplateManager()))
 ```
+
+`from_pretrained` downloads and loads the model, or loads it from a local path. It records the
+model's Hugging Face commit as the version that the usage of each extraction reports. For a local
+path, pass the version yourself: `from_pretrained("/models/v2", model_version="v2.1")`. The spans
+keep the character offsets and probabilities the model computed.
 
 ### Semantic Highlighting
 
 ```python
-from verbatim_rag.extractors import SemanticHighlightExtractor
+from verbatim_rag.extractors import SemanticHighlightConfig, SemanticHighlightExtractor
 
-extractor = SemanticHighlightExtractor(
-    threshold=0.5,
-    output_mode="sentences",
+extractor = SemanticHighlightExtractor.from_pretrained(
+    "zilliz/semantic-highlight-bilingual-v1",
+    config=SemanticHighlightConfig(threshold=0.5, output_mode="sentences"),
 )
 ```
 
