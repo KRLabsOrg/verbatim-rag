@@ -74,7 +74,9 @@ class SpanExtractor(ABC, Generic[_ConfigT]):
     subclass of an extractor that overrides `extract_spans`, as subclasses written before 0.3.0
     did, is called through it like a subclass that implements only `extract_spans`. A subclass
     that overrides `extract` below a parent's `aextract` gets an `aextract` that runs its
-    `extract` in a worker thread.
+    `extract` in a worker thread. A call's LLM calls then run one after another: to keep the
+    parent's concurrent `aextract`, override `aextract` too, for example with
+    `await super().aextract(...)` and the same changes to its result as in `extract`.
     """
 
     # For a subclass that overrides extract_spans below its parent's extract: the parent, whose

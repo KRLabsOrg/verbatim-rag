@@ -38,7 +38,9 @@ replacement.
   Of an extractor's methods, the one defined in the most specific class is the implementation: a
   subclass of an extractor that overrides `extract_spans`, as subclasses written before 0.3.0
   did, is called through its `extract_spans` too, and a subclass that overrides `extract` below
-  a parent's `aextract` gets an `aextract` that runs its `extract` in a worker thread.
+  a parent's `aextract` gets an `aextract` that runs its `extract` in a worker thread. Such a
+  subclass of `LLMSpanExtractor` makes a call's LLM calls one after another, unless it overrides
+  `aextract` too.
 - The `verbatim_core.content` logger. Log records that hold customer text, such as questions,
   chunks and span texts, go only to this logger and only at DEBUG. Leave it at INFO to keep
   customer text out of your logs whatever level the other `verbatim_core` loggers have.
