@@ -300,6 +300,10 @@ Each of these warns with `VerbatimDeprecationWarning`, a `DeprecationWarning`, a
   `verbatim_core`, and `SearchResult` from `verbatim_rag.vector_stores` (#95).
 
 ### Fixed
+- Concurrent calls on one `ModelSpanExtractor` or `SemanticHighlightExtractor` take turns in
+  the model and its tokenizer. Calls with different configs, and `SemanticHighlightExtractor`
+  in spans mode even with one config, failed with `RuntimeError: Already borrowed` from the
+  shared fast tokenizer. For calls in parallel, give each worker its own extractor.
 - The `verbatim-rag` CLI's `query` and `template` commands, which failed with a `TypeError`
   (#98). `query` answers with a `Transformer`: `--max-display`, `--extraction-mode` and
   `--contextual-templates` apply, `--num-docs` is the `k` of the query, and the citations are

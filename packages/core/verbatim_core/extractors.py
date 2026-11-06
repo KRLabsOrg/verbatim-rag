@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import re
+import threading
 import time
 from abc import ABC
 from dataclasses import dataclass
@@ -245,6 +246,9 @@ class ModelSpanExtractor(SpanExtractor[ModelExtractConfig]):
       sentences of a chunk, scored with their probability.
 
     Load a model with `from_pretrained`. The constructor takes a loaded model and loads nothing.
+
+    One instance serves concurrent calls, but its model takes one call at a time. For calls in
+    parallel, give each worker its own extractor.
     """
 
     DEFAULT_MODEL = "KRLabsOrg/verbatim-rag-modern-bert-v2"
@@ -326,6 +330,9 @@ class ModelSpanExtractor(SpanExtractor[ModelExtractConfig]):
             )
 
         self.model = model
+        # Calls into the model and its tokenizer take turns: a fast tokenizer changes its settings
+        # per call, and fails with "Already borrowed" while another thread encodes.
+        self._model_lock = threading.Lock()
         self.config = config
         self.model_id = model_id
         self.model_version = model_version
@@ -419,15 +426,16 @@ class ModelSpanExtractor(SpanExtractor[ModelExtractConfig]):
         return Extraction(spans=spans, usage=[usage], warnings=warnings)
 
     def _highlight(self, question: str, chunk: Chunk, config: ModelExtractConfig) -> list[ExtractedSpan]:
-        output = self.model.process(
-            question=question,
-            context=chunk.text,
-            threshold=config.threshold,
-            min_span_chars=config.min_span_chars,
-            merge_gap_chars=config.merge_gap_chars,
-            max_length=config.max_length,
-            doc_stride=config.doc_stride,
-        )
+        with self._model_lock:
+            output = self.model.process(
+                question=question,
+                context=chunk.text,
+                threshold=config.threshold,
+                min_span_chars=config.min_span_chars,
+                merge_gap_chars=config.merge_gap_chars,
+                max_length=config.max_length,
+                doc_stride=config.doc_stride,
+            )
         return [
             _model_span(chunk, span["start"], span["end"], span.get("score", UNSCORED))
             for span in output.get("spans", [])
@@ -466,18 +474,19 @@ class ModelSpanExtractor(SpanExtractor[ModelExtractConfig]):
             dataset_name="inference",
             task_type="qa",
         )
-        dataset = dataset_module.QADataset([sample], self.tokenizer, max_length=512)
-        if len(dataset) == 0:
-            return []
+        with self._model_lock:
+            dataset = dataset_module.QADataset([sample], self.tokenizer, max_length=512)
+            if len(dataset) == 0:
+                return []
 
-        encoding = dataset[0]
-        device = next(self.model.parameters()).device
-        with torch.no_grad():
-            predictions = self.model(
-                input_ids=encoding["input_ids"].unsqueeze(0).to(device),
-                attention_mask=encoding["attention_mask"].unsqueeze(0).to(device),
-                sentence_boundaries=[encoding["sentence_boundaries"]],
-            )
+            encoding = dataset[0]
+            device = next(self.model.parameters()).device
+            with torch.no_grad():
+                predictions = self.model(
+                    input_ids=encoding["input_ids"].unsqueeze(0).to(device),
+                    attention_mask=encoding["attention_mask"].unsqueeze(0).to(device),
+                    sentence_boundaries=[encoding["sentence_boundaries"]],
+                )
         if len(predictions) == 0 or len(predictions[0]) == 0:
             return []
         probabilities = torch.nn.functional.softmax(predictions[0], dim=1)[:, 1]
@@ -512,6 +521,9 @@ class SemanticHighlightExtractor(SpanExtractor[SemanticHighlightConfig]):
     model that works out of the box for English and Chinese text.
 
     Load the model with `from_pretrained`. The constructor takes a loaded model and loads nothing.
+
+    One instance serves concurrent calls, but its model takes one call at a time. For calls in
+    parallel, give each worker its own extractor.
     """
 
     DEFAULT_MODEL = "zilliz/semantic-highlight-bilingual-v1"
@@ -589,6 +601,9 @@ class SemanticHighlightExtractor(SpanExtractor[SemanticHighlightConfig]):
             )
 
         self.model = model
+        # Calls into the model and its tokenizer take turns: a fast tokenizer changes its settings
+        # per call, and fails with "Already borrowed" while another thread encodes.
+        self._model_lock = threading.Lock()
         self.config = config
         self.model_id = model_id
         self.model_version = model_version
@@ -660,18 +675,19 @@ class SemanticHighlightExtractor(SpanExtractor[SemanticHighlightConfig]):
         self, question: str, chunk: Chunk, position: int, config: SemanticHighlightConfig
     ) -> tuple[list[ExtractedSpan], list[ResultWarning]]:
         """Return the sentences the model highlights, scored with their probability."""
-        result = self.model.process(
-            question=question,
-            context=chunk.text,
-            threshold=config.threshold,
-            language=config.language,
-            return_sentence_metrics=True,
-            always_select_title=False,
-            # Explicit preprocessing settings keep the model from reading environment variables.
-            show_progress=False,
-            preprocess_workers=0,
-            preprocess_batch_size=32,
-        )
+        with self._model_lock:
+            result = self.model.process(
+                question=question,
+                context=chunk.text,
+                threshold=config.threshold,
+                language=config.language,
+                return_sentence_metrics=True,
+                always_select_title=False,
+                # Explicit preprocessing settings keep the model from reading environment variables.
+                show_progress=False,
+                preprocess_workers=0,
+                preprocess_batch_size=32,
+            )
         sentences = result.get("highlighted_sentences", [])
         # A sentence is highlighted when its probability is above the threshold, so the
         # probabilities above it belong to the highlighted sentences, in order.
@@ -702,18 +718,21 @@ class SemanticHighlightExtractor(SpanExtractor[SemanticHighlightConfig]):
         self, question: str, chunk: Chunk, position: int, config: SemanticHighlightConfig
     ) -> tuple[list[ExtractedSpan], list[ResultWarning]]:
         """Spans of contiguous tokens whose probability is above the threshold."""
-        raw = self.model.get_raw_predictions(question, [chunk.text])
-        if not raw.context_ranges:
-            return [], []
+        # The model tokenizes with other settings than the offsets below, so even calls with one
+        # config change the tokenizer's settings.
+        with self._model_lock:
+            raw = self.model.get_raw_predictions(question, [chunk.text])
+            if not raw.context_ranges:
+                return [], []
+            encoding = self.model.tokenizer(
+                chunk.text,
+                return_offsets_mapping=True,
+                add_special_tokens=False,
+                max_length=getattr(self.model, "max_length", None),
+            )
 
         start_index, end_index = raw.context_ranges[0]
         probabilities = raw.pruning_probs[start_index:end_index]
-        encoding = self.model.tokenizer(
-            chunk.text,
-            return_offsets_mapping=True,
-            add_special_tokens=False,
-            max_length=getattr(self.model, "max_length", None),
-        )
         offsets = encoding["offset_mapping"]
         warnings = []
         if len(probabilities) != len(offsets):

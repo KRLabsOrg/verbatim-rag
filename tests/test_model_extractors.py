@@ -1,10 +1,12 @@
 """ModelSpanExtractor and SemanticHighlightExtractor, through extract with stub models."""
 
+import asyncio
 import logging
 import re
 import subprocess
 import sys
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -421,6 +423,91 @@ def sentence_model_extractor(torch):
         model_id="stub/v1",
         model_version="c0ffee",
     )
+
+
+# Concurrent calls
+
+
+class Overlaps:
+    """Records the most calls that were inside a model's methods at the same time."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._inside = 0
+        self.most = 0
+
+    def __call__(self, method):
+        def recorded(*args, **kwargs):
+            with self._lock:
+                self._inside += 1
+                self.most = max(self.most, self._inside)
+            try:
+                time.sleep(0.005)  # long enough for unserialized calls to overlap
+                return method(*args, **kwargs)
+            finally:
+                with self._lock:
+                    self._inside -= 1
+
+        return recorded
+
+
+class RecordedModel:
+    """A model whose calls are recorded: `model(...)` looks `__call__` up on the type."""
+
+    def __init__(self, model, overlaps):
+        self._model = model
+        self._call = overlaps(model.__call__)
+
+    def __call__(self, *args, **kwargs):
+        return self._call(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._model, name)
+
+
+class TestConcurrentCalls:
+    """One extractor serves concurrent calls. Its model and tokenizer take one call at a time:
+    a fast tokenizer changes its settings per call, and fails while another thread encodes."""
+
+    async def run(self, extractor, configs, calls=20):
+        await asyncio.gather(
+            *(
+                extractor.aextract(QUESTION, [OPENED, TOLLS], config=configs[i % len(configs)])
+                for i in range(calls)
+            )
+        )
+
+    async def test_the_highlighter_with_different_configs(self):
+        overlaps, model = Overlaps(), StubHighlighter()
+        model.process = overlaps(model.process)
+        extractor = ModelSpanExtractor(model, model_id="m", model_version="1")
+
+        await self.run(
+            extractor, [ModelExtractConfig(), ModelExtractConfig(max_length=256, doc_stride=64)]
+        )
+
+        assert overlaps.most == 1
+
+    @pytest.mark.parametrize("output_mode", ["sentences", "spans"])
+    async def test_the_semantic_highlighter_with_one_config(self, output_mode):
+        overlaps, model = Overlaps(), StubSemanticHighlighter()
+        for name in ("process", "get_raw_predictions", "tokenizer"):
+            setattr(model, name, overlaps(getattr(model, name)))
+        extractor = SemanticHighlightExtractor(model, model_id="m", model_version="1")
+
+        await self.run(extractor, [SemanticHighlightConfig(output_mode=output_mode)])
+
+        assert overlaps.most == 1
+
+    async def test_the_sentence_model(self):
+        overlaps = Overlaps()
+        extractor = sentence_model_extractor(pytest.importorskip("torch"))
+        extractor.tokenizer.encode_plus = overlaps(extractor.tokenizer.encode_plus)
+        extractor.model = RecordedModel(extractor.model, overlaps)
+
+        await self.run(extractor, [ModelExtractConfig(threshold=0.5)])
+
+        assert overlaps.most == 1
 
 
 # Loading
