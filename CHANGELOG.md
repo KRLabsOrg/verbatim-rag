@@ -85,12 +85,16 @@ replacement.
   mode, the citation mode and format, and a seed. Nothing is set on the transformer between
   calls, so one transformer can serve concurrent calls. In random template mode it chooses the
   template by a hash of the question, combined with the seed, so the same question gets the same
-  template. Structured template mode raises: it stays in `VerbatimRAG`.
+  template. Structured template mode raises: it stays in `VerbatimRAG`. The template strategy
+  fills the answer with its own citation settings, as `TemplateManager.process` did, unless the
+  call's config sets a citation mode or format: then the call fills with those and changes no
+  strategy. A strategy whose class defines its own `fill` always fills.
 - In a `Transformer` call, a contextual template falls back to the fallback template only when
   the LLM call fails with an `UpstreamError` or the LLM sends an empty template, and the answer
   then has the warning `template_fallback`. A rejected API key, model or quota raises
   `ConfigurationError`. Generated templates are logged only on the `verbatim_core.content`
-  logger. A client that replaces `LLMClient.generate_template` is still called that way (#93).
+  logger. A client that replaces `LLMClient.generate_template` is still called that way, and an
+  exception of its own is a failed LLM call, so the template falls back (#93).
 - `ResponseBuilder.build_from_answer`, which builds today's `QueryResponse` from an `Answer`. It
   highlights each cited span at its offsets, without searching for its text, and of two
   overlapping spans keeps the first. A citation of a chunk it isn't given, or with offsets
@@ -188,8 +192,8 @@ replacement.
   `fallback_used` and the warning code `template_fallback` (#94).
 - `ContextualTemplate.generate` and `generate_async`, for a client that replaces
   `generate_template`, and `RandomTemplate.generate_diverse_templates` fall back only when the
-  LLM call fails with an `UpstreamError`. A rejected API key, model or quota raises
-  `ConfigurationError` (#94).
+  LLM call fails with an `UpstreamError`, which includes an exception of a client written before
+  0.3.0 (`client_failed`). A rejected API key, model or quota raises `ConfigurationError` (#94).
 - `QuestionSpecificTemplate` raises `ConfigurationError` (code `missing_dependency`) instead of
   `ImportError` when sentence-transformers is missing, and `ConfigurationError` (code
   `model_not_loaded`) instead of `OSError` when the model can't be loaded (#94).

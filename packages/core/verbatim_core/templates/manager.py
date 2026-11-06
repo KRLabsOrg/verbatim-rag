@@ -118,7 +118,8 @@ class TemplateManager:
 
         :raises ConfigurationError: If a setting is invalid
         """
-        self.config = _config_from_settings(TransformConfig, {**self.config.model_dump(), **settings})
+        # Only the settings set before stay set, so a call can tell them from the defaults.
+        self.config = _config_from_settings(TransformConfig, {**self.config.model_dump(exclude_unset=True), **settings})
 
     def get_current_mode(self) -> str:
         """Get the current template mode.

@@ -12,7 +12,7 @@ from typing_extensions import override
 
 from verbatim_core._logging import content_logger
 from verbatim_core.errors import UpstreamError
-from verbatim_core.llm_client import Completion, LLMClient, _replaces
+from verbatim_core.llm_client import Completion, LLMClient, _acall_old_client, _call_old_client, _replaces
 from verbatim_core.templates.base import TemplateResult, TemplateStrategy
 from verbatim_core.templates.filler import TemplateFiller
 from verbatim_core.types import ResultWarning, Usage
@@ -160,8 +160,9 @@ class ContextualTemplate(TemplateStrategy):
         """Ask the LLM for a template, without the cache.
 
         When the LLM call fails with an `UpstreamError`, or the LLM sends an empty template, the
-        result is the fallback template with the warning `template_fallback`. Other errors
-        propagate.
+        result is the fallback template with the warning `template_fallback`. An exception of a
+        client written before 0.3.0, which replaces `generate_template`, is such a failure. Other
+        errors propagate.
 
         :raises ConfigurationError: If the LLM service rejects the key, the model or the quota
         """
@@ -169,7 +170,10 @@ class ContextualTemplate(TemplateStrategy):
             return TemplateResult(text=self._get_fallback_template(citation_count > 0))
         request = self._template_request(question, spans, citation_count)
         if _replaces(self.llm_client, "generate_template", "template_completion"):
-            text = self.llm_client.generate_template(**request)
+            try:
+                text = _call_old_client(self.llm_client, "generate_template", **request)
+            except UpstreamError as error:
+                return self._fallback_result(citation_count, error.code)
             return TemplateResult(text=self._post_process_template(text, citation_count))
         try:
             completion = self.llm_client.template_completion(**request)
@@ -186,7 +190,10 @@ class ContextualTemplate(TemplateStrategy):
             return TemplateResult(text=self._get_fallback_template(citation_count > 0))
         request = self._template_request(question, spans, citation_count)
         if _replaces(self.llm_client, "generate_template_async", "template_completion_async"):
-            text = await self.llm_client.generate_template_async(**request)
+            try:
+                text = await _acall_old_client(self.llm_client, "generate_template_async", **request)
+            except UpstreamError as error:
+                return self._fallback_result(citation_count, error.code)
             return TemplateResult(text=self._post_process_template(text, citation_count))
         try:
             completion = await self.llm_client.template_completion_async(**request)

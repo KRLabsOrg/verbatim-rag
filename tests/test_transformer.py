@@ -23,6 +23,7 @@ from verbatim_core import (
 from verbatim_core.extractors import SpanExtractor
 from verbatim_core.llm_client import Completion
 from verbatim_core.templates import TemplateManager
+from verbatim_core.templates.static import StaticTemplate
 
 QUESTION = "When did the bridge open?"
 CHUNKS = [
@@ -260,6 +261,73 @@ class TestAnswer:
         transformer = Transformer(StubExtractor(warnings=[warning]), TemplateManager())
 
         assert transformer.transform(QUESTION, CHUNKS).warnings == [warning]
+
+
+class ShoutingTemplate(StaticTemplate):
+    """Written before 0.3.0: fills its own way."""
+
+    def fill(self, template, display_spans, citation_spans):
+        return super().fill(template, display_spans, citation_spans).upper()
+
+
+def templates_with(strategy):
+    templates = TemplateManager()
+    templates.strategies["static"] = strategy
+    return templates
+
+
+class TestStrategiesThatFill:
+    """The strategy fills the answer, as TemplateManager.process did, unless the call brings
+    citation settings of its own."""
+
+    def test_a_strategy_with_its_own_citation_mode_fills_a_call_without_a_config(self):
+        templates = templates_with(StaticTemplate(citation_mode="hidden"))
+
+        answer = Transformer(StubExtractor(), templates).transform(QUESTION, CHUNKS)
+
+        assert "[1]" not in answer.text
+        assert "The bridge opened in March 1932." in answer.text
+
+    def test_a_config_that_sets_citations_fills_with_them_and_leaves_the_strategy_alone(self):
+        strategy = StaticTemplate(citation_mode="hidden")
+        transformer = Transformer(StubExtractor(), templates_with(strategy))
+
+        answer = transformer.transform(
+            QUESTION, CHUNKS, config=TransformConfig(citation_mode="inline")
+        )
+
+        assert "[1] The bridge opened in March 1932." in answer.text
+        assert strategy.filler.citation_mode == "hidden"
+
+    @pytest.mark.parametrize(
+        "config", [None, TransformConfig(citation_mode="hidden")], ids=["without", "with"]
+    )
+    async def test_a_strategy_whose_class_fills_its_own_way_fills_every_call(self, config):
+        transformer = Transformer(StubExtractor(), templates_with(ShoutingTemplate()))
+
+        answer = transformer.transform(QUESTION, CHUNKS, config=config)
+
+        assert "THE BRIDGE OPENED IN MARCH 1932." in answer.text
+        assert await transformer.atransform(QUESTION, CHUNKS, config=config) == answer
+
+    def test_a_config_without_citation_settings_leaves_the_filling_to_the_strategy(self):
+        templates = templates_with(StaticTemplate(citation_mode="hidden"))
+
+        answer = Transformer(StubExtractor(), templates).transform(
+            QUESTION, CHUNKS, config=TransformConfig(max_display_spans=2)
+        )
+
+        assert "[1]" not in answer.text
+
+    def test_built_in_strategies_fill_as_the_config_says(self):
+        transformer = Transformer(StubExtractor(), TemplateManager())
+
+        without = transformer.transform(QUESTION, CHUNKS)
+        explicit = transformer.transform(
+            QUESTION, CHUNKS, config=TransformConfig(citation_mode="inline")
+        )
+
+        assert without == explicit
 
 
 class TestConfig:

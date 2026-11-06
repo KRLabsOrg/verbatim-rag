@@ -495,3 +495,33 @@ class TestStructuredModeCallbacks:
         tm.use_structured_mode(template="## Results\n[RESULTS]")
 
         assert tm.strategies["structured"].rag_system is rag
+
+
+class TestContextualTemplateWithAClientWrittenBefore030:
+    """A client that replaces generate_template, for example to call another provider."""
+
+    @pytest.mark.parametrize("asynchronous", [False, True])
+    async def test_an_exception_of_its_own_falls_back_to_the_fallback_template(
+        self, asynchronous, caplog
+    ):
+        strategy = ContextualTemplate(FakeLLM(error=RuntimeError("Provider down for: Q?")))
+
+        if asynchronous:
+            result = await strategy.generate_result_async("Q?", ["A span."], 0)
+        else:
+            result = strategy.generate_result("Q?", ["A span."], 0)
+
+        assert result.text.startswith("## Response\n\nBased on the available documents:")
+        assert [warning.code for warning in result.warnings] == ["template_fallback"]
+        [record] = [record for record in caplog.records if record.levelno == logging.WARNING]
+        assert "Provider down" not in record.getMessage()
+
+    @pytest.mark.parametrize("asynchronous", [False, True])
+    async def test_a_rejected_key_still_propagates(self, asynchronous):
+        strategy = ContextualTemplate(FakeLLM(error=REJECTED_KEY))
+
+        with pytest.raises(ConfigurationError):
+            if asynchronous:
+                await strategy.generate_result_async("Q?", ["A span."], 0)
+            else:
+                strategy.generate_result("Q?", ["A span."], 0)

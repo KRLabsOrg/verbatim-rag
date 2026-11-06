@@ -17,7 +17,7 @@ from verbatim_core.templates.filler import TemplateFiller
 from verbatim_core.types import Answer, AnswerCitation, Chunk, ExtractedSpan, Extraction
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Iterator, Sequence
+    from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 
     from verbatim_core.extractors import SpanExtractor
     from verbatim_core.templates import TemplateManager
@@ -164,7 +164,7 @@ class Transformer:
         yield SpansEvent(spans=extraction.spans)
         display, references = _split(extraction.spans, config)
         template = strategy.generate_result(question, _texts(display + references), len(references), seed=config.seed)
-        yield AnswerEvent(answer=_answer(extraction, template, display, references, config))
+        yield AnswerEvent(answer=_answer(extraction, template, display, references, _fill(strategy, config)))
 
     async def _aevents(
         self,
@@ -180,7 +180,7 @@ class Transformer:
         template = await strategy.generate_result_async(
             question, _texts(display + references), len(references), seed=config.seed
         )
-        yield AnswerEvent(answer=_answer(extraction, template, display, references, config))
+        yield AnswerEvent(answer=_answer(extraction, template, display, references, _fill(strategy, config)))
 
 
 def _split(spans: list[ExtractedSpan], config: TransformConfig) -> tuple[list[ExtractedSpan], list[ExtractedSpan]]:
@@ -196,15 +196,31 @@ def _span_data(spans: list[ExtractedSpan]) -> list[dict[str, str]]:
     return [{"text": span.text} for span in spans]
 
 
+def _fill(strategy: TemplateStrategy, config: TransformConfig) -> Callable[[str, list[Any], list[Any]], str]:
+    """Return what fills the template of a call.
+
+    The strategy fills it, with its own citation settings, as `TemplateManager.process` did:
+    unless the call's config sets citation settings, and the strategy's class doesn't fill its own
+    way. A config's settings fill with a filler of the call's own, and change no strategy.
+    """
+    if _fills_its_own_way(strategy) or not {"citation_mode", "citation_format"} & config.model_fields_set:
+        return strategy.fill
+    return TemplateFiller(citation_mode=config.citation_mode, citation_format=config.citation_format).fill
+
+
+def _fills_its_own_way(strategy: TemplateStrategy) -> bool:
+    """Return whether the strategy's class defines a `fill` of its own, outside the library."""
+    return not type(strategy).fill.__module__.startswith("verbatim_core.")
+
+
 def _answer(
     extraction: Extraction,
     template: TemplateResult,
     display: list[ExtractedSpan],
     references: list[ExtractedSpan],
-    config: TransformConfig,
+    fill: Callable[[str, list[Any], list[Any]], str],
 ) -> Answer:
-    filler = TemplateFiller(citation_mode=config.citation_mode, citation_format=config.citation_format)
-    text = filler.fill(template.text, _span_data(display), _span_data(references))
+    text = fill(template.text, _span_data(display), _span_data(references))
     shown = _shown_numbers(template.text, len(display))
     citations = [
         AnswerCitation(
