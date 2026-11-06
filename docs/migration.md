@@ -86,6 +86,7 @@ for span in extraction.spans:
 | `extractor.extract_spans(question, results)` | `extractor.extract(question, chunks)` |
 | `extractor.extract_spans_async(question, results)` | `await extractor.aextract(question, chunks)` |
 | A `SpanExtractor` subclass that implements only `extract_spans` | Implement `extract(self, question, chunks, *, config=None)`, returning an `Extraction`. Until then, `extract` locates the span texts in their chunks and warns. |
+| A subclass of `LLMSpanExtractor` or another extractor that overrides `extract_spans`, for example to filter the spans | Override `extract` instead, and filter the `Extraction`'s spans. Until then, `extract` and `aextract` call your `extract_spans` and warn. |
 | `LLMSpanExtractor()`, `LLMSpanExtractor(model="gpt-4o")` | `LLMSpanExtractor(LLMClient("gpt-4o"))` |
 | `LLMSpanExtractor(client, model=...)` | The model of the client: `LLMClient(model)` |
 | `LLMSpanExtractor(client, extraction_mode=..., batch_size=..., span_match_mode=..., fuzzy_threshold=..., extraction_prompt=..., system_prompt=...)` | `LLMSpanExtractor(client, config=LLMExtractConfig(...))` with the same names |

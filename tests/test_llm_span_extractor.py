@@ -409,6 +409,269 @@ class TestClientsWrittenBefore030:
 
         assert len(extraction.spans) == 1
 
+    async def test_a_complete_without_a_system_prompt_parameter_is_called(self):
+        # The signature many clients copied from LLMClient before system_prompt existed
+        class OldSignature(LLMClient):
+            def __init__(self):
+                self.model = "own-model"
+
+            def complete(self, prompt, json_mode=False):
+                return FakeLLMClient().completion(prompt).text
+
+            async def complete_async(self, prompt, json_mode=False):
+                return self.complete(prompt, json_mode)
+
+        extractor = LLMSpanExtractor(OldSignature())
+
+        extraction = extractor.extract(QUESTION, [OPENED, TOLLS])
+
+        assert [span.text for span in extraction.spans] == ["The bridge opened in March 1932."]
+        assert await extractor.aextract(QUESTION, [OPENED, TOLLS]) == extraction
+
+    class ExtractionMethods:
+        """The extraction methods of a client that calls another provider."""
+
+        def __init__(self):
+            self.model = "own-model"
+            self.fake = FakeLLMClient()
+            self.called = []
+
+        def extract_spans(self, question, documents):
+            self.called.append("extract_spans")
+            return {key: self.fake._quotes(question, text) for key, text in documents.items()}
+
+        def extract_relevant_spans(self, question, document_text):
+            self.called.append("extract_relevant_spans")
+            return self.fake._quotes(question, document_text)
+
+        async def extract_spans_async(self, question, documents):
+            self.called.append("extract_spans_async")
+            return {key: self.fake._quotes(question, text) for key, text in documents.items()}
+
+        async def extract_relevant_spans_async(self, question, document_text):
+            self.called.append("extract_relevant_spans_async")
+            return self.fake._quotes(question, document_text)
+
+    class OwnExtraction(ExtractionMethods, LLMClient):
+        """Replaces LLMClient's extraction methods."""
+
+    class DuckTypedExtraction(ExtractionMethods):
+        """Has the extraction methods, without LLMClient as its base."""
+
+    @pytest.mark.parametrize("client_class", [OwnExtraction, DuckTypedExtraction])
+    @pytest.mark.parametrize(
+        ("mode", "method"), [("batch", "extract_spans"), ("individual", "extract_relevant_spans")]
+    )
+    @pytest.mark.parametrize("asynchronous", [False, True])
+    async def test_a_client_that_replaces_the_extraction_methods_is_called_that_way(
+        self, client_class, mode, method, asynchronous
+    ):
+        client = client_class()
+        extractor = LLMSpanExtractor(client, config=LLMExtractConfig(extraction_mode=mode))
+
+        if asynchronous:
+            extraction = await extractor.aextract(QUESTION, [OPENED, TOLLS])
+        else:
+            extraction = extractor.extract(QUESTION, [OPENED, TOLLS])
+
+        assert [(span.chunk_id, span.text) for span in extraction.spans] == [
+            ("opened", "The bridge opened in March 1932.")
+        ]
+        suffix = "_async" if asynchronous else ""
+        assert set(client.called) == {method + suffix}
+        [usage] = extraction.usage
+        assert (usage.model_id, usage.model_version) == ("own-model", None)
+
+    def test_replacing_extract_spans_also_covers_single_chunks(self):
+        # LLMClient.extract_relevant_spans calls extract_spans
+        class OnlyExtractSpans(LLMClient):
+            def __init__(self):
+                self.model = "own-model"
+                self.documents = []
+
+            def extract_spans(self, question, documents):
+                self.documents.append(documents)
+                return {
+                    key: FakeLLMClient()._quotes(question, text) for key, text in documents.items()
+                }
+
+        client = OnlyExtractSpans()
+        config = LLMExtractConfig(extraction_mode="individual")
+
+        extraction = LLMSpanExtractor(client, config=config).extract(QUESTION, [OPENED])
+
+        assert [span.text for span in extraction.spans] == ["The bridge opened in March 1932."]
+        assert client.documents == [{"doc": OPENED.text}]
+
+    def test_a_custom_prompt_still_goes_to_complete(self):
+        class Both(self.OwnExtraction):
+            def complete(self, prompt, json_mode=False, temperature=None, system_prompt=None):
+                self.called.append("complete")
+                return self.fake.completion(prompt).text
+
+        client = Both()
+        config = LLMExtractConfig(extraction_prompt="Question: {{ question }}\n\n{{ documents }}")
+
+        LLMSpanExtractor(client, config=config).extract(QUESTION, [OPENED])
+
+        assert client.called == ["complete"]
+
+    def test_an_extraction_method_that_returns_another_shape_is_an_invalid_reply(self):
+        class Wrong(self.OwnExtraction):
+            def extract_spans(self, question, documents):
+                return ["not", "a", "dict"]
+
+        with pytest.raises(UpstreamError) as raised:
+            LLMSpanExtractor(Wrong()).extract(QUESTION, [OPENED])
+
+        assert raised.value.code == "invalid_reply"
+
+
+class TestFailingClientsWrittenBefore030:
+    """An exception of a client written before 0.3.0 is a failed LLM call."""
+
+    class Down(LLMClient):
+        def __init__(self):
+            self.model = "own-model"
+
+        def complete(self, prompt, json_mode=False, temperature=None, system_prompt=None):
+            raise RuntimeError(f"Provider down while answering: {prompt}")
+
+        async def complete_async(self, *args, **settings):
+            return self.complete(*args, **settings)
+
+    class DownExtraction(LLMClient):
+        def __init__(self):
+            self.model = "own-model"
+
+        def extract_spans(self, question, documents):
+            raise RuntimeError(f"Provider down while answering: {question}")
+
+        async def extract_spans_async(self, question, documents):
+            return self.extract_spans(question, documents)
+
+    @pytest.mark.parametrize("client_class", [Down, DownExtraction])
+    @pytest.mark.parametrize("asynchronous", [False, True])
+    async def test_it_raises_an_upstream_error_without_its_message(
+        self, client_class, asynchronous
+    ):
+        extractor = LLMSpanExtractor(
+            client_class(), config=LLMExtractConfig(extraction_mode="batch")
+        )
+
+        with pytest.raises(UpstreamError) as raised:
+            if asynchronous:
+                await extractor.aextract(QUESTION, [OPENED])
+            else:
+                extractor.extract(QUESTION, [OPENED])
+
+        assert (raised.value.code, raised.value.service, raised.value.retryable) == (
+            "client_failed",
+            "llm",
+            False,
+        )
+        assert isinstance(raised.value.__cause__, RuntimeError)
+        assert "RuntimeError" in str(raised.value)
+        assert QUESTION not in str(raised.value)
+
+    @pytest.mark.parametrize("asynchronous", [False, True])
+    async def test_the_deprecated_extract_spans_tolerates_it(self, asynchronous):
+        extractor = LLMSpanExtractor(self.Down())
+        results = [SimpleNamespace(text=OPENED.text)]
+
+        with pytest.warns(VerbatimDeprecationWarning):
+            spans = await extract_spans(extractor, results, asynchronous)
+
+        assert spans == {OPENED.text: []}
+
+    def test_their_verbatim_errors_propagate_unchanged(self):
+        rejected = ConfigurationError("The key was rejected.", code="authentication_failed")
+
+        class Rejecting(self.Down):
+            def complete(self, prompt, json_mode=False, temperature=None, system_prompt=None):
+                raise rejected
+
+        with pytest.raises(ConfigurationError) as raised:
+            LLMSpanExtractor(Rejecting()).extract(QUESTION, [OPENED])
+
+        assert raised.value is rejected
+
+    def test_a_client_that_implements_completion_is_not_wrapped(self):
+        class Buggy(FakeLLMClient):
+            def completion(self, prompt, **settings):
+                raise RuntimeError("a bug in the client")
+
+        with pytest.raises(RuntimeError, match="a bug in the client"):
+            LLMSpanExtractor(Buggy()).extract(QUESTION, [OPENED])
+
+
+LANES = "It carries eight lanes."
+
+
+def both_quoted():
+    return FakeLLMClient(quotes={OPENED.text: ["The bridge opened in March 1932.", LANES]})
+
+
+class TestSubclasses:
+    """Subclasses of LLMSpanExtractor written for one interface, called through the other."""
+
+    class DropLanes(LLMSpanExtractor):
+        """Written before 0.3.0: post-filters the quotes in extract_spans."""
+
+        def extract_spans(self, question, search_results):
+            spans = super().extract_spans(question, search_results)
+            return {
+                text: [quote for quote in quotes if quote != LANES]
+                for text, quotes in spans.items()
+            }
+
+    class DropLanesExtraction(LLMSpanExtractor):
+        """Written for 0.3.0: post-filters the spans in extract."""
+
+        def extract(self, question, chunks, *, config=None):
+            extraction = super().extract(question, chunks, config=config)
+            spans = [span for span in extraction.spans if span.text != LANES]
+            return extraction.model_copy(update={"spans": spans})
+
+    @pytest.mark.parametrize("asynchronous", [False, True])
+    async def test_extract_calls_an_extract_spans_written_before_030(self, asynchronous):
+        extractor = self.DropLanes(both_quoted())
+
+        with pytest.warns(VerbatimDeprecationWarning) as warned:
+            if asynchronous:
+                extraction = await extractor.aextract(QUESTION, [OPENED])
+            else:
+                extraction = extractor.extract(QUESTION, [OPENED])
+
+        assert any("Implementing only extract_spans() in" in str(w.message) for w in warned)
+        assert [(span.text, span.start) for span in extraction.spans] == [
+            ("The bridge opened in March 1932.", 0)
+        ]
+
+    async def test_its_extract_spans_async_calls_its_extract_spans(self):
+        extractor = self.DropLanes(both_quoted())
+        results = [SimpleNamespace(text=OPENED.text)]
+
+        with pytest.warns(VerbatimDeprecationWarning):
+            spans = await extractor.extract_spans_async(QUESTION, results)
+
+        assert spans == {OPENED.text: ["The bridge opened in March 1932."]}
+
+    @pytest.mark.parametrize("asynchronous", [False, True])
+    async def test_extract_spans_calls_an_extract_written_for_030(self, asynchronous):
+        extractor = self.DropLanesExtraction(both_quoted())
+        results = [SimpleNamespace(text=OPENED.text)]
+
+        with pytest.warns(VerbatimDeprecationWarning):
+            spans = await extract_spans(extractor, results, asynchronous)
+
+        assert spans == {OPENED.text: ["The bridge opened in March 1932."]}
+
+    def test_extract_written_for_030_needs_no_warning(self):
+        extraction = self.DropLanesExtraction(both_quoted()).extract(QUESTION, [OPENED])
+
+        assert [span.text for span in extraction.spans] == ["The bridge opened in March 1932."]
+
 
 class TestUsage:
     def test_names_the_client_model_and_the_version_the_service_returned(self):

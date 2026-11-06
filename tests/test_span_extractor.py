@@ -310,6 +310,30 @@ class TestNewInterfaceSubclass:
 
         assert span_texts == {"The arch rises.": ["arch"], "Tolls.": []}
 
+    @pytest.mark.parametrize("asynchronous", [False, True])
+    async def test_a_subclass_that_replaces_its_extract_spans_is_called_through_extract(
+        self, asynchronous
+    ):
+        # Written before 0.3.0: post-filters the span texts of its parent's extract_spans
+        class WithoutArch(QuestionWordExtractor):
+            def extract_spans(self, question, search_results):
+                spans = super().extract_spans(question, search_results)
+                return {
+                    text: [span for span in found if span != "arch"]
+                    for text, found in spans.items()
+                }
+
+        chunks = [Chunk(id="c1", text="The arch is tall.")]
+
+        with pytest.warns(VerbatimDeprecationWarning) as warned:
+            if asynchronous:
+                extraction = await WithoutArch().aextract("How tall is the arch?", chunks)
+            else:
+                extraction = WithoutArch().extract("How tall is the arch?", chunks)
+
+        assert any("Implementing only extract_spans() in" in str(w.message) for w in warned)
+        assert [span.text for span in extraction.spans] == ["tall"]
+
     async def test_calling_the_base_extract_raises_instead_of_recursing(self):
         class Delegating(QuestionWordExtractor):
             def extract(self, question, chunks, *, config=None):

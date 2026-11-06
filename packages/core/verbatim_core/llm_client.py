@@ -125,15 +125,49 @@ def client_completion(client: Any, prompt: str, **settings: object) -> Completio
     called that way, and their completion has no model name or token counts.
     """
     if _replaces(client, "complete", "completion"):
-        return Completion(text=client.complete(prompt, **settings))
+        return Completion(text=_call_old_client(client, "complete", prompt, **settings))
     return cast("Completion", client.completion(prompt, **settings))
 
 
 async def client_completion_async(client: Any, prompt: str, **settings: object) -> Completion:  # noqa: ANN401  # duck-typed client
     """Async version of `client_completion`."""
     if _replaces(client, "complete_async", "completion_async"):
-        return Completion(text=await client.complete_async(prompt, **settings))
+        return Completion(text=await _acall_old_client(client, "complete_async", prompt, **settings))
     return cast("Completion", await client.completion_async(prompt, **settings))
+
+
+def _call_old_client(client: Any, method: str, *args: object, **kwargs: object) -> Any:  # noqa: ANN401  # duck-typed client and reply
+    """Call a method of a client written before 0.3.0, which replaces one of `LLMClient`'s.
+
+    The client's own exceptions are a failed LLM call: they become an `UpstreamError` with the code
+    `client_failed`, which leaves out their message. Our own errors propagate unchanged.
+    """
+    try:
+        return getattr(client, method)(*args, **kwargs)
+    except VerbatimError:
+        raise
+    except Exception as e:
+        raise _old_client_failed(method, e) from e
+
+
+async def _acall_old_client(client: Any, method: str, *args: object, **kwargs: object) -> Any:  # noqa: ANN401  # duck-typed client and reply
+    """Async version of `_call_old_client`."""
+    try:
+        return await getattr(client, method)(*args, **kwargs)
+    except VerbatimError:
+        raise
+    except Exception as e:
+        raise _old_client_failed(method, e) from e
+
+
+def _old_client_failed(method: str, error: Exception) -> UpstreamError:
+    # The message of the client's exception can hold the prompt, so it stays in the cause.
+    return UpstreamError(
+        f"The LLM client's {method}() failed with {type(error).__name__}. Check the client, which "
+        "replaces a method of LLMClient.",
+        code="client_failed",
+        service="llm",
+    )
 
 
 def _replaces(client: object, old: str, new: str) -> bool:

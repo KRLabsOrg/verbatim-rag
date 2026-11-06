@@ -46,6 +46,7 @@ except UpstreamError as e:
 | `request_rejected` | `UpstreamError` | The service rejected the request with another 4xx status |
 | `invalid_reply` | `UpstreamError` | The reply can't be read, such as an extraction reply that isn't JSON. Retryable |
 | `empty_reply` | `UpstreamError` | The LLM sent an empty reply or one without text, which a content filter may have removed |
+| `client_failed` | `UpstreamError` | An LLM client written before 0.3.0, which replaces a method of `LLMClient` such as `complete` or `extract_spans`, raised an exception of its own. The exception is the `__cause__` |
 
 An error raised without a code of its own has its class's: `verbatim_error`, `invalid_input`, `configuration_error` or `upstream_error`.
 

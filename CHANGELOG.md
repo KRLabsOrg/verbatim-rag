@@ -35,6 +35,10 @@ replacement.
   that implements only `extract_spans` gets `extract` and `aextract`: each span text is located
   in its chunk (the first exact occurrence, else the best fuzzy match), and texts that can't be
   located are dropped and reported in the result's warnings with the code `span_text_not_found`.
+  Of an extractor's methods, the one defined in the most specific class is the implementation: a
+  subclass of an extractor that overrides `extract_spans`, as subclasses written before 0.3.0
+  did, is called through its `extract_spans` too, and a subclass that overrides `extract` below
+  a parent's `aextract` gets an `aextract` that runs its `extract` in a worker thread.
 - The `verbatim_core.content` logger. Log records that hold customer text, such as questions,
   chunks and span texts, go only to this logger and only at DEBUG. Leave it at INFO to keep
   customer text out of your logs whatever level the other `verbatim_core` loggers have.
@@ -46,7 +50,12 @@ replacement.
   returned, and counts the chunks, characters, LLM calls and, where the service reports them,
   tokens. `aextract` makes its LLM calls concurrently. A client that replaces
   `LLMClient.complete`, for example to call another provider, is still called that way, and its
-  usage then has no model version or tokens.
+  usage then has no model version or tokens. So is a client that replaces `extract_spans`,
+  `extract_relevant_spans` or their batch and async versions, which the extractor called before
+  0.3.0. A `complete` without a `system_prompt` parameter is called without one, unless a custom
+  prompt has a system prompt. An exception of such a client, other than the library's own errors,
+  is a failed LLM call: an `UpstreamError` with the code `client_failed`, without the exception's
+  message, which stays in its `__cause__`.
 - `ExtractConfig`, the base class of the extractors' settings, and `LLMExtractConfig`, the
   settings of `LLMSpanExtractor`: `LLMSpanExtractor(llm_client, config=LLMExtractConfig(...))`.
   A `config` passed to `extract` replaces the default for one call (#91).
@@ -249,8 +258,9 @@ replacement.
 Each of these warns with `VerbatimDeprecationWarning`, a `DeprecationWarning`, and is removed in
 0.5.0.
 
-- Implementing only `extract_spans` in a `SpanExtractor` subclass: `extract` and `aextract` warn
-  when they are called on it. Implement `extract` instead (#90).
+- Implementing only `extract_spans` in a `SpanExtractor` subclass, or overriding it in a
+  subclass of an extractor: `extract` and `aextract` warn when they are called on it. Implement
+  `extract` instead (#90).
 - `extract_spans` and `extract_spans_async` where an extractor inherits them from
   `SpanExtractor`. Use `extract` and `aextract` (#90).
 - `LLMSpanExtractor.extract_spans` and `extract_spans_async`. Use `extract` and `aextract` (#91).

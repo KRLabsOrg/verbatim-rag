@@ -7,6 +7,7 @@ with a `.text` attribute as search results.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import re
@@ -14,7 +15,7 @@ import threading
 import time
 from abc import ABC
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, PositiveInt
 from typing_extensions import override
@@ -25,12 +26,20 @@ from verbatim_core._loading import _load_errors_translated, _log_model_loaded
 from verbatim_core._locate import UNSCORED, locate
 from verbatim_core._logging import content_logger
 from verbatim_core.errors import ConfigurationError, InvalidInputError, UpstreamError
-from verbatim_core.llm_client import Completion, LLMClient, client_completion, client_completion_async
+from verbatim_core.llm_client import (
+    Completion,
+    LLMClient,
+    _acall_old_client,
+    _call_old_client,
+    _replaces,
+    client_completion,
+    client_completion_async,
+)
 from verbatim_core.prompts import load_prompt, render_prompt
 from verbatim_core.types import Chunk, ExtractedSpan, Extraction, ResultWarning, Usage
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
     from types import ModuleType
 
 logger = logging.getLogger(__name__)
@@ -60,14 +69,33 @@ class SpanExtractor(ABC, Generic[_ConfigT]):
     `extract` and `aextract` from this class, which locate each span text in its chunk and warn
     that the subclass should implement `extract`. A span text that can't be located is dropped
     and reported in the result's warnings with the code `span_text_not_found`.
+
+    Of a subclass's methods, the one defined in the most specific class is the implementation. A
+    subclass of an extractor that overrides `extract_spans`, as subclasses written before 0.3.0
+    did, is called through it like a subclass that implements only `extract_spans`. A subclass
+    that overrides `extract` below a parent's `aextract` gets an `aextract` that runs its
+    `extract` in a worker thread.
     """
 
+    # For a subclass that overrides extract_spans below its parent's extract: the parent, whose
+    # extract the extract_spans adapters call. The subclass's own extract calls extract_spans.
+    _extract_owner: ClassVar[type | None] = None
+
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Check that the subclass implements `extract` or `extract_spans`."""
+        """Check that the subclass implements `extract` or `extract_spans`, and route its calls."""
         super().__init_subclass__(**kwargs)
         if not (_overrides(cls, "extract") or _overrides(cls, "extract_spans")):
             msg = f"{cls.__qualname__} must implement extract() or extract_spans()"
             raise TypeError(msg)
+        extract_owner = _owner(cls, "extract")
+        if extract_owner is not SpanExtractor and (
+            _below(cls, "extract_spans", "extract") or _below(cls, "extract_spans_async", "extract")
+        ):
+            cls._extract_owner = cls._extract_owner or extract_owner
+            cls.extract = SpanExtractor.extract
+            cls.aextract = SpanExtractor.aextract
+        elif _owner(cls, "aextract") is not SpanExtractor and _below(cls, "extract", "aextract"):
+            cls.aextract = SpanExtractor.aextract  # runs extract in a worker thread
 
     def extract(self, question: str, chunks: Sequence[Chunk], *, config: _ConfigT | None = None) -> Extraction:
         """Extract the spans of the chunks that are relevant to the question.
@@ -87,7 +115,7 @@ class SpanExtractor(ABC, Generic[_ConfigT]):
             return await asyncio.to_thread(self.extract, question, chunks, config=config)
 
         _check_old_interface_call(type(self), chunks, config)
-        if _overrides(type(self), "extract_spans_async"):
+        if not _below(type(self), "extract_spans", "extract_spans_async"):
             span_texts = await self.extract_spans_async(question, _as_search_results(chunks))
         else:
             span_texts = await asyncio.to_thread(self.extract_spans, question, _as_search_results(chunks))
@@ -102,7 +130,7 @@ class SpanExtractor(ABC, Generic[_ConfigT]):
         :return: Dictionary mapping result text to list of relevant spans
         """
         chunks = _chunks_from_results(search_results)
-        return _span_texts_by_chunk_text(chunks, self.extract(question, chunks))
+        return _span_texts_by_chunk_text(chunks, _new_extract(self)(question, chunks))
 
     @deprecated("SpanExtractor.extract_spans_async", use="aextract()")
     async def extract_spans_async(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:
@@ -111,11 +139,42 @@ class SpanExtractor(ABC, Generic[_ConfigT]):
             return await asyncio.to_thread(self.extract_spans, question, search_results)
 
         chunks = _chunks_from_results(search_results)
-        return _span_texts_by_chunk_text(chunks, await self.aextract(question, chunks))
+        return _span_texts_by_chunk_text(chunks, await _new_aextract(self)(question, chunks))
 
 
 def _overrides(cls: type, name: str) -> bool:
     return getattr(cls, name) is not getattr(SpanExtractor, name)
+
+
+def _owner(cls: type, name: str) -> type:
+    """Return the class that defines the method `name` of `cls`, which may be `cls` or a parent."""
+    return next(parent for parent in cls.__mro__ if name in vars(parent))
+
+
+def _below(cls: type, name: str, other: str) -> bool:
+    """Return whether the method `name` of `cls` is defined in a subclass of the class defining `other`."""
+    owner, other_owner = _owner(cls, name), _owner(cls, other)
+    return owner is not other_owner and issubclass(owner, other_owner)
+
+
+def _new_extract(extractor: SpanExtractor[Any]) -> Callable[..., Extraction]:
+    """Return the `extract` that the extract_spans adapters call.
+
+    For a subclass that overrides extract_spans below its parent's extract, the parent's: the
+    subclass's own extract calls its extract_spans, which calls the adapter.
+    """
+    owner = type(extractor)._extract_owner  # noqa: SLF001  # the routing __init_subclass__ recorded
+    if owner is None:
+        return extractor.extract
+    return functools.partial(vars(owner)["extract"], extractor)
+
+
+def _new_aextract(extractor: SpanExtractor[Any]) -> Callable[..., Awaitable[Extraction]]:
+    """Async version of `_new_extract`."""
+    owner = type(extractor)._extract_owner  # noqa: SLF001  # the routing __init_subclass__ recorded
+    if owner is None:
+        return extractor.aextract
+    return functools.partial(vars(_owner(owner, "aextract"))["aextract"], extractor)
 
 
 def _as_search_results(chunks: Sequence[Chunk]) -> list[Any]:
@@ -1053,8 +1112,8 @@ class LLMSpanExtractor(SpanExtractor[LLMExtractConfig]):
         _check_unique_ids(chunks)
         calls = _plan_llm_calls(question, chunks, config)
         logger.debug("Extracting spans from %d chunks in %d LLM calls", len(chunks), len(calls))
-        completions = [_complete(self.llm_client, call) for call in calls]
-        return _extraction_from_replies(chunks, calls, completions, config, self._model_id())
+        replies = [_reply(self.llm_client, call) for call in calls]
+        return _extraction_from_replies(chunks, calls, replies, config, self._model_id())
 
     @override
     async def aextract(
@@ -1065,8 +1124,8 @@ class LLMSpanExtractor(SpanExtractor[LLMExtractConfig]):
         _check_unique_ids(chunks)
         calls = _plan_llm_calls(question, chunks, config)
         logger.debug("Extracting spans from %d chunks in %d LLM calls", len(chunks), len(calls))
-        completions = await asyncio.gather(*(_acomplete(self.llm_client, call) for call in calls))
-        return _extraction_from_replies(chunks, calls, completions, config, self._model_id())
+        replies = await asyncio.gather(*(_areply(self.llm_client, call) for call in calls))
+        return _extraction_from_replies(chunks, calls, replies, config, self._model_id())
 
     @deprecated("LLMSpanExtractor.extract_spans", use="extract()")
     def extract_spans(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:
@@ -1087,6 +1146,9 @@ class LLMSpanExtractor(SpanExtractor[LLMExtractConfig]):
     @deprecated("LLMSpanExtractor.extract_spans_async", use="aextract()")
     async def extract_spans_async(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:
         """Async version of `extract_spans`."""
+        if _below(type(self), "extract_spans", "extract_spans_async"):
+            # A subclass's own extract_spans, written before 0.3.0
+            return await asyncio.to_thread(self.extract_spans, question, search_results)
         chunks = _chunks_from_results(search_results)
         batched, groups = _call_groups(len(chunks), self.config)
         group_spans = await asyncio.gather(
@@ -1097,17 +1159,18 @@ class LLMSpanExtractor(SpanExtractor[LLMExtractConfig]):
 
     def _extract_group(self, question: str, chunks: list[Chunk], group: range, *, batched: bool) -> list[ExtractedSpan]:
         """Extract the spans of the chunks one LLM call covers, retrying them one by one if a batch call fails."""
+        extract = _new_extract(self)
         if batched:
             try:
                 batch = chunks[group.start : group.stop]
-                return self.extract(question, batch, config=self._batch_config).spans
+                return extract(question, batch, config=self._batch_config).spans
             except UpstreamError as error:
                 _log_retry(group, error)
         spans: list[ExtractedSpan] = []
         for position in group:
             try:
                 config = self._individual_config
-                spans += self.extract(question, [chunks[position]], config=config).spans
+                spans += extract(question, [chunks[position]], config=config).spans
             except UpstreamError as error:  # noqa: PERF203  # a failed chunk is logged, the others still run
                 _log_failed_chunk(position, error)
         return spans
@@ -1116,9 +1179,10 @@ class LLMSpanExtractor(SpanExtractor[LLMExtractConfig]):
         self, question: str, chunks: list[Chunk], group: range, *, batched: bool
     ) -> list[ExtractedSpan]:
         """Async version of `_extract_group`."""
+        aextract = _new_aextract(self)
         if batched:
             try:
-                extraction = await self.aextract(question, chunks[group.start : group.stop], config=self._batch_config)
+                extraction = await aextract(question, chunks[group.start : group.stop], config=self._batch_config)
             except UpstreamError as error:
                 _log_retry(group, error)
             else:
@@ -1126,7 +1190,7 @@ class LLMSpanExtractor(SpanExtractor[LLMExtractConfig]):
         spans: list[ExtractedSpan] = []
         for position in group:
             try:
-                extraction = await self.aextract(question, [chunks[position]], config=self._individual_config)
+                extraction = await aextract(question, [chunks[position]], config=self._individual_config)
                 spans += extraction.spans
             except UpstreamError as error:  # noqa: PERF203  # a failed chunk is logged, the others still run
                 _log_failed_chunk(position, error)
@@ -1152,6 +1216,18 @@ class _LLMCall:
     keys: tuple[str, ...]  # the key of each of its chunks in the prompt and in the reply
     prompt: str
     system_prompt: str | None
+    custom_prompt: bool  # whether the prompt is the config's extraction_prompt
+    # For a client written before 0.3.0 that extracts the quotes itself:
+    question: str
+    documents: dict[str, str]  # the text of each of its chunks, by key
+
+
+@dataclass(frozen=True)
+class _Reply:
+    """The quotes an LLM call gave for each chunk key, and its completion, for the usage."""
+
+    quotes: dict[str, list[str]]
+    completion: Completion
 
 
 def _call_groups(chunk_count: int, config: LLMExtractConfig) -> tuple[bool, list[range]]:
@@ -1180,17 +1256,85 @@ def _plan_llm_calls(question: str, chunks: Sequence[Chunk], config: LLMExtractCo
                 keys=keys,
                 prompt=_extraction_prompt(question, documents, config),
                 system_prompt=config.system_prompt if _has_extraction_prompt(config) else None,
+                custom_prompt=_has_extraction_prompt(config),
+                question=question,
+                documents=documents,
             )
         )
     return calls
 
 
-def _complete(client: LLMClient, call: _LLMCall) -> Completion:
-    return client_completion(client, call.prompt, json_mode=True, system_prompt=call.system_prompt)
+def _reply(client: LLMClient, call: _LLMCall) -> _Reply:
+    method = _old_extraction_method(client, call, asynchronous=False)
+    if method is not None:
+        found = _call_old_client(client, method, call.question, _old_documents(call, method))
+        return _Reply(_old_quotes(found, call, method), Completion(text=""))
+    completion = client_completion(client, call.prompt, **_completion_settings(call))
+    return _Reply(_parse_reply(completion.text, call.keys), completion)
 
 
-async def _acomplete(client: LLMClient, call: _LLMCall) -> Completion:
-    return await client_completion_async(client, call.prompt, json_mode=True, system_prompt=call.system_prompt)
+async def _areply(client: LLMClient, call: _LLMCall) -> _Reply:
+    method = _old_extraction_method(client, call, asynchronous=True)
+    if method is not None:
+        found = await _acall_old_client(client, method, call.question, _old_documents(call, method))
+        return _Reply(_old_quotes(found, call, method), Completion(text=""))
+    completion = await client_completion_async(client, call.prompt, **_completion_settings(call))
+    return _Reply(_parse_reply(completion.text, call.keys), completion)
+
+
+def _completion_settings(call: _LLMCall) -> dict[str, Any]:
+    """Return the settings of a completion. The system prompt goes only with a custom prompt.
+
+    Before 0.3.0, a call without a custom prompt sent no system prompt argument, and clients
+    whose `complete` has none are still called.
+    """
+    settings: dict[str, Any] = {"json_mode": True}
+    if call.system_prompt is not None:
+        settings["system_prompt"] = call.system_prompt
+    return settings
+
+
+# The methods of LLMClient that extracted the quotes of a call before 0.3.0, the outermost first.
+# A client that replaces one of them, for example to call another provider, is called that way.
+# extract_relevant_spans reached extract_spans through extract_relevant_spans_batch.
+_OLD_SINGLE_CHUNK_METHODS = ("extract_relevant_spans", "extract_relevant_spans_batch", "extract_spans")
+_OLD_BATCH_METHODS = ("extract_spans",)
+
+
+def _old_extraction_method(client: object, call: _LLMCall, *, asynchronous: bool) -> str | None:
+    """Return the method of a client written before 0.3.0 that extracts the call's quotes itself.
+
+    None when the call goes to a completion: with a custom prompt, as before 0.3.0, or for a
+    client that replaces none of the extraction methods.
+    """
+    if call.custom_prompt:
+        return None
+    suffix = "_async" if asynchronous else ""
+    names = _OLD_SINGLE_CHUNK_METHODS if call.keys == ("doc",) else _OLD_BATCH_METHODS
+    for name in names:
+        method = name + suffix
+        if hasattr(type(client), method) and _replaces(client, method, "completion" + suffix):
+            return method
+    return None
+
+
+def _old_documents(call: _LLMCall, method: str) -> str | dict[str, str]:
+    """Return the documents argument of an old extraction method: a text for a single chunk."""
+    if _takes_one_text(method):
+        return call.documents["doc"]
+    return call.documents
+
+
+def _old_quotes(found: object, call: _LLMCall, method: str) -> dict[str, list[str]]:
+    """Return the quotes of each chunk key that an old extraction method found."""
+    if _takes_one_text(method):
+        found = {"doc": found}  # the quotes of its single chunk
+    return _quotes_by_key(found, call.keys)
+
+
+def _takes_one_text(method: str) -> bool:
+    """Return whether an old extraction method takes one text and returns its quotes."""
+    return method.removesuffix("_async") == "extract_relevant_spans"
 
 
 def _has_extraction_prompt(config: LLMExtractConfig) -> bool:
@@ -1209,22 +1353,22 @@ def _extraction_prompt(question: str, documents: dict[str, str], config: LLMExtr
 def _extraction_from_replies(
     chunks: Sequence[Chunk],
     calls: list[_LLMCall],
-    completions: Sequence[Completion],
+    replies: Sequence[_Reply],
     config: LLMExtractConfig,
     model_id: str | None,
 ) -> Extraction:
     quotes = []
-    for call, completion in zip(calls, completions, strict=False):
-        quotes_by_key = _parse_reply(completion.text, call.keys)
+    for call, reply in zip(calls, replies, strict=False):
         quotes += [
             (position, quote)
             for key, position in zip(call.keys, call.positions, strict=False)
-            for quote in quotes_by_key[key]
+            for quote in reply.quotes[key]
         ]
     fuzzy_threshold = config.fuzzy_threshold if config.span_match_mode == "fuzzy" else None
     spans, warnings = _locate_texts(
         chunks, quotes, fuzzy_threshold=fuzzy_threshold, what="quote", code="quote_not_found"
     )
+    completions = [reply.completion for reply in replies]
     return Extraction(spans=spans, usage=_llm_usage(chunks, calls, completions, model_id), warnings=warnings)
 
 
@@ -1237,6 +1381,11 @@ def _parse_reply(text: str, keys: Sequence[str]) -> dict[str, list[str]]:
         reply = json.loads(text)
     except json.JSONDecodeError as e:
         raise _invalid_reply() from e
+    return _quotes_by_key(reply, keys)
+
+
+def _quotes_by_key(reply: object, keys: Sequence[str]) -> dict[str, list[str]]:
+    """Return the quotes of each chunk key in a reply: a dict that maps chunk keys to quote lists."""
     if not isinstance(reply, dict):
         raise _invalid_reply()
     quotes = {key: reply.get(key, []) for key in keys}
