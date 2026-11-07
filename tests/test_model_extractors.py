@@ -65,13 +65,20 @@ class StubHighlighter:
 
 
 class StubSemanticHighlighter:
-    """Rates each token, and each sentence, by whether its words occur in the question."""
+    """Rates each token, and each sentence, by whether its words occur in the question.
+
+    The model tokenizes question, separator and chunk together and reports its
+    context_ranges over that combined tokenization, prefix count including the
+    trailing separator token -- the convention the real remote model uses
+    (#123). The extractor must read its offsets from the same encoding."""
 
     max_length = 4096
+    sep_token = "</s>"
 
     def __init__(self, config=None):
         self.config = config
         self.calls = []
+        self.tokenizer = self._Tokenizer(self.sep_token)
 
     def to(self, device):
         return self
@@ -79,8 +86,12 @@ class StubSemanticHighlighter:
     def eval(self):
         return self
 
-    def tokenizer(self, text, **settings):
-        return {"offset_mapping": [match.span() for match in re.finditer(r"\w+|[^\w\s]", text)]}
+    class _Tokenizer:
+        def __init__(self, sep_token):
+            self.sep_token = sep_token
+
+        def __call__(self, text, **settings):
+            return {"offset_mapping": [match.span() for match in re.finditer(r"\w+|[^\w\s]", text)]}
 
     def process(self, question, context, **settings):
         self.calls.append(settings)
@@ -107,10 +118,22 @@ class StubSemanticHighlighter:
             0.8 if any(start <= token.start() < end for start, end in answers) else 0.1
             for token in re.finditer(r"\w+|[^\w\s]", context)
         ]
-        # Wrapped in the probabilities of the question and separator tokens.
-        return SimpleNamespace(
-            pruning_probs=[0.0, *probabilities, 0.0], context_ranges=[(1, len(probabilities) + 1)]
-        )
+        return combined_raw_predictions(question, self.sep_token, context, probabilities)
+
+
+def combined_raw_predictions(question, sep_token, context, probabilities):
+    """Package context probabilities the way the remote model does: indices
+    over the combined question + separator + chunk tokenization, the prefix
+    count including the trailing separator token (#123)."""
+
+    combined = question + sep_token + context
+    prefix_length = len(combined) - len(context)
+    tokens = list(re.finditer(r"\w+|[^\w\s]", combined))
+    prefix_count = sum(1 for match in tokens if match.end() <= prefix_length)
+    return SimpleNamespace(
+        pruning_probs=[0.0] * prefix_count + list(probabilities),
+        context_ranges=[(prefix_count, prefix_count + len(probabilities))],
+    )
 
 
 def highlighter(**settings):
@@ -277,8 +300,12 @@ class TestSemanticSpans:
     def test_a_region_is_scored_with_its_mean_probability(self):
         class Uneven(StubSemanticHighlighter):
             def get_raw_predictions(self, question, contexts):
-                probabilities = [0.6, 1.0, 0.8, 0.1, 0.1]
-                return SimpleNamespace(pruning_probs=probabilities, context_ranges=[(0, 5)])
+                return combined_raw_predictions(
+                    question,
+                    self.sep_token,
+                    "Bridge opened today in March",
+                    [0.6, 1.0, 0.8, 0.1, 0.1],
+                )
 
         chunk = Chunk(id="c", text="Bridge opened today in March")
         extractor = SemanticHighlightExtractor(
@@ -293,8 +320,12 @@ class TestSemanticSpans:
     def test_regions_close_together_merge(self):
         class Gapped(StubSemanticHighlighter):
             def get_raw_predictions(self, question, contexts):
-                probabilities = [0.9, 0.9, 0.9, 0.1, 0.9, 0.9, 0.9]
-                return SimpleNamespace(pruning_probs=probabilities, context_ranges=[(0, 7)])
+                return combined_raw_predictions(
+                    question,
+                    self.sep_token,
+                    "one two three four five six seven",
+                    [0.9, 0.9, 0.9, 0.1, 0.9, 0.9, 0.9],
+                )
 
         chunk = Chunk(id="c", text="one two three four five six seven")
 
@@ -311,7 +342,7 @@ class TestSemanticSpans:
     def test_tokens_the_model_did_not_rate_become_a_warning(self, caplog):
         class Truncating(StubSemanticHighlighter):
             def get_raw_predictions(self, question, contexts):
-                return SimpleNamespace(pruning_probs=[0.9] * 4, context_ranges=[(0, 4)])
+                return combined_raw_predictions(question, self.sep_token, OPENED.text, [0.9] * 4)
 
         extractor = SemanticHighlightExtractor(
             Truncating(), model_id="m", model_version="1", config=self.config()
@@ -325,6 +356,32 @@ class TestSemanticSpans:
         ]
         [record] = [record for record in caplog.records if record.levelno == logging.WARNING]
         assert record.warning_code == "chunk_truncated"
+
+    def test_each_probability_maps_to_its_own_token(self):
+        """#123: the model's context_ranges index its combined tokenization
+        (question + separator + chunk). Reading offsets from a separate
+        chunk-only encoding started every mapped probability one token early,
+        so a token's score landed on the previous token's characters."""
+
+        class Alternating(StubSemanticHighlighter):
+            def get_raw_predictions(self, question, contexts):
+                return combined_raw_predictions(
+                    question, self.sep_token, "alpha bridge gamma", [0.1, 0.9, 0.1]
+                )
+
+        chunk = Chunk(id="c", text="alpha bridge gamma")
+        extractor = SemanticHighlightExtractor(
+            Alternating(),
+            model_id="m",
+            model_version="1",
+            config=self.config(threshold=0.5, min_span_tokens=1),
+        )
+
+        spans = extractor.extract(QUESTION, [chunk]).spans
+
+        [span] = spans
+        assert span.text == "bridge"
+        assert span.score == pytest.approx(0.9)
 
 
 class TestSentenceModelContract(ExtractorContract):
