@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from verbatim_core import Chunk
+from verbatim_core import Chunk, InvalidInputError
 
 
 @dataclass
@@ -25,8 +25,14 @@ class SearchResult:
 
         A chunk id stays the same while its document stays indexed, and changes when the document
         is indexed again.
+
+        Vector stores may key rows by non-string ids (integers did before 0.3.0), so the id is
+        stringified for Chunk's non-empty-string contract; a missing id is a caller bug and
+        raises InvalidInputError rather than a bare validation error.
         """
-        return Chunk(id=self.id, text=self.text, metadata=dict(self.metadata))
+        if self.id is None or self.id == "":
+            raise InvalidInputError(f"SearchResult needs a non-empty row id, got {self.id!r}")
+        return Chunk(id=str(self.id), text=self.text, metadata=dict(self.metadata))
 
     def __repr__(self) -> str:
         return f"SearchResult(id={self.id}, score={self.score}, metadata={self.metadata}, text={self.text}, enhanced_text={self.enhanced_text})"
