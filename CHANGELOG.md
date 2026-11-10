@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-11-10
 
 0.3.0 adds a stateless core. Extractors return spans with their chunk ids and offsets, and a
 `Transformer` turns a question and chunks into an answer cited from the chunks' own text, with
@@ -332,6 +332,12 @@ Each of these warns with `VerbatimDeprecationWarning`, a `DeprecationWarning`, a
 - `LocalMilvusStore` no longer fails on Milvus Lite 3 and pymilvus 3. Its metadata collection
   (`<collection>_documents`) now has a placeholder vector field, as `CloudMilvusStore` already
   does, because the 3.x line rejects collections without a vector field (#69).
+- `SearchResult.to_chunk()` accepts row ids that are not strings, such as the integer ids of
+  a custom vector store, and passes them to the chunk as strings. A missing or empty id raises
+  `InvalidInputError` (#126).
+- The default `TemplateStrategy.generate_result_async` runs the synchronous implementation in
+  a worker thread, so a question-specific template no longer blocks the event loop while it
+  embeds the question (#125).
 
 ## [0.2.8] - 2026-05-31
 
