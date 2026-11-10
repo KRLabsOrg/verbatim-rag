@@ -1,0 +1,954 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Provenance-first extractive RAG with source spans and citations">
+      
+      
+      
+        <link rel="canonical" href="https://krlabsorg.github.io/verbatim-rag/stateless-core-verbatimrag/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>Stateless core: open questions for VerbatimRAG - Verbatim RAG</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#stateless-core-open-questions-for-verbatimrag" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Verbatim RAG" class="md-header__button md-logo" aria-label="Verbatim RAG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Verbatim RAG
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Stateless core: open questions for VerbatimRAG
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/krlabsorg/verbatim-rag" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    KRLabsOrg/verbatim-rag
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Verbatim RAG" class="md-nav__button md-logo" aria-label="Verbatim RAG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Verbatim RAG
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/krlabsorg/verbatim-rag" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    KRLabsOrg/verbatim-rag
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating to 0.3.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/verbatim-core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verbatim Core (Extractor)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/verbatim-rag/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full RAG System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/errors-and-logs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Errors, warnings and logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/verbatim-core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    verbatim_core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/verbatim-rag/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    verbatim_rag
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#decided-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decided here
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decided-elsewhere" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decided elsewhere
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#not-relevant-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not relevant here
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="stateless-core-open-questions-for-verbatimrag">Stateless core: open questions for VerbatimRAG</h1>
+<p>This file collects the decisions VerbatimRAG needs before the stateless-core work ("One interface per capability: stateless core, stores passed in") can be implemented in this repository. Answers that are decided here become ADRs; terms that get sharpened go into <code>GLOSSARY.md</code>.</p>
+<p>The questions are split in three groups:</p>
+<ul>
+<li><strong>Decided here</strong>: only VerbatimRAG is affected, or VerbatimRAG can decide its part on its own.</li>
+<li><strong>Decided elsewhere</strong>: cross-library questions. VerbatimRAG waits for the answer and lists what it needs from it.</li>
+<li><strong>Not relevant</strong>: questions from the design doc that don't touch this repository.</li>
+</ul>
+<p>Each question has a recommended answer. A recommendation is not a decision until the Decision field is filled in.</p>
+<h2 id="decided-here">Decided here</h2>
+<p>❓ <strong>Q1 - Score for LLM span extraction</strong> (design doc, open question 3)</p>
+<p><code>LLMSpanExtractor</code> produces no probability, but <code>Span.score</code> is a required float and <code>min_score</code> filters on it. What does <code>score</code> hold for spans the LLM extracted?</p>
+<p>➡️ 1.0, documented as "extracted without a score", so <code>score</code> is always a number and a <code>min_score</code> filter keeps these spans. This must match what LettuceDetect decides for the LLM judge without reasoning, so confirm with the LettuceDetect side before writing the ADR.</p>
+<p>Decision: 1.0, documented as "extracted without a score". The fuzzy matcher's match quality does not go into <code>score</code>: it says how faithfully a quote was located, not how relevant it is. VerbatimRAG has no <code>min_score</code>; nothing on this side filters or sorts by score. The ADR waits until LettuceDetect picks the same value for the judge without reasoning. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q2 - Default LLM client after the deprecation window</strong> (design doc, open question 4)</p>
+<p>During the window, <code>VerbatimRAG(index)</code>, <code>LLMSpanExtractor()</code> and <code>TemplateManager()</code> without a client build <code>LLMClient(model)</code> as today and warn. After the window, is the client required?</p>
+<p>➡️ Required wherever an LLM is actually called, and nowhere else. A <code>VerbatimRAG</code> with a <code>ModelSpanExtractor</code> and static templates calls no LLM and should need no client at all. The READMEs show the explicit form from 0.3.0 on.</p>
+<p>Decision: Correction to the question: <code>TemplateManager</code> never builds a client. Without one, contextual mode silently falls back to static with a <code>print</code> (<code>templates/manager.py:65</code>).
+- <code>LLMSpanExtractor(llm_client)</code>: the client is required after the window. During the window, omitting it builds <code>LLMClient(model)</code> and warns.
+- <code>TemplateManager</code>: the client stays optional. During the window, contextual mode without a client still falls back to static but warns. After the window it raises a typed error, at the call and at <code>Transformer</code> construction when the default config already needs a client.
+- <code>VerbatimRAG</code>: after the window it takes no <code>model</code>, and <code>llm_client</code> only for structured mode (Q8). Structured mode without a client raises.
+- The READMEs show the explicit form from 0.3.0 on. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q3 - Span text for fuzzy matches</strong></p>
+<p>The design doc requires that a span's <code>text</code> always equals the slice at its offsets. With fuzzy matching (<code>verbatim_core/extractors.py:838</code>), the quote the LLM returned and the matched slice of the chunk can differ. Which one is <code>Span.text</code>, and what happens to a quote that matches nothing above the threshold?</p>
+<p>➡️ <code>Span.text</code> is the slice of the chunk, never the LLM's quote. A quote without a match is dropped and reported in <code>Extraction.warnings</code>, not silently discarded, in line with "Typed errors, and no fallbacks that hide a failure".</p>
+<p>Decision: <code>Span.text</code> is the slice of the chunk, which both match modes already return today; the matchers now return the offsets too. A quote without a match is dropped and reported in <code>Extraction.warnings</code>. "Quote" (the string the LLM returns) and "span" (its located slice) are defined in <code>GLOSSARY.md</code>. (2026-11-02)</p>
+<p>Revised: the offsets work no longer waits for PR #79 (#34). Fixing #34 well is a larger problem than it looks, so it is done separately. The locator uses today's fuzzy matcher, changed only to return offsets with the text and kept behind one function, which the fix for #34 replaces. The fuzzy-mode fixtures record today's matcher, and that fix updates them as an intended change. (2026-11-03)</p>
+<hr />
+<p>❓ <strong>Q4 - Which occurrence of a repeated quote</strong></p>
+<p>When a quote occurs more than once in a chunk, the extractor picks one occurrence (design doc, <code>verbatim.extract</code>). Model extractors get offsets from the model, so this only concerns the LLM extractor and subclasses written against the old interface. Which occurrence is picked?</p>
+<p>➡️ The first exact occurrence; if there is none, the best fuzzy match. Documented in the ADR and in the changelog entry that already covers "highlights the chosen occurrence instead of every occurrence".</p>
+<p>Decision: The first exact occurrence, else the best fuzzy match, the earliest on a tie. Identical <code>(start, end)</code> spans collapse into one. The response builder keeps today's first-wins rule for overlapping highlights. The changelog entry also says that repeated text now gets one citation instead of one per occurrence, since today every highlighted occurrence gets its own citation number. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q5 - Where <code>Chunk.id</code> comes from</strong></p>
+<p><code>ExtractedSpan.chunk_id</code> points at a <code>Chunk.id</code>. <code>SearchResult.to_chunk()</code> has to fill it, and the deprecated <code>extract_spans</code> adapter builds chunks from positions (<code>_chunk_from_result(i, result)</code>). Is a chunk id meant to be stable beyond a single call, for example in citations returned by the API?</p>
+<p>➡️ Yes. <code>SearchResult.to_chunk()</code> uses the id the index stores for the chunk, stable across queries. Positional ids are only used inside the deprecated adapters, where the id never leaves the call. Chunks sent with a request to <code>verbatim.transform</code> keep the ids the caller gave them.</p>
+<p>Decision: <code>SearchResult.to_chunk()</code> uses <code>SearchResult.id</code>, the vector row id (<code>ProcessedChunk.id</code>, a random UUID). It is stable while the document stays indexed but not across re-indexing, and the documentation says so. A deterministic <code>"{document_id}:{chunk_number}"</code> was rejected: after a chunking change it would silently point at different text. Positional ids are used only inside the deprecated adapters; ids sent to <code>verbatim.transform</code> are kept as given. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q6 - Streaming events and today's API</strong></p>
+<p><code>Transformer.stream</code> and <code>astream</code> yield a <code>spans</code> event and an <code>answer</code> event. <code>VerbatimRAG.query_stream</code> sends a documents event first. <code>StreamingRAG</code> (<code>verbatim_rag/streaming.py</code>) and the route at <code>api/app.py:350</code> emit today's event dicts. Does <code>query_stream</code> yield typed <code>TransformEvent</code> objects or today's dicts, and what exactly is in each event?</p>
+<p>➡️ <code>query_stream</code> yields typed events. The deprecated <code>StreamingRAG</code> adapter converts them to today's dicts, and the existing streaming route keeps its current shape until a new route replaces it. Define the fields of the <code>documents</code>, <code>spans</code> and <code>answer</code> events in the ADR.</p>
+<p>Decision: <code>query_stream</code> yields typed events: <code>documents</code> (the chunks), <code>spans</code> (the <code>ExtractedSpan</code>s), and a final event carrying the same <code>QueryResponse</code> that <code>query</code> returns, so the two are testably equal. Errors raise typed exceptions instead of arriving as events. <code>progress</code> is not a typed event; the <code>StreamingRAG</code> adapter rebuilds it from timing. The existing route keeps today's five event types (<code>documents</code>, <code>progress</code>, <code>highlights</code>, <code>answer</code>, <code>error</code>). (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q7 - The name <code>Chunk</code> is already taken</strong></p>
+<p><code>verbatim_rag/document.py:157</code> defines <code>Chunk</code>, the ingestion record (<code>document_id</code>, <code>content</code>, <code>start_index</code>, <code>end_index</code>, <code>chunk_number</code>, <code>chunk_type</code>, <code>processed_chunks</code>), which users pass in to index pre-chunked documents. The shared <code>Chunk</code> is the core's input. The default chunker never fills <code>start_index</code> and <code>end_index</code>, and they aren't stored.</p>
+<p>➡️ "Chunk" means the shared core type. The ingestion dataclass becomes <code>DocumentChunk</code>, with <code>verbatim_rag.document.Chunk</code> as a deprecated alias. Indexed chunks have <code>source_start</code> and <code>source_end</code> set to <code>None</code> until the index stores them.</p>
+<p>Decision: Accepted as recommended. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q8 - Structured template mode</strong></p>
+<p>The design doc doesn't cover <code>template_mode="structured"</code>. <code>VerbatimRAG.query</code> branches on it (<code>verbatim_rag/core.py:250</code>, <code>:344</code>) and calls <code>self.llm_client.extract_structured(...)</code> directly, bypassing <code>SpanExtractor</code>. <code>TemplateManager</code> and <code>StructuredTemplate</code> hold a back-reference to the RAG object (<code>set_rag_system</code>), and their <code>fill_async</code> calls <code>rag_system.query_async</code>. Issue #74 redesigns structured answers.</p>
+<p>➡️ Structured mode stays out of the core for this rollout, as a documented exception inside <code>VerbatimRAG</code>. <code>Transformer</code> raises if asked for it. <code>fill_async</code> and <code>set_rag_system</code> are deprecated. #74 brings structured answers into the core as their own capability.</p>
+<p>Decision: Accepted as recommended. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q9 - Template settings changed between calls</strong></p>
+<p><code>TemplateManager</code> has setters that change it between calls: <code>set_mode</code>, <code>set_citation_mode</code>, <code>set_citation_format</code>, <code>use_structured_mode</code> (<code>templates/manager.py:69</code>, <code>:377</code>, <code>:456</code>, <code>:468</code>). A <code>Transformer</code> shared across requests would race on them.</p>
+<p>➡️ <code>TransformConfig</code> carries <code>template_mode</code>, <code>citation_mode</code> and <code>citation_format</code>. The <code>TemplateManager</code> constructor arguments become the default config, the setters become deprecated adapters that replace it, and nothing in the core reads <code>current_mode</code>.</p>
+<p>Decision: Accepted as recommended, except <code>use_structured_mode</code> (see Q12). <code>TemplateManager.save</code> and <code>load</code> stay: "the core writes nothing to disk" applies to capability calls, and these are explicit I/O the caller asks for at setup (Q14). (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q10 - Random and question-specific templates</strong></p>
+<p><code>RandomTemplate.generate</code> uses <code>random.choice</code> per call (<code>templates/random.py:101</code>), which fails "same input, same result". <code>QuestionSpecificTemplate</code> loads a <code>SentenceTransformer</code> by name inside a call (<code>templates/question_specific.py:84</code>) and caches embeddings on <code>self</code>.</p>
+<p>➡️ Random mode picks its template from a stable hash of the question, with an optional <code>seed</code> in <code>TransformConfig</code>. <code>QuestionSpecificTemplate</code> takes a loaded embedder, with <code>from_pretrained(model_name)</code> as the one place a name becomes a model, and embeds its examples at construction.</p>
+<p>Decision: Accepted as recommended. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q11 - A failed LLM call silently returns no spans</strong></p>
+<p>In batch mode a failed call falls back to individual calls (<code>verbatim_core/extractors.py:616</code>). If that fails too, or in individual mode, the chunk gets no spans with only a <code>logger.error</code> (<code>:740</code>, <code>:771</code>). The caller can't tell "nothing relevant" from "never examined".</p>
+<p>➡️ A failed LLM call raises a typed error and <code>extract</code> fails as a whole. Retries belong in the LLM-call layer. The batch-to-individual fallback stays only in the deprecated path.</p>
+<p>Decision: Accepted as recommended. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q12 - Q8 and Q9 conflict on <code>use_structured_mode</code></strong></p>
+<p>Q9 deprecates every <code>TemplateManager</code> setter, including <code>use_structured_mode</code>, but Q8 keeps structured mode with no replacement until #74. A deprecation warning has to name a replacement.</p>
+<p>➡️ <code>use_structured_mode</code> and the structured template's setup are left out of Q9's deprecation. <code>VerbatimRAG</code> keeps detecting structured mode from the template manager's mode, as today. The whole structured API is deprecated in one step when #74 provides the replacement. <code>fill_async</code> is deprecated now, in favour of <code>VerbatimRAG.query_async</code>.</p>
+<p>Decision: Accepted as recommended. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q13 - Duplicate chunks in one call</strong></p>
+<p>A <code>verbatim.transform</code> request can send two chunks with the same id, which makes <code>ExtractedSpan.chunk_id</code> ambiguous. Retrieval can return two rows with identical text, the processed versions of one document chunk (<code>verbatim_rag/index.py:392</code>); today <code>extract_spans</code> merges them because it keys its result by text.</p>
+<p>➡️ Duplicate ids in one call raise a typed input error. Chunks with the same text but different ids are extracted independently, with no merging by text.</p>
+<p>Decision: Accepted as recommended. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q14 - <code>TemplateManager.save</code> and <code>load</code></strong></p>
+<p><code>TemplateManager.save(filepath)</code> and <code>load(filepath)</code> read and write JSON (<code>templates/manager.py:195</code>), and <code>TemplateManager</code> is passed into the core <code>Transformer</code>.</p>
+<p>➡️ They stay: explicit I/O the caller asks for at setup, never a side effect of <code>transform</code>.</p>
+<p>Decision: Accepted as recommended, and recorded with Q9. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q15 - Which decisions get an ADR</strong></p>
+<p>➡️ ADRs for Q1 (after LettuceDetect agrees), Q4, Q5, Q6, Q8 with Q12, Q10 and Q11, in <code>docs/adr/</code> numbered from 0001. Q3, Q7 and Q9 need none: <code>GLOSSARY.md</code> and the design doc explain them.</p>
+<p>Decision: Accepted as recommended. Written: <code>docs/adr/0001</code> (Q4) to <code>0006</code> (Q11). The Q1 ADR waits for LettuceDetect. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q16 - Frontend stream errors</strong></p>
+<p>The frontend drops <code>error</code> events (<code>frontend/src/contexts/ApiContext.js:165</code>), so a failed streamed query stops loading without a message. This is a bug in today's code, independent of the stateless-core work.</p>
+<p>➡️ File it once these questions are settled, as <code>Bug: streamed query errors never reach the user</code>, labelled <code>bug</code> and <code>needs-triage</code>.</p>
+<p>Decision: Accepted as recommended. Filed as #85. (2026-11-02)</p>
+<hr />
+<p>❓ <strong>Q17 - <code>query</code> and <code>query_stream</code> count display citations differently</strong></p>
+<p>The response builder marks citation <em>n</em> as <code>display</code> while <em>n</em> ≤ <code>display_span_count</code>. <code>VerbatimRAG.query</code> and <code>query_async</code> pass <code>len(all_relevant_spans)</code>, the number of chunks (<code>verbatim_rag/core.py:271</code>, <code>:369</code>). <code>StreamingRAG</code> and both <code>VerbatimTransform</code> copies pass <code>len(display_spans)</code>, the number of spans shown in the answer. Q6 requires the two to return equal responses.</p>
+<p>➡️ The number of spans shown is right, and <code>query</code>'s count is a bug. File it next to Q16 as <code>Bug: VerbatimRAG.query marks citations as display by chunk count</code>, and fix it before the rollout so the regression fixtures record the fixed behaviour.</p>
+<p>Decision: Accepted as recommended. Filed as #86. (2026-11-02)</p>
+<h2 id="decided-elsewhere">Decided elsewhere</h2>
+<table>
+<thead>
+<tr>
+<th>Design doc question</th>
+<th>What VerbatimRAG needs from the answer</th>
+<th>Blocks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 - shared package for <code>Chunk</code>, <code>Span</code>, <code>Usage</code>, or copies per library</td>
+<td>where <code>verbatim_core</code> imports the types from, and whether <code>ExtractedSpan</code> subclasses a shared <code>Span</code></td>
+<td>rollout step 1 (shared types)</td>
+</tr>
+<tr>
+<td>2 - length of the deprecation window</td>
+<td>the <code>since</code> and <code>removed_in</code> values in every <code>@deprecated</code> call and in the changelog</td>
+<td>rollout step 6 (adapters)</td>
+</tr>
+<tr>
+<td>"One LLM-call layer in each library"</td>
+<td>what replaces <code>LLMClient</code> as the client passed to <code>LLMSpanExtractor</code> and <code>TemplateManager</code></td>
+<td>nothing yet: <code>LLMClient</code> is used until then</td>
+</tr>
+<tr>
+<td>"Make the vector store easy to swap"</td>
+<td>the <code>VectorStore</code> protocol <code>VerbatimIndex</code> is built on</td>
+<td><code>VerbatimIndex</code> changes only</td>
+</tr>
+</tbody>
+</table>
+<h2 id="not-relevant-here">Not relevant here</h2>
+<p>Design doc questions 5 (default local store for <code>RuleChef</code>), 6 (store protocol for training examples) and 7 (async methods on <code>RulesetStore</code> and <code>TrafficStore</code>) concern RuleChef only.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.code.annotate", "navigation.sections", "navigation.expand", "search.highlight"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

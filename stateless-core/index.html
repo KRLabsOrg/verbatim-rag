@@ -1,0 +1,1562 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Provenance-first extractive RAG with source spans and citations">
+      
+      
+      
+        <link rel="canonical" href="https://krlabsorg.github.io/verbatim-rag/stateless-core/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+      
+        <title>One interface per capability: stateless core, stores passed in - Verbatim RAG</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CJetBrains+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#one-interface-per-capability-stateless-core-stores-passed-in" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Verbatim RAG" class="md-header__button md-logo" aria-label="Verbatim RAG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Verbatim RAG
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              One interface per capability: stateless core, stores passed in
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/krlabsorg/verbatim-rag" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    KRLabsOrg/verbatim-rag
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Verbatim RAG" class="md-nav__button md-logo" aria-label="Verbatim RAG" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Verbatim RAG
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/krlabsorg/verbatim-rag" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    KRLabsOrg/verbatim-rag
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrating to 0.3.0
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/verbatim-core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verbatim Core (Extractor)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/verbatim-rag/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Full RAG System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guide/errors-and-logs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Errors, warnings and logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/verbatim-core/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    verbatim_core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/verbatim-rag/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    verbatim_rag
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-rule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The rule
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Shared types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#results-are-objects-not-lists" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Results are objects, not lists
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-method-set" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The method set
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-interfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The interfaces
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The interfaces">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#verbatimextract" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        verbatim.extract
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#verbatimtransform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        verbatim.transform
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stores" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stores
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#models-and-clients-are-passed-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Models and clients are passed in
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-stateful-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The stateful layer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The stateful layer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#verbatimrag-and-verbatimindex" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        VerbatimRAG and VerbatimIndex
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Defaults
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deprecating-todays-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecating today's API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deprecating today&#39;s API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#adapters-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Adapters only
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-warning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The warning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#subclasses-written-against-the-old-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subclasses written against the old interface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#endpoints-of-the-api-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Endpoints of the API server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#behaviour-that-changes-through-the-old-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Behaviour that changes through the old API
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#new-and-replaced-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New and replaced names
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-places-that-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The places that change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#enforcement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enforcement
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Enforcement">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review-checklist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review checklist
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rollout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rollout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="one-interface-per-capability-stateless-core-stores-passed-in">One interface per capability: stateless core, stores passed in</h1>
+<p>This document expands the idea-box entry of the same name. It defines the stateless interface for each capability verbatim-rag exposes, the types those interfaces share, the store interfaces the stateful classes are built on, and how today's public API keeps working with a deprecation warning until it is removed. Everything here is a proposal until the entry becomes an issue. The questions the team has to decide are collected at the end.</p>
+<p>The capabilities are <code>verbatim.extract</code> and <code>verbatim.transform</code> with its streaming variant.</p>
+<h2 id="the-rule">The rule</h2>
+<p>The library has two layers.</p>
+<p>The stateless core has one interface per capability. A call takes a typed request and returns a typed result, and the result depends only on the input, the model version and the config. Code in the core:</p>
+<ul>
+<li>writes nothing to disk and keeps nothing between calls</li>
+<li>has no global state and reads no environment variables</li>
+<li>never builds a model or an LLM client from a name inside a constructor. The loaded model or the client is passed in</li>
+<li>takes and returns the shared types <code>Chunk</code>, <code>Span</code> and <code>Usage</code>.</li>
+</ul>
+<p>The stateful classes (<code>VerbatimRAG</code>, <code>VerbatimIndex</code>) keep today's convenience for open-source users. They are built from the core and from stores passed to them. Their own code retrieves, stores and calls the core, and nothing else.</p>
+<p>Today's public API stays. Every class, function, method and argument that the core replaces becomes an adapter over the core, warns when it is used, and is removed after a deprecation window. Each step has one implementation, so the old and the new API can't drift apart.</p>
+<h2 id="shared-types">Shared types</h2>
+<p>These types are the vocabulary of every interface below. They live in <code>verbatim_core</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Chunk</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span><span class="sd">"""A piece of source text."""</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">metadata</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">source_start</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># position of the chunk in its source document</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>    <span class="n">source_end</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="k">class</span><span class="w"> </span><span class="nc">Span</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="sd">"""A part of a text, as "One span format across the libraries" defines it."""</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
+<a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>    <span class="n">start</span><span class="p">:</span> <span class="nb">int</span>  <span class="c1"># Unicode code points, inclusive</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a>    <span class="n">end</span><span class="p">:</span> <span class="nb">int</span>  <span class="c1"># exclusive</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="n">text</span><span class="p">:</span> <span class="nb">str</span>  <span class="c1"># always equal to the slice it points into</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">score</span><span class="p">:</span> <span class="nb">float</span>
+<a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>
+<a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>
+<a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a><span class="k">class</span><span class="w"> </span><span class="nc">Usage</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+<a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a><span class="w">    </span><span class="sd">"""What one model or service did during a call."""</span>
+<a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
+<a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a>    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>
+<a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">model_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>  <span class="c1"># None for work without a model</span>
+<a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">model_version</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span>
+<a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">units</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span>  <span class="c1"># for example {"chunks": 12, "input_tokens": 3410}</span>
+</code></pre></div>
+<ul>
+<li>A span's offsets are relative to the chunk it comes from. Fields specific to extraction go into a subclass: <code>ExtractedSpan</code> adds <code>chunk_id</code>.</li>
+<li>Every result carries <code>usage: list[Usage]</code>, one entry per model or service that took part. A transform has one entry for the extractor model and one for the LLM that wrote the template. The library reports every unit it can count (chunks, characters, tokens, LLM calls).</li>
+<li><code>model_version</code> identifies the weights exactly. <code>from_pretrained</code> records the resolved Hugging Face commit, not the repository id. For weights mounted from a local path (see "Mount local model weights and configure their paths in pydantic-settings configs") the caller passes <code>model_version</code>, because a path doesn't say which weights it holds. For a third-party LLM it is the model name the provider returned.</li>
+<li>Every result also carries <code>warnings</code>, and batch results carry <code>failures</code>, as "Typed errors, and no fallbacks that hide a failure" defines.</li>
+<li>The types are pydantic models because they cross the API boundary unchanged.</li>
+</ul>
+<h3 id="results-are-objects-not-lists">Results are objects, not lists</h3>
+<p>The idea-box entry writes <code>extract(question, chunks) -&gt; list[Span]</code>. A list has no place for <code>usage</code> and <code>warnings</code>, so each capability returns a result object:</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Result</th>
+<th>Fields</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>verbatim.extract</code></td>
+<td><code>Extraction</code></td>
+<td><code>spans: list[ExtractedSpan]</code>, <code>usage</code>, <code>warnings</code></td>
+</tr>
+<tr>
+<td><code>verbatim.transform</code></td>
+<td><code>Answer</code></td>
+<td><code>text</code>, <code>citations</code>, <code>spans: list[ExtractedSpan]</code>, <code>usage</code>, <code>warnings</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-method-set">The method set</h2>
+<p>Every stateless interface has the same methods. A capability adds streaming methods only where it needs them.</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Interface</th>
+<th>Sync</th>
+<th>Async</th>
+<th>Streaming</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>verbatim.extract</code></td>
+<td><code>SpanExtractor</code></td>
+<td><code>extract</code></td>
+<td><code>aextract</code></td>
+<td>–</td>
+</tr>
+<tr>
+<td><code>verbatim.transform</code></td>
+<td><code>Transformer</code></td>
+<td><code>transform</code></td>
+<td><code>atransform</code></td>
+<td><code>stream</code>, <code>astream</code></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li>Long calls take an <code>on_progress</code> callback that reports their progress. This is the callback that open question 1 of the logging convention recommends.</li>
+<li>The methods follow "Write each step once, with thin sync and async wrappers". The logic lives in functions without I/O, and the sync and async methods only make the calls. Local encoder inference runs in a worker thread behind the async method.</li>
+<li>The constructor takes what the interface depends on: a loaded model, an LLM client and a default config. Everything a caller may choose per request is a call argument, and a <code>config</code> argument replaces the default config for one call. Nothing is set on the object between calls.</li>
+</ul>
+<h2 id="the-interfaces">The interfaces</h2>
+<h3 id="verbatimextract">verbatim.extract</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">SpanExtractor</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">extract</span><span class="p">(</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">question</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chunks</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Chunk</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">ExtractConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Extraction</span><span class="p">:</span> <span class="o">...</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">aextract</span><span class="p">(</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">question</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chunks</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Chunk</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">ExtractConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Extraction</span><span class="p">:</span> <span class="o">...</span>
+</code></pre></div>
+<p><code>SpanExtractor</code> stays the base class. It gains the two methods, and <code>extract_spans</code> becomes the deprecated adapter (see "Subclasses written against the old interface").</p>
+<table>
+<thead>
+<tr>
+<th>Extractor</th>
+<th>Constructor</th>
+<th>Where the offsets come from</th>
+<th><code>score</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ModelSpanExtractor</code>, highlighter models</td>
+<td><code>ModelSpanExtractor(model, config=...)</code> and <code>ModelSpanExtractor.from_pretrained(model_id, device=None)</code></td>
+<td><code>.process()</code> returns character spans. Today the extractor keeps only their text (<code>verbatim_core/extractors.py:222</code>)</td>
+<td>the model's span probability</td>
+</tr>
+<tr>
+<td><code>ModelSpanExtractor</code>, v1 sentence model</td>
+<td>the same</td>
+<td>the sentence boundaries from the splitter</td>
+<td>the sentence probability</td>
+</tr>
+<tr>
+<td><code>SemanticHighlightExtractor</code></td>
+<td><code>from_pretrained</code> as above. Today the constructor loads the model (<code>:336</code>)</td>
+<td>the token regions it computes already</td>
+<td>the region probability</td>
+</tr>
+<tr>
+<td><code>LLMSpanExtractor</code></td>
+<td><code>LLMSpanExtractor(llm_client, config=...)</code>, with the client required</td>
+<td>the extractor locates each quote in the chunk it came from. The fuzzy matcher already works with offsets and returns only the text (<code>:838</code>)</td>
+<td>open question 2</td>
+</tr>
+</tbody>
+</table>
+<p><code>ExtractConfig</code> holds today's constructor settings: the threshold, <code>min_span_chars</code>, <code>merge_gap_chars</code>, <code>max_length</code> and <code>doc_stride</code> for the model, and the extraction mode, batch size, match mode and prompts for the LLM.</p>
+<p>When a quote occurs more than once in a chunk, the extractor picks one occurrence. Today the response builder searches for the span text afterwards and highlights every occurrence (<code>verbatim_core/response_builder.py:122</code>).</p>
+<h3 id="verbatimtransform">verbatim.transform</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">Transformer</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>        <span class="bp">self</span><span class="p">,</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>        <span class="n">extractor</span><span class="p">:</span> <span class="n">SpanExtractor</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>        <span class="n">templates</span><span class="p">:</span> <span class="n">TemplateManager</span><span class="p">,</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>        <span class="o">*</span><span class="p">,</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>        <span class="n">config</span><span class="p">:</span> <span class="n">TransformConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span> <span class="o">...</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">transform</span><span class="p">(</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>        <span class="bp">self</span><span class="p">,</span> <span class="n">question</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chunks</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">Chunk</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">config</span><span class="p">:</span> <span class="n">TransformConfig</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Answer</span><span class="p">:</span> <span class="o">...</span>
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">atransform</span><span class="p">(</span><span class="o">...</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Answer</span><span class="p">:</span> <span class="o">...</span>
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">stream</span><span class="p">(</span><span class="o">...</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="n">TransformEvent</span><span class="p">]:</span> <span class="o">...</span>
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">astream</span><span class="p">(</span><span class="o">...</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">AsyncIterator</span><span class="p">[</span><span class="n">TransformEvent</span><span class="p">]:</span> <span class="o">...</span>
+</code></pre></div>
+<ul>
+<li><code>transform</code> is today's <code>VerbatimTransform.transform</code> without the conversion of dicts into search results. The response builder builds citations and highlights from the span offsets.</li>
+<li><code>TransformConfig</code> holds the number of displayed spans and the template mode.</li>
+<li><code>TemplateManager</code> gets its LLM client passed in. The static template mode needs none.</li>
+<li><code>stream</code> and <code>astream</code> yield a <code>spans</code> event after extraction and an <code>answer</code> event at the end. They need no index, so <code>verbatim.transform-stream</code> works on chunks sent with the request.</li>
+<li>The <code>answer</code> argument, which <code>VerbatimTransform.transform</code> accepts and ignores today, is not carried over.</li>
+</ul>
+<h2 id="stores">Stores</h2>
+<p>Stored state sits behind <code>typing.Protocol</code> interfaces that the caller passes into the stateful classes. The library ships local implementations, and callers can pass their own. No method takes an owner id: a caller passes in a store already limited to the data it may read, so library code can't read other data by mistake.</p>
+<p>The one store holds vectors and documents. Its protocol is <code>VectorStore</code>, defined in "Make the vector store easy to swap", its implementations are Milvus Lite and Milvus Cloud, as today, and <code>VerbatimIndex</code> uses it.</p>
+<h2 id="models-and-clients-are-passed-in">Models and clients are passed in</h2>
+<ul>
+<li>A class that runs a model takes the loaded model in its constructor. A <code>from_pretrained(model_id, ...)</code> classmethod is the one place where a name becomes a model, so the caller decides when the download and the load happen: at startup in a server, in the first cell of a notebook.</li>
+<li><code>from_pretrained</code> accepts a local path, which is how a container loads weights mounted into it.</li>
+<li>A class that calls an LLM takes the client. The client comes from "One LLM-call layer in each library". Until that layer exists, it is <code>LLMClient</code>, the client verbatim-rag takes today.</li>
+<li>A model served remotely is passed in as a client. An encoder served remotely becomes one more implementation of the same interface.</li>
+</ul>
+<h2 id="the-stateful-layer">The stateful layer</h2>
+<h3 id="verbatimrag-and-verbatimindex">VerbatimRAG and VerbatimIndex</h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">transformer</span> <span class="o">=</span> <span class="n">Transformer</span><span class="p">(</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>    <span class="n">extractor</span><span class="o">=</span><span class="n">ModelSpanExtractor</span><span class="o">.</span><span class="n">from_pretrained</span><span class="p">(</span><span class="s2">"KRLabsOrg/verbatim-rag-modern-bert-v2"</span><span class="p">),</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>    <span class="n">templates</span><span class="o">=</span><span class="n">TemplateManager</span><span class="p">(</span><span class="n">llm_client</span><span class="o">=</span><span class="n">LLMClient</span><span class="p">(</span><span class="s2">"gpt-4o-mini"</span><span class="p">)),</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="p">)</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">rag</span> <span class="o">=</span> <span class="n">VerbatimRAG</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="n">transformer</span><span class="o">=</span><span class="n">transformer</span><span class="p">)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">response</span> <span class="o">=</span> <span class="n">rag</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="s2">"What does the warranty cover?"</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+</code></pre></div>
+<ul>
+<li><code>query</code> retrieves from the index, converts the search results to <code>Chunk</code>, calls <code>transformer.transform</code> and builds the <code>QueryResponse</code> it returns today. <code>query_async</code> does the same with <code>atransform</code>.</li>
+<li><code>query_stream(question, k=...)</code> replaces <code>StreamingRAG</code>. It sends the documents event, then the events of <code>transformer.astream</code>. <code>k</code> is an argument. Today <code>StreamingRAG</code> sets <code>rag.k</code> on the shared object for one request (<code>verbatim_rag/streaming.py:53</code>).</li>
+<li>Intent detection and reranking stay in <code>VerbatimRAG</code>. They are pipeline stages around the core.</li>
+<li><code>VerbatimIndex</code> already takes its vector store and embedding providers. Its <code>query</code> keeps returning <code>SearchResult</code> (<code>verbatim_rag/index.py:552</code>), and <code>SearchResult.to_chunk()</code> converts a result before it reaches the core. The store interface belongs to "Make the vector store easy to swap".</li>
+</ul>
+<h3 id="defaults">Defaults</h3>
+<p>A stateful class may still create a local store when none is passed, because keeping state locally is what the class is for. It never builds a model or an LLM client from a name. When the caller passes none, the class builds today's default for the length of the deprecation window and warns, so the quickstarts in the READMEs keep running. Open question 3 asks what happens after the window.</p>
+<h2 id="deprecating-todays-api">Deprecating today's API</h2>
+<p>Every public name that the core replaces stays available, warns when it is used, and is removed after the deprecation window (open question 1).</p>
+<h3 id="adapters-only">Adapters only</h3>
+<p>An old entry point converts its arguments to the new types, calls the core and converts the result back to today's shape. It keeps no logic of its own:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">SpanExtractor</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="nd">@deprecated</span><span class="p">(</span><span class="s2">"SpanExtractor.extract_spans"</span><span class="p">,</span> <span class="n">since</span><span class="o">=</span><span class="s2">"0.3.0"</span><span class="p">,</span> <span class="n">removed_in</span><span class="o">=</span><span class="s2">"0.5.0"</span><span class="p">,</span> <span class="n">use</span><span class="o">=</span><span class="s2">"extract()"</span><span class="p">)</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">extract_spans</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">question</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">search_results</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>        <span class="n">chunks</span> <span class="o">=</span> <span class="p">[</span><span class="n">_chunk_from_result</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">result</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">search_results</span><span class="p">)]</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>        <span class="n">extraction</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="n">question</span><span class="p">,</span> <span class="n">chunks</span><span class="p">)</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>        <span class="n">texts</span> <span class="o">=</span> <span class="p">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">id</span><span class="p">:</span> <span class="n">chunk</span><span class="o">.</span><span class="n">text</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">chunks</span><span class="p">}</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>        <span class="n">spans</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span><span class="n">chunk</span><span class="o">.</span><span class="n">text</span><span class="p">:</span> <span class="p">[]</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">chunks</span><span class="p">}</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>        <span class="k">for</span> <span class="n">span</span> <span class="ow">in</span> <span class="n">extraction</span><span class="o">.</span><span class="n">spans</span><span class="p">:</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>            <span class="n">spans</span><span class="p">[</span><span class="n">texts</span><span class="p">[</span><span class="n">span</span><span class="o">.</span><span class="n">chunk_id</span><span class="p">]]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">span</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>        <span class="k">return</span> <span class="n">spans</span>
+</code></pre></div>
+<p>The two copies of <code>VerbatimTransform</code> (<code>verbatim_core/transform.py:54</code>, <code>verbatim_rag/transform.py:48</code>) become one adapter in <code>verbatim_core</code>.</p>
+<h3 id="the-warning">The warning</h3>
+<p><code>verbatim_core</code> has a <code>_deprecation.py</code>. It defines the library's warning class and builds every message in one format:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="sd">"""Deprecation warnings for the public API of verbatim_core and verbatim_rag."""</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">typing_extensions</span><span class="w"> </span><span class="kn">import</span> <span class="n">deprecated</span> <span class="k">as</span> <span class="n">_deprecated</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>
+<a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>
+<a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="k">class</span><span class="w"> </span><span class="nc">VerbatimDeprecationWarning</span><span class="p">(</span><span class="ne">DeprecationWarning</span><span class="p">):</span>
+<a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">    </span><span class="sd">"""Emitted when code uses a part of the API that will be removed."""</span>
+<a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a>
+<a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>
+<a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="k">def</span><span class="w"> </span><span class="nf">_message</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">since</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">removed_in</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">use</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a>    <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> is deprecated since </span><span class="si">{</span><span class="n">since</span><span class="si">}</span><span class="s2"> and will be removed in </span><span class="si">{</span><span class="n">removed_in</span><span class="si">}</span><span class="s2">. Use </span><span class="si">{</span><span class="n">use</span><span class="si">}</span><span class="s2">."</span>
+<a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a>
+<a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a>
+<a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="k">def</span><span class="w"> </span><span class="nf">deprecated</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">since</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">removed_in</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">use</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">    </span><span class="sd">"""Mark a class, function or method as deprecated."""</span>
+<a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a>    <span class="k">return</span> <span class="n">_deprecated</span><span class="p">(</span><span class="n">_message</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">since</span><span class="p">,</span> <span class="n">removed_in</span><span class="p">,</span> <span class="n">use</span><span class="p">),</span> <span class="n">category</span><span class="o">=</span><span class="n">VerbatimDeprecationWarning</span><span class="p">)</span>
+<a id="__codelineno-5-21" name="__codelineno-5-21" href="#__codelineno-5-21"></a>
+<a id="__codelineno-5-22" name="__codelineno-5-22" href="#__codelineno-5-22"></a>
+<a id="__codelineno-5-23" name="__codelineno-5-23" href="#__codelineno-5-23"></a><span class="k">def</span><span class="w"> </span><span class="nf">warn_deprecated_argument</span><span class="p">(</span>
+<a id="__codelineno-5-24" name="__codelineno-5-24" href="#__codelineno-5-24"></a>    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">since</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">removed_in</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">use</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">stacklevel</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span>
+<a id="__codelineno-5-25" name="__codelineno-5-25" href="#__codelineno-5-25"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<a id="__codelineno-5-26" name="__codelineno-5-26" href="#__codelineno-5-26"></a><span class="w">    </span><span class="sd">"""Warn about a deprecated argument, from inside the function that takes it."""</span>
+<a id="__codelineno-5-27" name="__codelineno-5-27" href="#__codelineno-5-27"></a>    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+<a id="__codelineno-5-28" name="__codelineno-5-28" href="#__codelineno-5-28"></a>        <span class="n">_message</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">since</span><span class="p">,</span> <span class="n">removed_in</span><span class="p">,</span> <span class="n">use</span><span class="p">),</span> <span class="n">VerbatimDeprecationWarning</span><span class="p">,</span> <span class="n">stacklevel</span><span class="o">=</span><span class="n">stacklevel</span>
+<a id="__codelineno-5-29" name="__codelineno-5-29" href="#__codelineno-5-29"></a>    <span class="p">)</span>
+</code></pre></div>
+<ul>
+<li>The library has its own subclass of <code>DeprecationWarning</code>, <code>VerbatimDeprecationWarning</code>, exported from the package root. A user can silence ours without silencing others, and our tests can turn ours into errors.</li>
+<li><code>DeprecationWarning</code> is the category for warnings aimed at developers. Python shows it when the call comes from <code>__main__</code>, which covers scripts and notebooks, and pytest shows it in every test run. It stays hidden when the call comes from inside another installed package, whose users couldn't fix it. Python's default filter shows it once per call site, so a loop doesn't repeat it.</li>
+<li><code>typing_extensions.deprecated</code> (PEP 702) warns at runtime, makes type checkers and IDEs mark every use, and keeps the message in <code>__deprecated__</code> for the API docs. It needs <code>typing_extensions</code> 4.5 or later. The package arrives through <code>pydantic</code> and <code>openai</code> already, and the library lists it as a direct dependency.</li>
+<li>Warnings fire when the old name is used: constructed, called, or passed as an argument. Importing a module that defines a deprecated class never warns. A module that moved warns on attribute access through a module-level <code>__getattr__</code>. <code>verbatim_rag/transform.py</code> becomes such a module, re-exporting the names from <code>verbatim_core</code>.</li>
+<li>The decorator can't mark an argument. A deprecated argument defaults to a sentinel, so the function can tell whether the caller passed it, and calls <code>warn_deprecated_argument</code>.</li>
+</ul>
+<h3 id="subclasses-written-against-the-old-interface">Subclasses written against the old interface</h3>
+<p>Users subclass <code>SpanExtractor</code> today. The base class stays and keeps both sets of methods.</p>
+<ul>
+<li>A subclass that implements only the old method keeps working. The base class's new method calls the old one, converts the result and warns once per class that the subclass should implement the new method. For such an extractor, offsets are recovered by searching the chunk, as today.</li>
+<li>A subclass that implements only the new method gets the old method from the base class, through the adapter.</li>
+<li><code>__init_subclass__</code> raises <code>TypeError</code> when a subclass implements neither, since the two default methods would call each other.</li>
+<li>Our own extractors derive from the base class, so the base class itself is never marked with the decorator. The decorator would warn when our own subclasses are defined, at import time.</li>
+</ul>
+<h3 id="endpoints-of-the-api-server">Endpoints of the API server</h3>
+<p>The FastAPI server in <code>api/</code> keeps its routes and response shapes. A route replaced by a new one is marked with <code>deprecated=True</code>, which marks it in the OpenAPI document, and its responses carry <code>Deprecation</code> and <code>Sunset</code> headers (RFC 9745, RFC 8594). New routes return the core result types unchanged, so an API result has the same shape as a library result.</p>
+<h3 id="behaviour-that-changes-through-the-old-api">Behaviour that changes through the old API</h3>
+<p>The adapters keep today's shapes, but one behaviour changes, and it goes into the changelog: VerbatimRAG highlights the occurrence of a span the extractor chose, instead of every occurrence of the same text.</p>
+<h2 id="new-and-replaced-names">New and replaced names</h2>
+<p>New in <code>verbatim_core</code>: the shared types, <code>extract</code> and <code>aextract</code> on every extractor, <code>from_pretrained</code> on the model extractors, <code>Transformer</code>, and <code>_deprecation.py</code>. New in <code>verbatim_rag</code>: <code>VerbatimRAG(index, transformer=...)</code>, <code>query_stream</code> and <code>SearchResult.to_chunk()</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Old</th>
+<th>Replacement</th>
+<th>The adapter</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SpanExtractor.extract_spans</code>, <code>extract_spans_async</code></td>
+<td><code>extract</code>, <code>aextract</code></td>
+<td>groups the span texts by chunk text</td>
+</tr>
+<tr>
+<td><code>ModelSpanExtractor(model_path=...)</code>, <code>SemanticHighlightExtractor(model_path=...)</code></td>
+<td><code>from_pretrained(model_id)</code></td>
+<td>calls <code>from_pretrained</code></td>
+</tr>
+<tr>
+<td><code>LLMSpanExtractor()</code> without <code>llm_client</code></td>
+<td><code>LLMSpanExtractor(llm_client)</code></td>
+<td>builds <code>LLMClient(model)</code> as today</td>
+</tr>
+<tr>
+<td><code>VerbatimTransform</code>, <code>transform</code>, <code>transform_async</code></td>
+<td><code>Transformer</code>, <code>transform</code>, <code>atransform</code></td>
+<td>turns the context dicts into chunks and the <code>Answer</code> into a <code>QueryResponse</code></td>
+</tr>
+<tr>
+<td>the module <code>verbatim_rag.transform</code></td>
+<td><code>verbatim_core</code></td>
+<td>re-exports the core names</td>
+</tr>
+<tr>
+<td><code>verbatim_query</code>, <code>verbatim_query_async</code></td>
+<td><code>provider.retrieve</code> followed by <code>Transformer</code></td>
+<td>unchanged behaviour</td>
+</tr>
+<tr>
+<td><code>StreamingRAG</code>, <code>stream_query</code>, <code>stream_query_sync</code></td>
+<td><code>VerbatimRAG.query_stream</code></td>
+<td>yields today's event dicts</td>
+</tr>
+<tr>
+<td><code>VerbatimRAG(model=...)</code>, or without <code>transformer</code></td>
+<td><code>VerbatimRAG(index, transformer=...)</code></td>
+<td>builds today's extractor and templates</td>
+</tr>
+</tbody>
+</table>
+<p>Internal callers that move in the same pull request: <code>verbatim_core/enhance.py:70</code> and <code>verbatim_core/cli.py:54</code> (<code>VerbatimTransform</code>), <code>verbatim_rag/verbatim_doc.py:135</code> (<code>extract_spans_async</code>), <code>api/app.py:261</code> (the forked <code>VerbatimTransform</code>) and <code>api/app.py:350</code> (<code>StreamingRAG</code>).</p>
+<h2 id="the-places-that-change">The places that change</h2>
+<p>This table lists the places that change, in the same form as "Today's fallbacks" in the typed-errors document.</p>
+<table>
+<thead>
+<tr>
+<th>Where</th>
+<th>Today</th>
+<th>After the change</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>verbatim_core/extractors.py:38</code></td>
+<td><code>extract_spans</code> returns <code>dict[chunk_text, list[str]]</code>, so two chunks with the same text share one entry</td>
+<td><code>extract</code> returns spans with <code>chunk_id</code>, offsets and score</td>
+</tr>
+<tr>
+<td><code>verbatim_core/extractors.py:222</code></td>
+<td>the highlighter's character spans are reduced to their text</td>
+<td>offsets and score kept</td>
+</tr>
+<tr>
+<td><code>verbatim_core/extractors.py:131</code>, <code>:336</code></td>
+<td>the constructors download and load the model from <code>model_path</code></td>
+<td><code>from_pretrained</code>, the constructor takes the loaded model</td>
+</tr>
+<tr>
+<td><code>verbatim_core/extractors.py:502</code></td>
+<td><code>LLMClient(model)</code> built when no client is passed</td>
+<td>client required, the old form warns</td>
+</tr>
+<tr>
+<td><code>verbatim_core/extractors.py:778</code>, <code>:838</code></td>
+<td>the matchers locate each quote and return only its text</td>
+<td>they return the span with offsets</td>
+</tr>
+<tr>
+<td><code>verbatim_core/response_builder.py:122</code></td>
+<td>highlights recovered with <code>str.find</code>, every occurrence of the text highlighted</td>
+<td>highlights from the span offsets</td>
+</tr>
+<tr>
+<td><code>verbatim_core/transform.py:70</code>, <code>verbatim_rag/transform.py:64</code></td>
+<td>two copies of <code>VerbatimTransform</code>, each building <code>LLMClient()</code>, an extractor and templates when none are passed</td>
+<td>one <code>Transformer</code>, <code>VerbatimTransform</code> a deprecated adapter</td>
+</tr>
+<tr>
+<td><code>verbatim_rag/streaming.py:53</code>, <code>:68</code></td>
+<td>streaming needs a <code>VerbatimRAG</code> with an index and sets <code>rag.k</code> per request</td>
+<td><code>Transformer.astream</code> without an index, <code>VerbatimRAG.query_stream(k=...)</code></td>
+</tr>
+<tr>
+<td><code>verbatim_rag/core.py:92</code> to <code>:101</code></td>
+<td><code>VerbatimRAG</code> builds its client, extractor and templates from names</td>
+<td>takes a <code>Transformer</code>, the old form warns</td>
+</tr>
+<tr>
+<td><code>api/app.py:261</code></td>
+<td>the transform route builds the forked <code>VerbatimTransform()</code> per request</td>
+<td>a <code>Transformer</code> built at startup</td>
+</tr>
+</tbody>
+</table>
+<h2 id="enforcement">Enforcement</h2>
+<p>Tests check the behaviour, and review covers what tests don't see. No Ruff rule can tell whether code keeps state.</p>
+<h3 id="tests">Tests</h3>
+<ul>
+<li><code>standard-tests</code> has one suite per interface (extractor, transformer). Every implementation runs it (see "Introduce multiple workspaces into the project structure"). The suites check that:</li>
+<li>every span's text equals the slice at its offsets</li>
+<li>the sync and async methods return equal results for the same input</li>
+<li>a call with the model already loaded, run in an empty temporary directory set as working directory and <code>HOME</code>, leaves the directory empty</li>
+<li>a second call with the same input returns the same result, also when a call with other input ran in between</li>
+<li><code>usage</code> has an entry with the model id and version.</li>
+<li>Each package has a <code>tests/test_deprecated.py</code>. For each old entry point it checks the warning class and the message, and compares the result with today's output recorded on a few fixtures, so the adapter keeps today's shape.</li>
+<li>pytest turns the library's own deprecation warnings into errors, so library code that calls a deprecated name fails the test suite. <code>pytest.warns</code> in <code>test_deprecated.py</code> records the warnings instead:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">[tool.pytest.ini_options]</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">filterwarnings</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="s2">"error::verbatim_core.VerbatimDeprecationWarning"</span><span class="p">,</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="p">]</span>
+</code></pre></div>
+<ul>
+<li>Importing each package in a fresh interpreter emits none of the library's deprecation warnings.</li>
+</ul>
+<h3 id="review-checklist">Review checklist</h3>
+<ul>
+<li>Does an adapter do anything beyond converting arguments and results?</li>
+<li>Does core code write a file, read an environment variable or keep anything on <code>self</code> between calls?</li>
+<li>Does a constructor download, load or build a model or a client from a name?</li>
+<li>Does a new result type carry <code>usage</code> and <code>warnings</code>?</li>
+<li>Does every removed or renamed public name have an adapter, a warning with the library's class, and a changelog entry?</li>
+</ul>
+<h2 id="rollout">Rollout</h2>
+<p>The steps are ordered so each one can ship on its own.</p>
+<ol>
+<li>Add the shared types and <code>_deprecation.py</code> to <code>verbatim_core</code>. Nothing changes behaviour yet.</li>
+<li>Add the <code>standard-tests</code> suites for the extractor and transformer interfaces.</li>
+<li>Add <code>extract</code> on every extractor and <code>from_pretrained</code>, then <code>Transformer</code> with streaming, with the response builder working from offsets.</li>
+<li>Turn the old entry points into adapters, move the internal callers, and turn on the pytest filter.</li>
+<li>Rebuild <code>VerbatimRAG</code> on the core: <code>query</code> and <code>query_stream</code>.</li>
+<li>Add the new routes to the API server and deprecate the old ones.</li>
+<li>Release 0.3.0 with "Deprecated" and "Changed" sections in the changelog and a migration page in the documentation site.</li>
+<li>Remove the adapters in the release that the deprecation window names.</li>
+</ol>
+<h2 id="open-questions">Open questions</h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Question</th>
+<th>Decision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>How long is the deprecation window? Recommendation: deprecate in 0.3.0, remove in 0.5.0, and not earlier than three months after 0.3.0.</td>
+<td></td>
+</tr>
+<tr>
+<td>2</td>
+<td>What does <code>score</code> hold when a method produces no probability, as in LLM span extraction? Recommendation: 1.0, documented as "extracted without a score", so <code>score</code> is always a number.</td>
+<td></td>
+</tr>
+<tr>
+<td>3</td>
+<td>After the window, does <code>VerbatimRAG(index)</code> still build a default LLM client, or is the client required? Recommendation: required, with the READMEs showing the explicit form from 0.3.0 on.</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.code.annotate", "navigation.sections", "navigation.expand", "search.highlight"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
