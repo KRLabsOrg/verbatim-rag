@@ -4,6 +4,7 @@ Defines the abstract interface that all template strategies must implement,
 including methods for generation, filling, and persistence.
 """
 
+import asyncio
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -58,8 +59,12 @@ class TemplateStrategy(ABC):
     async def generate_result_async(
         self, question: str, spans: list[str], citation_count: int = 0, *, seed: int | None = None
     ) -> TemplateResult:
-        """Async version of `generate_result`."""
-        return self.generate_result(question, spans, citation_count, seed=seed)
+        """Async version of `generate_result` that keeps the event loop free.
+
+        The sync implementation runs in a worker thread, so a slow encode does not stall the
+        loop; strategies with a native async implementation override it.
+        """
+        return await asyncio.to_thread(self.generate_result, question, spans, citation_count, seed=seed)
 
     @abstractmethod
     def fill(
