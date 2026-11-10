@@ -785,16 +785,30 @@ class SemanticHighlightExtractor(SpanExtractor[SemanticHighlightConfig]):
             raw = self.model.get_raw_predictions(question, [chunk.text])
             if not raw.context_ranges:
                 return [], []
-            encoding = self.model.tokenizer(
-                chunk.text,
+            # One tokenization of the input the model sees: question, separator
+            # and chunk together, so the context_ranges indices read offsets from
+            # the same encoding instead of aligning two independent tokenizer
+            # calls (#123 -- the separate chunk-only call shifted every mapped
+            # probability one token early).
+            tokenizer = self.model.tokenizer
+            separator = getattr(tokenizer, "sep_token", None) or ""
+            prefix_length = len(question) + len(separator)
+            encoding = tokenizer(
+                question + separator + chunk.text,
                 return_offsets_mapping=True,
                 add_special_tokens=False,
                 max_length=getattr(self.model, "max_length", None),
             )
 
         start_index, end_index = raw.context_ranges[0]
+        all_offsets = encoding["offset_mapping"]
         probabilities = raw.pruning_probs[start_index:end_index]
-        offsets = encoding["offset_mapping"]
+        # Offsets of the context tokens in the combined input, moved back into
+        # chunk coordinates.
+        offsets = [
+            (max(char_start - prefix_length, 0), max(char_end - prefix_length, 0))
+            for char_start, char_end in all_offsets[start_index:end_index]
+        ]
         warnings = []
         if len(probabilities) != len(offsets):
             token_count = min(len(probabilities), len(offsets))
@@ -802,6 +816,12 @@ class SemanticHighlightExtractor(SpanExtractor[SemanticHighlightConfig]):
             warnings.append(_truncated(position, token_count, total, "tokens"))
             probabilities = probabilities[:token_count]
             offsets = offsets[:token_count]
+        # The ranges can stop short of the context's last token when the model's
+        # own input limit cut it off; the reader should know the tail was never
+        # rated rather than take the highlight for the whole chunk.
+        context_token_total = max(len(all_offsets) - start_index, 0)
+        if len(probabilities) < context_token_total:
+            warnings.append(_truncated(position, len(probabilities), context_token_total, "tokens"))
 
         spans = []
         for token_start, token_end in _token_regions(probabilities, config):
