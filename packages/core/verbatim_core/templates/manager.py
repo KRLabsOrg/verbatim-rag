@@ -13,6 +13,7 @@ from typing import Any, cast
 from verbatim_core._checks import _config_from_settings
 from verbatim_core._deprecation import deprecated, warn_contextual_without_client, warn_deprecated
 from verbatim_core._transform_config import TransformConfig
+from verbatim_core.errors import ConfigurationError, VerbatimError
 from verbatim_core.llm_client import LLMClient
 from verbatim_core.templates.base import TemplateStrategy
 from verbatim_core.templates.contextual import ContextualTemplate
@@ -273,15 +274,30 @@ class TemplateManager:
         try:
             with Path(filepath).open() as f:
                 data = json.load(f)
+        # A file that can't be read, or isn't JSON
+        except (OSError, ValueError):
+            logger.warning("Could not load the template config %s", filepath, exc_info=True)
+            return False
 
-            # Load mode
-            if "current_mode" in data:
-                mode = data["current_mode"]
-                if self.strategies.get(mode) is not None:
-                    self._replace_config(template_mode=mode)
+        # Read and check the whole file before any of it reaches the manager, so a file with
+        # an invalid shape or setting leaves the manager as it was.
+        try:
+            settings, strategies_data = _read_saved_settings(data)
+            mode = settings.pop("template_mode", None)
+            if mode is not None and self.strategies.get(mode) is not None:
+                settings["template_mode"] = mode
+            new_config = self._settings_config(settings)
+        except (VerbatimError, AttributeError, TypeError, ValueError):
+            logger.warning("Could not load the template config %s", filepath, exc_info=True)
+            return False
+
+        previous_config = self.config
+        previous_states = {mode: strategy.save_state() for mode, strategy in self.strategies.items() if strategy}
+
+        try:
+            self.config = new_config
 
             # Load strategy states
-            strategies_data = data.get("strategies", {})
             for mode, state in strategies_data.items():
                 strategy = self.strategies.get(mode)
                 if strategy is not None:
@@ -294,21 +310,45 @@ class TemplateManager:
                             mode,
                             exc_info=True,
                         )
+                        # Restore this strategy, so a state that failed halfway leaves no part of itself.
+                        strategy.load_state(previous_states[mode])
 
             # Before 0.3.0 only the contextual templates saved the citation format.
-            citations = {key: data[key] for key in ("citation_mode", "citation_format") if key in data}
-            contextual_state = strategies_data.get("contextual") or {}
-            if "citation_format" not in citations and "citation_format" in contextual_state:
-                citations["citation_format"] = contextual_state["citation_format"]
+            citations = settings
             if citations:
                 self._set_citations(**citations)
 
-        # A file that can't be read, or isn't JSON
-        except (OSError, ValueError):
+        # A missing dependency or embedder is a deployment problem, which a different file fixes no more
+        # than this one did: the manager keeps its state and the caller sees the error.
+        except ConfigurationError:
+            self._restore(previous_config, previous_states)
+            raise
+        except Exception:
+            self._restore(previous_config, previous_states)
             logger.warning("Could not load the template config %s", filepath, exc_info=True)
             return False
         else:
             return True
+
+    def _restore(self, config: TransformConfig, states: dict[str, dict[str, Any]]) -> None:
+        """Put back the settings and the strategy states a failed `load` found."""
+        self.config = config
+        for mode, state in states.items():
+            strategy = self.strategies.get(mode)
+            if strategy is not None:
+                try:
+                    strategy.load_state(state)
+                except (KeyError, TypeError, ValueError):
+                    logger.warning("Could not restore the %s templates after a failed load", mode, exc_info=True)
+
+    def _settings_config(self, settings: dict[str, Any]) -> TransformConfig:
+        """Return the config the settings of a saved file describe.
+
+        :raises ConfigurationError: If a setting is invalid
+        """
+        if not settings:
+            return self.config
+        return _config_from_settings(TransformConfig, {**self.config.model_dump(exclude_unset=True), **settings})
 
     def info(self) -> dict[str, Any]:
         """Get current template manager state information.
@@ -556,6 +596,43 @@ class TemplateManager:
                 cast("Any", strategy).set_citation_mode(settings["citation_mode"])
             if strategy and "citation_format" in settings and hasattr(strategy, "set_citation_format"):
                 cast("Any", strategy).set_citation_format(settings["citation_format"])
+
+
+def _read_saved_settings(data: Any) -> tuple[dict[str, Any], dict[str, Any]]:  # noqa: ANN401  # the decoded JSON, checked here
+    """Return the settings and the strategy states of a saved file, checked before either is applied.
+
+    :param data: What `json.load` returned for the file
+    :return: The settings of `config`, and the state of each template strategy
+    :raises ValueError: If the file has a shape `save` never writes
+    """
+    if not isinstance(data, dict):
+        msg = f"a template config must be a JSON object, not {type(data).__name__}"
+        raise TypeError(msg)
+
+    strategies_data = data.get("strategies", {})
+    if not isinstance(strategies_data, dict):
+        msg = "the strategies of a template config must be a JSON object, not "
+        raise TypeError(msg + type(strategies_data).__name__)
+    for mode, state in strategies_data.items():
+        if not isinstance(state, dict):
+            msg = f"the saved state of the {mode} templates must be a JSON object, not "
+            raise TypeError(msg + type(state).__name__)
+
+    settings: dict[str, Any] = {}
+    if "current_mode" in data:
+        mode = data["current_mode"]
+        if not isinstance(mode, str):
+            msg = f"current_mode must be a template mode name, not {type(mode).__name__}"
+            raise TypeError(msg)
+        settings["template_mode"] = mode
+
+    # Before 0.3.0 only the contextual templates saved the citation format.
+    citations = {key: data[key] for key in ("citation_mode", "citation_format") if key in data}
+    contextual_state = strategies_data.get("contextual") or {}
+    if "citation_format" not in citations and "citation_format" in contextual_state:
+        citations["citation_format"] = contextual_state["citation_format"]
+    settings.update(citations)
+    return settings, strategies_data
 
 
 def _mode_replacement(mode: str) -> str:
