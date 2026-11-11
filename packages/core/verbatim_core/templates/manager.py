@@ -266,7 +266,7 @@ class TemplateManager:
 
         :param filepath: Path to load configuration from
         :return: True if loaded successfully
-"""
+        """
         if not os.path.exists(filepath):  # noqa: PTH110  # unlike Path.exists, an unreadable path is "not found"
             logger.warning("Template config file not found: %s", filepath)
             return False
@@ -342,15 +342,13 @@ class TemplateManager:
                     logger.warning("Could not restore the %s templates after a failed load", mode, exc_info=True)
 
     def _settings_config(self, settings: dict[str, Any]) -> TransformConfig:
-        """The config the settings of a saved file describe.
+        """Return the config the settings of a saved file describe.
 
         :raises ConfigurationError: If a setting is invalid
         """
         if not settings:
             return self.config
-        return _config_from_settings(
-            TransformConfig, {**self.config.model_dump(exclude_unset=True), **settings}
-        )
+        return _config_from_settings(TransformConfig, {**self.config.model_dump(exclude_unset=True), **settings})
 
     def info(self) -> dict[str, Any]:
         """Get current template manager state information.
@@ -601,7 +599,7 @@ class TemplateManager:
 
 
 def _read_saved_settings(data: Any) -> tuple[dict[str, Any], dict[str, Any]]:  # noqa: ANN401  # the decoded JSON, checked here
-    """The settings and the strategy states of a saved file, checked before either is applied.
+    """Return the settings and the strategy states of a saved file, checked before either is applied.
 
     :param data: What `json.load` returned for the file
     :return: The settings of `config`, and the state of each template strategy

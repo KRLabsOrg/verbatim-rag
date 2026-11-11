@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- `TemplateManager.load()` checks the whole saved file before applying any of it. A bad
+  `citation_mode` or `citation_format`, a top-level list, a `strategies` list, or a state that
+  isn't an object now returns `False` with the manager unchanged, instead of raising or leaving
+  the mode and some strategies applied (#124). A missing embedder or dependency still raises
+  `ConfigurationError`.
+
 ## [0.3.0] - 2026-11-10
 
 0.3.0 adds a stateless core. Extractors return spans with their chunk ids and offsets, and a
