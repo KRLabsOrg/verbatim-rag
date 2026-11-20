@@ -38,6 +38,7 @@ __all__ = [
     "RenderedPlan",
     "RestItem",
     "TextItem",
+    "compact_quote",
     "fallback_plan",
     "parse_template",
     "plan_candidates",
@@ -128,6 +129,9 @@ class PlanText(_PlanModel):
     # A required field item with no span (field items are filled by a later release)
     no_evidence: str = "No supporting passage found."
     show_references: bool = False
+    # Show quotes without the layout of their source: each line's spaces collapsed and its
+    # indentation removed, paragraphs as hard line breaks. Citations keep the exact span text.
+    compact_quotes: bool = True
 
 
 class _LLMItem(_PlanModel):
@@ -199,14 +203,17 @@ def parse_template(template: str) -> AnswerPlan:
     return AnswerPlan(sections=[PlanSection(items=items)], layout="inline")
 
 
-def validate_plan(plan: AnswerPlan, span_count: int, max_items: int | None = None) -> AnswerPlan:
+def validate_plan(
+    plan: AnswerPlan, span_count: int, max_items: int | None = None, max_support: int | None = None
+) -> AnswerPlan:
     """Return the plan with what can't be shown taken out.
 
     Span numbers outside 1..``span_count`` are dropped, and a span is used at most once across the
     plan, the first time. Quote items left without spans, and sections left without items, are
     dropped; in an inline plan, so is the list bullet that led to a dropped quote. At most
     ``max_items`` items show spans: quote items count one each, and a rest item gets the places
-    left. Text and references items stay.
+    left. A quote item keeps at most ``max_support`` supporting spans after its shown one; the
+    others stay unused. Text and references items stay.
     """
     used: set[int] = set()
     shown = 0
@@ -216,6 +223,8 @@ def validate_plan(plan: AnswerPlan, span_count: int, max_items: int | None = Non
         for item in section.items:
             if isinstance(item, QuoteItem):
                 numbers = [n for n in dict.fromkeys(item.spans) if 1 <= n <= span_count and n not in used]
+                if max_support is not None:
+                    numbers = numbers[: max_support + 1]
                 if not numbers or (max_items is not None and shown >= max_items):
                     _drop_bullet(items)
                     continue
@@ -287,6 +296,30 @@ def fit_list_item(text: str, indent: int) -> str:
 
 def _nested_line(line: str) -> str:
     return line if _LIST_ITEM_START.match(line) else line.lstrip(" \t")
+
+
+def compact_quote(text: str, indent: int = 0) -> str:
+    """Return a quote without the layout of its source page, for display.
+
+    PDF text breaks lines inside sentences and indents them with long runs of spaces. Each line's
+    spaces are collapsed and the lines of a paragraph are joined with a space; a line that starts a
+    list starts a new line. Paragraphs are joined with backslash hard line breaks, indented by
+    ``indent`` so the quote stays in its list item. Only whitespace changes.
+    """
+    pad = " " * indent
+    paragraphs = []
+    for paragraph in _BLANK_LINES.split(text.strip()):
+        joined = ""
+        for line in (" ".join(raw.split()) for raw in paragraph.split("\n")):
+            if not line:
+                continue
+            if joined and _LIST_ITEM_START.match(line):
+                joined += "\\\n" + pad + line
+            else:
+                joined = f"{joined} {line}" if joined else line
+        if joined:
+            paragraphs.append(joined)
+    return ("\\\n" + pad).join(paragraphs)
 
 
 def has_blank_lines(text: str) -> bool:
@@ -412,8 +445,11 @@ class _Renderer:
         span_text = self.spans[position].strip()
         if is_table(span_text):
             return f"{marker}\n\n{span_text}" if marker else span_text
-        quoted = f"{marker} {span_text}" if marker else span_text
         indent = list_item_indent(before, len(before))
+        if self.text.compact_quotes:
+            compact = compact_quote(span_text, indent or 0)
+            return f"{marker} {compact}" if marker else compact
+        quoted = f"{marker} {span_text}" if marker else span_text
         return quoted if indent is None or not has_blank_lines(span_text) else fit_list_item(quoted, indent)
 
     def quote_item(self, item: QuoteItem, before: str) -> str:

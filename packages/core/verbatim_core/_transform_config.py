@@ -26,6 +26,8 @@ class TransformConfig(BaseModel):
     # It chooses from up to `max_candidates` spans and shows at most `max_display_spans` of them.
     use_answer_plan: bool = False
     max_candidates: PositiveInt = 20
+    # With use_answer_plan: the supporting spans an item may cite next to its shown span
+    max_support: NonNegativeInt = 2
 
     @field_validator("citation_format")
     @classmethod

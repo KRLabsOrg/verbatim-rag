@@ -218,3 +218,53 @@ class TestCompatibility:
         answer = transformer(PlanLLM(TestLLMPlan.REPLY)).transform("Dosis?", CHUNKS)
 
         assert answer.model_dump()["plan"]["sections"][0]["label"] == "Dosierung"
+
+
+class TestPlanPrompt:
+    REPLY = plan_reply(sections=[{"label": None, "items": [{"spans": [1, 2, 3, 4]}]}])
+
+    def test_supporting_spans_are_capped_by_the_config(self):
+        answer = transformer(PlanLLM(self.REPLY)).transform("Dosis?", CHUNKS)
+
+        assert answer.text == "- [1] Dose: 20 mg once daily. [2] [3]"
+        assert answer.plan.sections[0].items == [QuoteItem(spans=[1, 2, 3])]
+        assert len(answer.citations) == 5
+
+    def test_a_custom_plan_prompt_is_used_with_the_plan_variables(self):
+        llm = PlanLLM(self.REPLY)
+        prompt = "Frage: {{ question }}\n{{ candidates_block }}\nmax {{ max_items }}/{{ max_support }} {{ answer_language }}"
+
+        transformer(llm, plan_prompt=prompt, answer_language="Deutsch").transform("Dosis?", CHUNKS)
+
+        assert llm.calls[0]["prompt"].startswith("Frage: Dosis?\n[1] Dose: 20 mg once daily.")
+        assert llm.calls[0]["prompt"].endswith("max 3/2 Deutsch")
+        assert llm.calls[0]["json_schema"]["name"] == "answer_plan"
+
+    def test_a_plan_prompt_wins_over_a_template_prompt(self):
+        llm = PlanLLM(self.REPLY, template="[SPAN_2]")
+
+        transformer(
+            llm, plan_prompt="{{ candidates_block }}", template_prompt="{{ spans_block }}"
+        ).transform("Dosis?", CHUNKS)
+
+        assert "json_schema" in llm.calls[0]
+
+    def test_an_unknown_variable_in_a_plan_prompt_raises_at_once(self):
+        with pytest.raises(ConfigurationError) as raised:
+            ContextualTemplate(PlanLLM(), plan_prompt="{{ quotes }}")
+
+        assert raised.value.code == "invalid_value"
+        assert "candidates_block" in str(raised.value)
+
+    @pytest.mark.parametrize(
+        ("language", "expected"),
+        [("German", "in German."), (None, "in the language of the quotes.")],
+    )
+    def test_the_bundled_prompt_asks_for_the_answer_language(self, language, expected):
+        llm = PlanLLM(self.REPLY)
+
+        transformer(llm, answer_language=language).transform("Dosage?", CHUNKS)
+
+        assert f"Write the intro and the labels {expected}" in llm.calls[0]["prompt"]
+        assert "complete sentence that introduces the quotes" in llm.calls[0]["prompt"]
+        assert "at most 2 supporting quotes per item" in llm.calls[0]["prompt"]

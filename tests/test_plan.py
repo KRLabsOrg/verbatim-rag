@@ -251,3 +251,33 @@ class TestRenderPlan:
             render_plan(with_field, SPANS)
 
         assert raised.value.code == "invalid_value"
+
+
+class TestCompactQuotes:
+    PDF = "Der Begriff „Herzinsuffizienz“\n                            bezeichnet ein Syndrom.\n\n  Ursachen:\n- KHK\n     - Hypertonie"
+
+    def test_pdf_layout_is_removed_and_paragraphs_stay_in_the_item(self):
+        rendered = render_plan(plan(PlanSection(items=[QuoteItem(spans=[1])])), [self.PDF])
+
+        assert rendered.text == (
+            "- [1] Der Begriff „Herzinsuffizienz“ bezeichnet ein Syndrom.\\\n  Ursachen:\\\n  - KHK\\\n  - Hypertonie"
+        )
+
+    def test_the_source_layout_can_be_kept(self):
+        rendered = render_plan(
+            plan(PlanSection(items=[QuoteItem(spans=[1])])),
+            ["A\n     b"],
+            text=PlanText(compact_quotes=False),
+        )
+
+        assert rendered.text == "- [1] A\n     b"
+
+
+class TestMaxSupport:
+    def test_an_item_keeps_at_most_max_support_supporting_spans(self):
+        raw = plan(PlanSection(items=[QuoteItem(spans=[1, 2, 3, 4])]))
+
+        valid = validate_plan(raw, span_count=4, max_support=2)
+
+        assert valid.sections[0].items == [QuoteItem(spans=[1, 2, 3])]
+        assert render_plan(valid, SPANS).text == "- [1] Reduce the dose to 15 mg. [2] [3]"

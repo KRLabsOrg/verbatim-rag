@@ -19,6 +19,12 @@ All notable changes to this project will be documented in this file.
   unknown or repeated spans, at most `max_display_spans` items), the answer is rendered from it,
   and `Answer.plan` holds it. `ContextualTemplate(plan_text=PlanText(...))` sets the fixed texts
   in the answer language. An answer without a plan serialises as before, without a `plan` key.
+  `TransformConfig(max_support=2)` caps the supporting spans cited next to each shown quote.
+  `ContextualTemplate(plan_prompt=..., answer_language=...)`: a custom prompt for the JSON plan
+  (an unknown variable raises `ConfigurationError` at construction), and the language the
+  bundled prompt asks the intro and labels in (the language of the quotes by default).
+  `PlanText(compact_quotes=True)`, the default, shows quotes without their source layout (PDF
+  line breaks and indentation); citations keep the exact span text.
 - `LLMClient.completion(json_schema=...)` and `completion_async`: structured output with a JSON
   schema.
 

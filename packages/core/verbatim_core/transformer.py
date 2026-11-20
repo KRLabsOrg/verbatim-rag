@@ -166,7 +166,9 @@ class Transformer:
         yield SpansEvent(spans=extraction.spans)
         if (planner := _planner(config, strategy)) is not None:
             candidates = _candidates(extraction.spans, config)
-            template = planner.generate_plan_result(question, _texts(candidates), max_items=config.max_display_spans)
+            template = planner.generate_plan_result(
+                question, _texts(candidates), max_items=config.max_display_spans, max_support=config.max_support
+            )
             yield AnswerEvent(answer=_plan_answer(extraction, template, candidates, planner, config))
             return
         display, references = _split(_answer_spans(extraction.spans, config), config)
@@ -186,7 +188,7 @@ class Transformer:
         if (planner := _planner(config, strategy)) is not None:
             candidates = _candidates(extraction.spans, config)
             template = await planner.generate_plan_result_async(
-                question, _texts(candidates), max_items=config.max_display_spans
+                question, _texts(candidates), max_items=config.max_display_spans, max_support=config.max_support
             )
             yield AnswerEvent(answer=_plan_answer(extraction, template, candidates, planner, config))
             return
