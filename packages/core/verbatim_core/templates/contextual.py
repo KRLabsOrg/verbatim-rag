@@ -6,13 +6,25 @@ and aggregate placeholders.
 """
 
 import logging
+from dataclasses import replace
 from typing import Any
 
+from pydantic import ValidationError
 from typing_extensions import override
 
 from verbatim_core._logging import content_logger
 from verbatim_core.errors import ConfigurationError, UpstreamError
 from verbatim_core.llm_client import Completion, LLMClient, _acall_old_client, _call_old_client, _replaces
+from verbatim_core.plan import (
+    LLMPlan,
+    PlanText,
+    fallback_plan,
+    parse_template,
+    plan_from_llm,
+    shows_spans,
+    validate_plan,
+)
+from verbatim_core.prompts import load_prompt
 from verbatim_core.templates.base import TemplateResult, TemplateStrategy
 from verbatim_core.templates.filler import TemplateFiller
 from verbatim_core.types import ResultWarning, Usage
@@ -45,6 +57,7 @@ class ContextualTemplate(TemplateStrategy):
         *,
         citation_refs_line: str | None = DEFAULT_CITATION_REFS_LINE,
         fallback_template: str | None = None,
+        plan_text: PlanText | None = None,
     ) -> None:
         """Initialize the contextual template strategy.
 
@@ -76,6 +89,8 @@ class ContextualTemplate(TemplateStrategy):
                 [DISPLAY_SPANS] and optionally [CITATION_REFS]. A line with
                 [CITATION_REFS] is left out when the call has no citation-only spans.
                 None → the bundled English fallback template.
+            plan_text: The fixed texts of answers rendered from a plan, with
+                TransformConfig(use_answer_plan=True). None → English defaults.
 
         Raises:
             ConfigurationError: If ``citation_refs_line`` has no [CITATION_REFS], or
@@ -98,6 +113,7 @@ class ContextualTemplate(TemplateStrategy):
             raise ConfigurationError(msg, code="invalid_value")
         self.citation_refs_line = citation_refs_line
         self.fallback_template = fallback_template
+        self.plan_text = plan_text or PlanText()
         self.filler = TemplateFiller(citation_mode=citation_mode, citation_format=citation_format)
 
         self._template_cache: dict[str, str] = {}
@@ -227,6 +243,112 @@ class ContextualTemplate(TemplateStrategy):
         except UpstreamError as error:
             return self._fallback_result(citation_count, error.code)
         return self._template_result(completion, spans, citation_count)
+
+    def generate_plan_result(self, question: str, candidates: list[str], *, max_items: int) -> TemplateResult:
+        """Write a validated answer plan for the candidate spans (ADR 0007).
+
+        Without a custom ``template_prompt`` the LLM gets every candidate in full and returns a
+        plan as JSON through structured output. With one, the LLM writes placeholder text as
+        before, which is parsed into a plan. Either way the plan is validated: unknown and repeated
+        span numbers are dropped and at most ``max_items`` items are shown. When the call fails
+        with an `UpstreamError`, or no valid item remains, the result has the fallback plan and the
+        warning `template_fallback`.
+
+        :raises ConfigurationError: If the LLM service rejects the key, the model or the quota
+        """
+        if self.template_prompt is not None:
+            return self._plan_of_template(self.generate_result(question, candidates, 0), candidates, max_items)
+        try:
+            completion = self._plan_completion(question, candidates, max_items)
+        except UpstreamError as error:
+            return self._fallback_plan_result(len(candidates), max_items, error.code)
+        return self._plan_result(completion, candidates, max_items)
+
+    async def generate_plan_result_async(
+        self, question: str, candidates: list[str], *, max_items: int
+    ) -> TemplateResult:
+        """Async version of `generate_plan_result`."""
+        if self.template_prompt is not None:
+            result = await self.generate_result_async(question, candidates, 0)
+            return self._plan_of_template(result, candidates, max_items)
+        try:
+            completion = await self._plan_completion_async(question, candidates, max_items)
+        except UpstreamError as error:
+            return self._fallback_plan_result(len(candidates), max_items, error.code)
+        return self._plan_result(completion, candidates, max_items)
+
+    def _plan_request(self, question: str, candidates: list[str], max_items: int) -> tuple[str, dict[str, Any]]:
+        candidates_block = "\n\n".join(f"[{i}] {text.strip()}" for i, text in enumerate(candidates, start=1))
+        prompt = load_prompt(
+            "template/plan",
+            question=question,
+            candidates_block=candidates_block,
+            n_candidates=len(candidates),
+            max_items=max_items,
+        )
+        return prompt, {"name": "answer_plan", "schema": LLMPlan.model_json_schema()}
+
+    def _plan_completion(self, question: str, candidates: list[str], max_items: int) -> Completion:
+        prompt, schema = self._plan_request(question, candidates, max_items)
+        if _replaces(self.llm_client, "complete", "completion"):
+            # a client written before 0.3.0 knows JSON mode, not schemas
+            text = _call_old_client(
+                self.llm_client, "complete", prompt, json_mode=True, system_prompt=self.system_prompt
+            )
+            return Completion(text=text)
+        return self.llm_client.completion(prompt, json_schema=schema, system_prompt=self.system_prompt)
+
+    async def _plan_completion_async(self, question: str, candidates: list[str], max_items: int) -> Completion:
+        prompt, schema = self._plan_request(question, candidates, max_items)
+        if _replaces(self.llm_client, "complete_async", "completion_async"):
+            text = await _acall_old_client(
+                self.llm_client, "complete_async", prompt, json_mode=True, system_prompt=self.system_prompt
+            )
+            return Completion(text=text)
+        return await self.llm_client.completion_async(prompt, json_schema=schema, system_prompt=self.system_prompt)
+
+    def _plan_result(self, completion: Completion, candidates: list[str], max_items: int) -> TemplateResult:
+        usage = self._usage(completion, candidates)
+        try:
+            written = plan_from_llm(LLMPlan.model_validate_json(completion.text))
+        except ValidationError:
+            return self._fallback_plan_result(len(candidates), max_items, "invalid_plan", usage)
+        plan = validate_plan(written, len(candidates), max_items)
+        if not shows_spans(plan):
+            return self._fallback_plan_result(len(candidates), max_items, "empty_plan", usage)
+        content_logger.debug("Plan: %r", plan)
+        return TemplateResult(text="", usage=[usage], plan=plan)
+
+    def _plan_of_template(self, result: TemplateResult, candidates: list[str], max_items: int) -> TemplateResult:
+        """Parse a template written by a custom prompt into a plan, and validate it."""
+        plan = validate_plan(parse_template(result.text), len(candidates), max_items)
+        if not shows_spans(plan):
+            fallback = self._fallback_plan_result(len(candidates), max_items, "empty_plan")
+            return replace(
+                fallback, text=result.text, usage=result.usage, warnings=[*result.warnings, *fallback.warnings]
+            )
+        return replace(result, plan=plan)
+
+    def _fallback_plan_result(
+        self, candidate_count: int, max_items: int, error_code: str, usage: Usage | None = None
+    ) -> TemplateResult:
+        _log_fallback(error_code)
+        warning = ResultWarning(
+            code="template_fallback",
+            message="The LLM could not write an answer plan, so the answer shows the first passages.",
+        )
+        return TemplateResult(
+            text="",
+            usage=[usage] if usage else [],
+            warnings=[warning],
+            plan=fallback_plan(candidate_count, max_items, self.plan_text),
+        )
+
+    def _usage(self, completion: Completion, spans: list[str]) -> Usage:
+        units = {"llm_calls": 1, "spans": len(spans), "characters": sum(len(span) for span in spans)}
+        if completion.input_tokens is not None and completion.output_tokens is not None:
+            units.update(input_tokens=completion.input_tokens, output_tokens=completion.output_tokens)
+        return Usage(model_id=getattr(self.llm_client, "model", None), model_version=completion.model, units=units)
 
     def _template_request(self, question: str, spans: list[str], citation_count: int) -> dict[str, Any]:
         return {

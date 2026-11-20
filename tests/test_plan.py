@@ -130,11 +130,23 @@ class TestValidatePlan:
 
         valid = validate_plan(raw, span_count=4, max_items=2)
 
-        assert valid.sections[0].items == [
-            QuoteItem(spans=[1]),
-            QuoteItem(spans=[2]),
-            RestItem(max=2),
-        ]
+        assert valid.sections[0].items == [QuoteItem(spans=[1]), QuoteItem(spans=[2])]
+
+    def test_a_rest_item_gets_the_places_left(self):
+        raw = plan(PlanSection(items=[QuoteItem(spans=[1]), RestItem()]))
+
+        valid = validate_plan(raw, span_count=4, max_items=3)
+
+        assert valid.sections[0].items == [QuoteItem(spans=[1]), RestItem(max=2)]
+
+    def test_the_bullet_of_a_dropped_quote_goes_too(self):
+        parsed = parse_template("Intro:\n- [SPAN_2]\n- [SPAN_2]\n- [SPAN_9]\nEnd.")
+
+        valid = validate_plan(parsed, span_count=4)
+
+        assert (
+            render_plan(valid, SPANS).text == "Intro:\n- [1] Contraindicated below 15 ml/min.\nEnd."
+        )
 
     def test_the_fallback_plan_shows_the_first_spans(self):
         fallback = fallback_plan(

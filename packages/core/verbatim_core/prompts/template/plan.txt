@@ -1,0 +1,17 @@
+Plan an answer to a question from numbered verbatim quotes. You choose, order and group the quotes; you never write or change quote text.
+
+Question: {{ question }}
+
+Quotes ({{ n_candidates }}):
+{{ candidates_block }}
+
+Return JSON with:
+- "intro": one short, neutral sentence in the language of the question that names the topic. It must not contain any statement, judgement, recommendation or answer of its own. Or null.
+- "sections": groups of items. Each section has a "label" (a short label in the language of the question that fits every quote under it, or null) and "items".
+- Each item has "spans": the numbers of quotes that say the same thing. The first is shown; the others are cited next to it as support.
+
+Rules:
+- Show at most {{ max_items }} items. Choose the quotes that answer the question most directly, and put them first.
+- Leave out quotes that don't answer the question. A quote that repeats a chosen one goes into that item's "spans".
+- Use each quote number at most once, and only numbers from 1 to {{ n_candidates }}.
+- Prefer few sections. Use one section with label null when grouping doesn't help.

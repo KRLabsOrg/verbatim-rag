@@ -12,7 +12,9 @@ from verbatim_core._checks import _call_config, _default_config
 from verbatim_core._deprecation import warn_contextual_without_client
 from verbatim_core._transform_config import TransformConfig
 from verbatim_core.errors import ConfigurationError, InvalidInputError
+from verbatim_core.plan import fallback_plan, plan_candidates, render_plan
 from verbatim_core.response_builder import ResponseBuilder
+from verbatim_core.templates.contextual import ContextualTemplate
 from verbatim_core.templates.filler import TemplateFiller
 from verbatim_core.types import Answer, AnswerCitation, Chunk, ExtractedSpan, Extraction
 
@@ -162,6 +164,11 @@ class Transformer:
         logger.debug("Transforming %d chunks in %s mode", len(chunks), config.template_mode)
         extraction = self.extractor.extract(question, chunks)
         yield SpansEvent(spans=extraction.spans)
+        if (planner := _planner(config, strategy)) is not None:
+            candidates = _candidates(extraction.spans, config)
+            template = planner.generate_plan_result(question, _texts(candidates), max_items=config.max_display_spans)
+            yield AnswerEvent(answer=_plan_answer(extraction, template, candidates, planner, config))
+            return
         display, references = _split(_answer_spans(extraction.spans, config), config)
         template = strategy.generate_result(question, _texts(display + references), len(references), seed=config.seed)
         yield AnswerEvent(answer=_answer(extraction, template, display, references, _fill(strategy, config)))
@@ -176,11 +183,77 @@ class Transformer:
         logger.debug("Transforming %d chunks in %s mode", len(chunks), config.template_mode)
         extraction = await self.extractor.aextract(question, chunks)
         yield SpansEvent(spans=extraction.spans)
+        if (planner := _planner(config, strategy)) is not None:
+            candidates = _candidates(extraction.spans, config)
+            template = await planner.generate_plan_result_async(
+                question, _texts(candidates), max_items=config.max_display_spans
+            )
+            yield AnswerEvent(answer=_plan_answer(extraction, template, candidates, planner, config))
+            return
         display, references = _split(_answer_spans(extraction.spans, config), config)
         template = await strategy.generate_result_async(
             question, _texts(display + references), len(references), seed=config.seed
         )
         yield AnswerEvent(answer=_answer(extraction, template, display, references, _fill(strategy, config)))
+
+
+def _planner(config: TransformConfig, strategy: TemplateStrategy) -> ContextualTemplate | None:
+    """Return the strategy when the call writes an answer plan: contextual mode with use_answer_plan."""
+    if config.use_answer_plan and isinstance(strategy, ContextualTemplate):
+        return strategy
+    return None
+
+
+def _candidates(spans: list[ExtractedSpan], config: TransformConfig) -> list[ExtractedSpan]:
+    """Return the spans an answer plan chooses from, without repeats, chunks taking turns."""
+    order = plan_candidates([span.text for span in spans], [span.chunk_id for span in spans], config.max_candidates)
+    return [spans[i] for i in order]
+
+
+def _plan_answer(
+    extraction: Extraction,
+    template: TemplateResult,
+    candidates: list[ExtractedSpan],
+    strategy: ContextualTemplate,
+    config: TransformConfig,
+) -> Answer:
+    """Render the plan of a call, numbering citations in the order they appear.
+
+    The spans that aren't candidates are cited for reference only, after the others. The call's
+    citation settings apply when it sets them, the strategy's otherwise, as when filling.
+    """
+    plan = template.plan
+    if plan is None:  # a strategy that subclasses ContextualTemplate and writes no plan
+        plan = fallback_plan(len(candidates), config.max_display_spans, strategy.plan_text)
+    chosen = {id(span) for span in candidates}
+    spans = candidates + [span for span in extraction.spans if id(span) not in chosen]
+    settings = config if {"citation_mode", "citation_format"} & config.model_fields_set else strategy
+    rendered = render_plan(
+        plan,
+        [span.text for span in spans],
+        text=strategy.plan_text,
+        citation_mode=settings.citation_mode,
+        citation_format=settings.citation_format,
+        shown_limit=len(candidates),
+    )
+    citations = [
+        AnswerCitation(
+            number=citation.number,
+            type=citation.type,
+            chunk_id=spans[citation.span].chunk_id,
+            start=spans[citation.span].start,
+            end=spans[citation.span].end,
+        )
+        for citation in rendered.citations
+    ]
+    return Answer(
+        text=rendered.text,
+        citations=citations,
+        spans=extraction.spans,
+        usage=[*extraction.usage, *template.usage],
+        warnings=[*extraction.warnings, *template.warnings],
+        plan=plan,
+    )
 
 
 def _split(spans: list[ExtractedSpan], config: TransformConfig) -> tuple[list[ExtractedSpan], list[ExtractedSpan]]:

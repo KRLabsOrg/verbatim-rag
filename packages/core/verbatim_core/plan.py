@@ -43,6 +43,7 @@ __all__ = [
     "plan_candidates",
     "plan_from_llm",
     "render_plan",
+    "shows_spans",
     "validate_plan",
 ]
 
@@ -203,31 +204,45 @@ def validate_plan(plan: AnswerPlan, span_count: int, max_items: int | None = Non
 
     Span numbers outside 1..``span_count`` are dropped, and a span is used at most once across the
     plan, the first time. Quote items left without spans, and sections left without items, are
-    dropped. At most ``max_items`` quote items are kept, the first ones; a rest item shows at most
-    the places left. Text and references items stay.
+    dropped; in an inline plan, so is the list bullet that led to a dropped quote. At most
+    ``max_items`` items show spans: quote items count one each, and a rest item gets the places
+    left. Text and references items stay.
     """
     used: set[int] = set()
     shown = 0
     sections = []
     for section in plan.sections:
-        items = []
+        items: list[QuoteItem | FieldItem | RestItem | ReferencesItem | TextItem] = []
         for item in section.items:
             if isinstance(item, QuoteItem):
-                if max_items is not None and shown >= max_items:
-                    continue
                 numbers = [n for n in dict.fromkeys(item.spans) if 1 <= n <= span_count and n not in used]
-                if not numbers:
+                if not numbers or (max_items is not None and shown >= max_items):
+                    _drop_bullet(items)
                     continue
                 used.update(numbers)
                 shown += 1
                 items.append(QuoteItem(spans=numbers))
             elif isinstance(item, RestItem) and max_items is not None:
-                items.append(RestItem(max=min(item.max or max_items, max_items)))
+                left = max_items - shown
+                if left <= 0:
+                    _drop_bullet(items)
+                    continue
+                items.append(RestItem(max=min(item.max or left, left)))
+                shown = max_items
             else:
                 items.append(item)
         if any(not isinstance(item, TextItem) for item in items) or (plan.layout == "inline" and items):
             sections.append(PlanSection(label=section.label, items=items))
     return AnswerPlan(intro=plan.intro, sections=sections, layout=plan.layout)
+
+
+_TRAILING_BULLET = re.compile(r"\n?[ \t]*(?:[-*+]|\d+[.)])[ \t]*$")
+
+
+def _drop_bullet(items: list[QuoteItem | FieldItem | RestItem | ReferencesItem | TextItem]) -> None:
+    """Take a list bullet that led to a dropped item off the end of the text before it."""
+    if items and isinstance(items[-1], TextItem):
+        items[-1] = TextItem(text=_TRAILING_BULLET.sub("", items[-1].text))
 
 
 def shows_spans(plan: AnswerPlan) -> bool:
