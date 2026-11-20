@@ -30,7 +30,7 @@ except UpstreamError as e:
 |---|---|---|
 | `invalid_value` | `InvalidInputError` | An argument of the call has a wrong value, such as two chunks with the same id, a config of the wrong type, structured template mode in a `Transformer` call, or a context item of the wrong shape |
 | `missing_field` | `InvalidInputError` | A context item has neither `content` nor `text` |
-| `invalid_value` | `ConfigurationError` | A constructor argument or setting has a wrong value, such as an unknown extraction mode, a citation format with unknown variables, or old arguments next to a `transformer` |
+| `invalid_value` | `ConfigurationError` | A constructor argument or setting has a wrong value, such as an unknown extraction mode, a citation format with unknown variables, a custom prompt that uses a variable the call doesn't provide, a contextual `citation_refs_line` or `fallback_template` without its placeholder, or old arguments next to a `transformer` |
 | `missing_dependency` | `ConfigurationError` | A package a model needs, such as torch, transformers or sentence-transformers, isn't installed |
 | `model_not_loaded` | `ConfigurationError` | A model can't be downloaded or read |
 | `missing_embedder` | `ConfigurationError` | Question-specific templates need an embedder and have none |
