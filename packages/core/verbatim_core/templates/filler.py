@@ -6,41 +6,21 @@ numbering on or off so callers can choose between numbered excerpts or
 clean text with citations handled separately.
 """
 
-import re
 from typing import Any, ClassVar
 
+from verbatim_core.plan import (
+    QuoteItem,
+    RestItem,
+    TextItem,
+    fit_list_item,
+    has_blank_lines,
+    is_table,
+    list_item_indent,
+    parse_template,
+)
 from verbatim_core.templates.base import has_span_placeholder
 
-MIN_TABLE_LINES = 2
-
-_LIST_ITEM_START = re.compile(r"[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
-_BLANK_LINES = re.compile(r"\n[ \t]*\n\s*")
-
-
-def _list_item_indent(template: str, position: int) -> int | None:
-    """Return the content indent of the list item the position is in, or None outside lists."""
-    line_start = template.rfind("\n", 0, position) + 1
-    match = _LIST_ITEM_START.match(template, line_start, position)
-    return None if match is None else match.end() - line_start
-
-
-def _fit_list_item(text: str, indent: int) -> str:
-    """Keep a quote with blank lines inside its markdown list item.
-
-    A blank line inside the quote, as between the entries of a list in a PDF, ended the list item,
-    and the rest of the quote followed as loose paragraphs. Paragraphs become backslash hard line
-    breaks, which `ResponseBuilder.clean_answer` leaves alone, and every line is indented to the
-    item's content. A nested list line keeps its own indentation on top; other lines lose theirs,
-    which in PDF text is layout, and four spaces would start a code block. Only whitespace changes.
-    """
-    pad = " " * indent
-    paragraphs = [paragraph.rstrip() for paragraph in _BLANK_LINES.split(text.strip())]
-    lines = "\\\n".join(paragraphs).split("\n")
-    return lines[0] + "".join("\n" + pad + _nested_line(line) for line in lines[1:])
-
-
-def _nested_line(line: str) -> str:
-    return line if _LIST_ITEM_START.match(line) else line.lstrip(" \t")
+MIN_TABLE_LINES = 2  # also in verbatim_core.plan
 
 
 class TemplateFiller:
@@ -97,96 +77,70 @@ class TemplateFiller:
             start_num = len(display_spans) + 1
             citation_refs = " ".join(self._render_marker(start_num + i, span) for i, span in enumerate(citation_spans))
 
-        fact_pattern = re.compile(r"\[(?:SPAN|FACT)_(\d+)\]")
-        if fact_pattern.search(template):
-            filled = self._fill_per_fact_placeholders(
-                template,
-                display_spans,
-                citation_spans,
-                citation_number_by_id,
-                span_id_by_citation_id,
-            )
-            if "[CITATION_REFS]" in filled:
-                filled = filled.replace("[CITATION_REFS]", citation_refs)
-        else:
-            filled = self._fill_aggregate_placeholders(
-                template,
-                display_spans,
-                citation_refs,
-                citation_number_by_id,
-                span_id_by_citation_id,
-            )
+        # The template is parsed into an answer plan and the plan is filled item by item, with the
+        # numbering and layout the placeholder filler has always had (ADR 0007).
+        display_content: str | None = None
+        filled = ""
+        echo = ""  # the template up to the current item, for the list item a span is in
+        for item in parse_template(template).sections[0].items:
+            if isinstance(item, TextItem):
+                filled += item.text
+                echo += item.text
+            elif isinstance(item, QuoteItem):
+                filled += self._fill_span(
+                    item.spans[0], echo, display_spans, citation_spans, citation_number_by_id, span_id_by_citation_id
+                )
+                echo += f"[SPAN_{item.spans[0]}]"
+            elif isinstance(item, RestItem):
+                if display_content is None:
+                    display_content = self._display_content(
+                        display_spans, citation_number_by_id, span_id_by_citation_id
+                    )
+                filled += display_content
+                echo += "[DISPLAY_SPANS]"
+            else:  # a references item
+                filled += citation_refs
+                echo += "[CITATION_REFS]"
 
         return filled.strip()
 
-    def _fill_per_fact_placeholders(
+    def _fill_span(  # the state of one fill
         self,
-        template: str,
+        idx: int,
+        echo: str,
         display_spans: list[dict[str, Any]],
         citation_spans: list[dict[str, Any]],
         citation_number_by_id: dict[str, int],
         span_id_by_citation_id: dict[str, str],
     ) -> str:
-        fact_pattern = re.compile(r"\[(?:SPAN|FACT)_(\d+)\]")
+        """Fill one per-span placeholder: a displayed span, a citation-only marker, or nothing."""
         total_spans = display_spans + citation_spans
-
-        def replace_fact(match: re.Match[str]) -> str:
-            idx = int(match.group(1))
-            if 1 <= idx <= len(total_spans):
-                if idx <= len(display_spans):
-                    span_data = display_spans[idx - 1]
-                    formatted = self._format_span(
-                        span_data,
-                        idx,
-                        citation_number_by_id,
-                        span_id_by_citation_id,
-                    )
-                    indent = _list_item_indent(template, match.start())
-                    text = span_data.get("text", "")
-                    # Only a span that would end its list item changes: other output stays as it was
-                    if indent is None or not _BLANK_LINES.search(text.strip()) or self._is_table(text):
-                        return formatted
-                    return _fit_list_item(formatted, indent)
-                if self.citation_mode == "inline":
-                    return self._render_marker(idx, total_spans[idx - 1])
-                return ""
+        if not 1 <= idx <= len(total_spans):
             return ""
+        if idx > len(display_spans):
+            return self._render_marker(idx, total_spans[idx - 1]) if self.citation_mode == "inline" else ""
+        span_data = display_spans[idx - 1]
+        formatted = self._format_span(span_data, idx, citation_number_by_id, span_id_by_citation_id)
+        indent = list_item_indent(echo, len(echo))
+        text = span_data.get("text", "")
+        # Only a span that would end its list item changes: other output stays as it was
+        if indent is None or not has_blank_lines(text) or self._is_table(text):
+            return formatted
+        return fit_list_item(formatted, indent)
 
-        return fact_pattern.sub(replace_fact, template)
-
-    def _fill_aggregate_placeholders(
+    def _display_content(
         self,
-        template: str,
         display_spans: list[dict[str, Any]],
-        citation_refs: str,
         citation_number_by_id: dict[str, int],
         span_id_by_citation_id: dict[str, str],
     ) -> str:
-        if display_spans:
-            formatted = []
-            for i, span_data in enumerate(display_spans, 1):
-                block = self._format_span(
-                    span_data,
-                    i,
-                    citation_number_by_id,
-                    span_id_by_citation_id,
-                )
-                if block:
-                    formatted.append(block)
-
-            display_content = (
-                "\n\n".join(formatted) if formatted else "No relevant information found in the provided documents."
-            )
-        else:
-            display_content = "No relevant information found in the provided documents."
-
-        filled = template.replace("[DISPLAY_SPANS]", display_content)
-        filled = filled.replace("[RELEVANT_SENTENCES]", display_content)
-
-        if "[CITATION_REFS]" in filled:
-            filled = filled.replace("[CITATION_REFS]", citation_refs)
-
-        return filled
+        """Return what [DISPLAY_SPANS] and [RELEVANT_SENTENCES] are filled with."""
+        formatted = []
+        for i, span_data in enumerate(display_spans, 1):
+            block = self._format_span(span_data, i, citation_number_by_id, span_id_by_citation_id)
+            if block:
+                formatted.append(block)
+        return "\n\n".join(formatted) if formatted else "No relevant information found in the provided documents."
 
     def _format_span(
         self,
@@ -271,15 +225,7 @@ class TemplateFiller:
 
     @staticmethod
     def _is_table(text: str) -> bool:
-        lines = [line for line in text.strip().splitlines() if line.strip()]
-        if len(lines) < MIN_TABLE_LINES:
-            return False
-
-        pipe_lines = sum(1 for line in lines if "|" in line)
-        if pipe_lines < MIN_TABLE_LINES:
-            return False
-
-        return pipe_lines >= len(lines) / 2
+        return is_table(text)
 
     @staticmethod
     def _is_table_content(text: str) -> bool:
