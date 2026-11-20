@@ -9,7 +9,38 @@ clean text with citations handled separately.
 import re
 from typing import Any, ClassVar
 
+from verbatim_core.templates.base import has_span_placeholder
+
 MIN_TABLE_LINES = 2
+
+_LIST_ITEM_START = re.compile(r"[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
+_BLANK_LINES = re.compile(r"\n[ \t]*\n\s*")
+
+
+def _list_item_indent(template: str, position: int) -> int | None:
+    """Return the content indent of the list item the position is in, or None outside lists."""
+    line_start = template.rfind("\n", 0, position) + 1
+    match = _LIST_ITEM_START.match(template, line_start, position)
+    return None if match is None else match.end() - line_start
+
+
+def _fit_list_item(text: str, indent: int) -> str:
+    """Keep a quote with blank lines inside its markdown list item.
+
+    A blank line inside the quote, as between the entries of a list in a PDF, ended the list item,
+    and the rest of the quote followed as loose paragraphs. Paragraphs become backslash hard line
+    breaks, which `ResponseBuilder.clean_answer` leaves alone, and every line is indented to the
+    item's content. A nested list line keeps its own indentation on top; other lines lose theirs,
+    which in PDF text is layout, and four spaces would start a code block. Only whitespace changes.
+    """
+    pad = " " * indent
+    paragraphs = [paragraph.rstrip() for paragraph in _BLANK_LINES.split(text.strip())]
+    lines = "\\\n".join(paragraphs).split("\n")
+    return lines[0] + "".join("\n" + pad + _nested_line(line) for line in lines[1:])
+
+
+def _nested_line(line: str) -> str:
+    return line if _LIST_ITEM_START.match(line) else line.lstrip(" \t")
 
 
 class TemplateFiller:
@@ -104,12 +135,18 @@ class TemplateFiller:
             if 1 <= idx <= len(total_spans):
                 if idx <= len(display_spans):
                     span_data = display_spans[idx - 1]
-                    return self._format_span(
+                    formatted = self._format_span(
                         span_data,
                         idx,
                         citation_number_by_id,
                         span_id_by_citation_id,
                     )
+                    indent = _list_item_indent(template, match.start())
+                    text = span_data.get("text", "")
+                    # Only a span that would end its list item changes: other output stays as it was
+                    if indent is None or not _BLANK_LINES.search(text.strip()) or self._is_table(text):
+                        return formatted
+                    return _fit_list_item(formatted, indent)
                 if self.citation_mode == "inline":
                     return self._render_marker(idx, total_spans[idx - 1])
                 return ""
@@ -256,10 +293,12 @@ class TemplateFiller:
 
     @staticmethod
     def ensure_placeholder(template: str, placeholder: str = "[DISPLAY_SPANS]") -> str:
-        """Append the placeholder to the template when it has no standard placeholder."""
-        acceptable = ["[RELEVANT_SENTENCES]", "[DISPLAY_SPANS]", "[SPAN_1]", "[FACT_1]"]
+        """Append the placeholder to the template when it has no placeholder that shows spans.
 
-        if any(p in template for p in acceptable):
+        A per-span template that leaves out [SPAN_1] has one: appending [DISPLAY_SPANS] to it
+        put the raw placeholder into the answer, because per-span filling never fills it.
+        """
+        if has_span_placeholder(template):
             return template
 
         if template.endswith(":"):

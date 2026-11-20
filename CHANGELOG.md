@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `TransformConfig(drop_repeated_spans=True)` leaves out a span whose words an earlier span
+  already has, ignoring case, spaces and punctuation, before the shown spans are chosen. Two
+  textbooks that print the same sentence no longer take two places in the answer. `answer.spans`
+  keeps every span. Off by default, because it changes which spans an answer cites.
+- `ContextualTemplate(citation_refs_line=..., fallback_template=...)`: the two texts the strategy
+  adds itself, which were English in every answer. `citation_refs_line=None` adds no line for
+  citation-only spans. Both must contain their placeholder, or the constructor raises
+  `ConfigurationError` with the code `invalid_value`.
+
+### Fixed
+- A custom contextual `template_prompt` got an empty quote list when a call had more than 8
+  spans, shown and citation-only together: the strategy switched to an aggregate prompt, whose
+  variables lack `spans_block`, and Jinja rendered the missing variable as an empty string. The
+  LLM then wrote, ordered and labelled a template for quotes it never saw. Custom prompts now get
+  every variable (`question`, `n_spans`, `citation_count`, `spans_block`, `span_preview`), and the
+  per-span or aggregate choice counts only the shown spans, in `LLMClient` and
+  `ContextualTemplate` alike (they disagreed before). A prompt variable that the call doesn't
+  provide still renders empty, and is now logged as a warning.
+- A per-span template that left out `[SPAN_1]` failed validation and got `[DISPLAY_SPANS]`
+  appended, which per-span filling never fills, so the raw placeholder reached the answer. Any
+  `[SPAN_n]` or `[FACT_n]` placeholder now makes a template valid.
+- A span with blank lines inside, filled into a markdown list item, ended the list item, and the
+  rest of the span followed as loose paragraphs. Such a span now stays in its item, with
+  backslash hard line breaks and indented lines. Other spans are filled as before.
+
 ## [0.3.0] - 2026-11-10
 
 0.3.0 adds a stateless core. Extractors return spans with their chunk ids and offsets, and a

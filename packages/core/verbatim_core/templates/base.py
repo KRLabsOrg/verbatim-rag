@@ -5,11 +5,22 @@ including methods for generation, filling, and persistence.
 """
 
 import asyncio
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
 from verbatim_core.types import ResultWarning, Usage
+
+_SPAN_PLACEHOLDER = re.compile(r"\[DISPLAY_SPANS\]|\[RELEVANT_SENTENCES\]|\[(?:SPAN|FACT)_\d+\]")
+
+
+def has_span_placeholder(template: str) -> bool:
+    """Return whether a template has a placeholder that shows spans.
+
+    Any per-span placeholder counts, not only [SPAN_1]: a template may leave out the first span.
+    """
+    return _SPAN_PLACEHOLDER.search(template) is not None
 
 
 @dataclass(frozen=True)
@@ -105,15 +116,6 @@ class TemplateStrategy(ABC):
             msg = "Template cannot be empty"
             raise ValueError(msg)
 
-        # Check for at least one acceptable placeholder
-        acceptable_placeholders = [
-            "[RELEVANT_SENTENCES]",
-            "[DISPLAY_SPANS]",
-            "[SPAN_1]",
-            "[FACT_1]",
-        ]
-
-        has_placeholder = any(placeholder in template for placeholder in acceptable_placeholders)
-        if not has_placeholder:
-            msg = "Template must contain at least one of: [RELEVANT_SENTENCES], [DISPLAY_SPANS], or [SPAN_1]"
+        if not has_span_placeholder(template):
+            msg = "Template must contain at least one of: [RELEVANT_SENTENCES], [DISPLAY_SPANS], or [SPAN_n]"
             raise ValueError(msg)

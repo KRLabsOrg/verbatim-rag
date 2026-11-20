@@ -19,6 +19,9 @@ class TransformConfig(BaseModel):
     citation_mode: Literal["inline", "hidden"] = "inline"  # citation markers in the text, or none
     citation_format: str = "[{number}]"  # the marker, with {number} and {span_id}
     seed: int | None = None  # random template mode chooses by the question and this seed
+    # Leave out a span whose words an earlier span already has (the same sentence in two
+    # textbooks) before choosing the shown spans. The answer's `spans` keep every span.
+    drop_repeated_spans: bool = False
 
     @field_validator("citation_format")
     @classmethod

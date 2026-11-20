@@ -11,7 +11,7 @@ from typing import Any
 from typing_extensions import override
 
 from verbatim_core._logging import content_logger
-from verbatim_core.errors import UpstreamError
+from verbatim_core.errors import ConfigurationError, UpstreamError
 from verbatim_core.llm_client import Completion, LLMClient, _acall_old_client, _call_old_client, _replaces
 from verbatim_core.templates.base import TemplateResult, TemplateStrategy
 from verbatim_core.templates.filler import TemplateFiller
@@ -19,8 +19,10 @@ from verbatim_core.types import ResultWarning, Usage
 
 logger = logging.getLogger(__name__)
 
-# Per-span placeholders are used for at most this many spans, aggregate placeholders for more.
+# Per-span placeholders are used for at most this many shown spans, aggregate placeholders for more.
 _MAX_PER_FACT_SPANS = 8
+
+DEFAULT_CITATION_REFS_LINE = "Additional relevant information can be found in [CITATION_REFS]."
 
 
 class ContextualTemplate(TemplateStrategy):
@@ -40,6 +42,9 @@ class ContextualTemplate(TemplateStrategy):
         preserve_span_newlines: bool = False,
         template_prompt: str | None = None,
         system_prompt: str | None = None,
+        *,
+        citation_refs_line: str | None = DEFAULT_CITATION_REFS_LINE,
+        fallback_template: str | None = None,
     ) -> None:
         """Initialize the contextual template strategy.
 
@@ -55,12 +60,26 @@ class ContextualTemplate(TemplateStrategy):
                 spans are collapsed to a space before the template LLM sees them.
                 Set True to let the template LLM see multi-line structure.
             template_prompt: Custom Jinja2 template string used instead of
-                the bundled per_fact.txt / aggregate.txt prompt. Receives the same
-                variables: question, n_spans, citation_count, and either
-                spans_block (per-fact) or span_preview (aggregate) depending on
-                use_per_fact. None → use bundled prompts.
+                the bundled per_fact.txt / aggregate.txt prompt. Receives question,
+                n_spans, citation_count, spans_block (every quote, numbered) and
+                span_preview (the start of the first three), whichever kind of
+                template the call asks for. A variable outside these renders
+                empty, as before, and is logged as a warning. None → use bundled prompts.
             system_prompt: Optional system message passed to the LLM during
                 template generation. None → no system message.
+            citation_refs_line: The line added to a template that leaves out
+                [CITATION_REFS] although the call has citation-only spans. It must
+                contain [CITATION_REFS]. Set it in the language of your answers, or
+                None to add nothing: the citation-only spans then appear only in the
+                answer's citations, not in its text.
+            fallback_template: The template used when the LLM can't write one, with
+                [DISPLAY_SPANS] and optionally [CITATION_REFS]. A line with
+                [CITATION_REFS] is left out when the call has no citation-only spans.
+                None → the bundled English fallback template.
+
+        Raises:
+            ConfigurationError: If ``citation_refs_line`` has no [CITATION_REFS], or
+                ``fallback_template`` has no [DISPLAY_SPANS].
 
         """
         self.llm_client = llm_client
@@ -71,6 +90,14 @@ class ContextualTemplate(TemplateStrategy):
         self.preserve_span_newlines = preserve_span_newlines
         self.template_prompt = template_prompt
         self.system_prompt = system_prompt
+        if citation_refs_line is not None and "[CITATION_REFS]" not in citation_refs_line:
+            msg = "citation_refs_line must contain [CITATION_REFS], or be None to add no line."
+            raise ConfigurationError(msg, code="invalid_value")
+        if fallback_template is not None and "[DISPLAY_SPANS]" not in fallback_template:
+            msg = "fallback_template must contain [DISPLAY_SPANS], where the quotes go."
+            raise ConfigurationError(msg, code="invalid_value")
+        self.citation_refs_line = citation_refs_line
+        self.fallback_template = fallback_template
         self.filler = TemplateFiller(citation_mode=citation_mode, citation_format=citation_format)
 
         self._template_cache: dict[str, str] = {}
@@ -206,7 +233,8 @@ class ContextualTemplate(TemplateStrategy):
             "question": question,
             "spans": spans,
             "citation_count": citation_count,
-            "use_per_fact": self.use_per_fact and len(spans) <= _MAX_PER_FACT_SPANS,
+            # Citation-only spans are referred to by number, so only the shown ones count
+            "use_per_fact": self.use_per_fact and len(spans) - citation_count <= _MAX_PER_FACT_SPANS,
             "template_preview_chars": self.template_preview_chars,
             "preserve_span_newlines": self.preserve_span_newlines,
             "template_prompt": self.template_prompt,
@@ -345,14 +373,19 @@ class ContextualTemplate(TemplateStrategy):
         except ValueError:
             template = self.filler.ensure_placeholder(template)
 
-        if citation_count > 0 and "[CITATION_REFS]" not in template:
-            template += "\n\nAdditional relevant information can be found in [CITATION_REFS]."
+        if citation_count > 0 and "[CITATION_REFS]" not in template and self.citation_refs_line is not None:
+            template += "\n\n" + self.citation_refs_line
         elif citation_count == 0 and "[CITATION_REFS]" in template:
             template = template.replace("[CITATION_REFS]", "").strip()
 
         return template
 
     def _get_fallback_template(self, has_citations: bool) -> str:
+        if self.fallback_template is not None:
+            if has_citations:
+                return self.fallback_template
+            lines = self.fallback_template.splitlines()
+            return "\n".join(line for line in lines if "[CITATION_REFS]" not in line).strip()
         template = """## Response
 
 Based on the available documents:

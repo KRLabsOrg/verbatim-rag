@@ -229,6 +229,27 @@ client = LLMClient()
 tm = TemplateManager(llm_client=client, default_mode="contextual")
 ```
 
+With up to 8 shown spans the LLM writes one placeholder per span, with more one aggregate placeholder; citation-only spans don't count. A custom prompt (`ContextualTemplate(client, template_prompt=...)`) gets the variables `question`, `n_spans`, `citation_count`, `spans_block` (every quote, numbered) and `span_preview` (the start of the first three) whichever kind of template the call asks for. Any other variable renders empty, as before, and is logged as a warning by `verbatim_core.prompts`.
+
+The strategy adds two fixed texts of its own, in English by default. For answers in another language, set both:
+
+```python
+from verbatim_core.templates.contextual import ContextualTemplate
+
+tm.strategies["contextual"] = ContextualTemplate(
+    client,
+    template_prompt=german_prompt,
+    # added when the template leaves out [CITATION_REFS] although there are citation-only spans;
+    # None adds nothing, and those spans appear only in the answer's citations
+    citation_refs_line="Weitere Belege: [CITATION_REFS]",
+    # used when the LLM can't write a template; a line with [CITATION_REFS] is left out
+    # when there are no citation-only spans
+    fallback_template="Die Quellen enthalten dazu folgende Aussagen:\n\n[DISPLAY_SPANS]\n\nWeitere Belege: [CITATION_REFS]",
+)
+```
+
+A template may leave out spans: a per-span template that shows `[SPAN_2]` but not `[SPAN_1]` is used as written, and the spans it leaves out are cited for reference only.
+
 ### Random Templates
 
 Chooses a template from a pool by the question, so the same question always gets the same template. A `seed` in the `TransformConfig` changes the choice:
@@ -262,6 +283,12 @@ tm.use_question_specific_mode(templates, embedder=SentenceTransformer("all-MiniL
 - `[SPAN_1]`, `[SPAN_2]`, ... -- individual span placeholders
   (`[FACT_N]` is the pre-0.2.7 name and still works in stored templates)
 - `[CITATION_REFS]` -- citation-only reference numbers
+
+A span with blank lines inside, such as between the entries of a list in a PDF, that fills a placeholder in a markdown list item stays in that item: the blank lines become backslash hard line breaks, and its lines are indented to the item's content. Only whitespace changes. Every other span, outside list items, without blank lines, or a table, is filled as before.
+
+### Repeated Spans
+
+Different sources often say the same thing in the same words. With `TransformConfig(drop_repeated_spans=True)`, a span whose words (letters and digits, ignoring case) are the same as, or part of, those of an earlier span is left out before the shown spans are chosen, so it doesn't take a place in the answer. `answer.spans` still has every extracted span. It is off by default, because it changes which spans an answer cites.
 
 ### Linked Citations
 
