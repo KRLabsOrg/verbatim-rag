@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from verbatim_core.plan import AnswerPlan
 from verbatim_core.types import ResultWarning, Usage
 
 _SPAN_PLACEHOLDER = re.compile(r"\[DISPLAY_SPANS\]|\[RELEVANT_SENTENCES\]|\[(?:SPAN|FACT)_\d+\]")
@@ -30,6 +31,8 @@ class TemplateResult:
     text: str
     usage: list[Usage] = field(default_factory=list)
     warnings: list[ResultWarning] = field(default_factory=list)
+    # The validated answer plan, when the strategy wrote one (ADR 0007); the Transformer renders it
+    plan: AnswerPlan | None = None
 
 
 class TemplateStrategy(ABC):

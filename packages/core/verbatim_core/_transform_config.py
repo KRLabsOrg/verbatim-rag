@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, NonNegativeInt, field_validator
+from pydantic import BaseModel, ConfigDict, NonNegativeInt, PositiveInt, field_validator
 
 
 class TransformConfig(BaseModel):
@@ -22,6 +22,12 @@ class TransformConfig(BaseModel):
     # Leave out a span whose words an earlier span already has (the same sentence in two
     # textbooks) before choosing the shown spans. The answer's `spans` keep every span.
     drop_repeated_spans: bool = False
+    # Contextual mode only: the LLM writes an answer plan (ADR 0007) instead of placeholder text.
+    # It chooses from up to `max_candidates` spans and shows at most `max_display_spans` of them.
+    use_answer_plan: bool = False
+    max_candidates: PositiveInt = 20
+    # With use_answer_plan: the supporting spans an item may cite next to its shown span
+    max_support: NonNegativeInt = 2
 
     @field_validator("citation_format")
     @classmethod

@@ -286,9 +286,14 @@ class LLMClient:
         json_mode: bool = False,
         temperature: float | None = None,
         system_prompt: str | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> Completion:
-        """Like `complete`, and also returns the model name and the token counts the provider sent."""
-        request = self._request(prompt, json_mode, temperature, system_prompt)
+        """Like `complete`, and also returns the model name and the token counts the provider sent.
+
+        With ``json_schema`` (``{"name": ..., "schema": ...}``) the reply is asked for as JSON of
+        that schema, through the service's structured output.
+        """
+        request = self._request(prompt, json_mode, temperature, system_prompt, json_schema)
         try:
             response = self.client.chat.completions.create(**request)
         except APIError as e:
@@ -302,9 +307,10 @@ class LLMClient:
         json_mode: bool = False,
         temperature: float | None = None,
         system_prompt: str | None = None,
+        json_schema: dict[str, Any] | None = None,
     ) -> Completion:
         """Asynchronous version of `completion`."""
-        request = self._request(prompt, json_mode, temperature, system_prompt)
+        request = self._request(prompt, json_mode, temperature, system_prompt, json_schema)
         try:
             response = await self.async_client.chat.completions.create(**request)
         except APIError as e:
@@ -317,6 +323,7 @@ class LLMClient:
         json_mode: bool,  # noqa: FBT001  # mirrors the keyword arguments of the public callers
         temperature: float | None,
         system_prompt: str | None,
+        json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         messages = []
         if system_prompt:
@@ -327,7 +334,9 @@ class LLMClient:
             "messages": messages,
             "temperature": temperature if temperature is not None else self.temperature,
         }
-        if json_mode:
+        if json_schema is not None:
+            request["response_format"] = {"type": "json_schema", "json_schema": {**json_schema, "strict": True}}
+        elif json_mode:
             request["response_format"] = {"type": "json_object"}
         return request
 

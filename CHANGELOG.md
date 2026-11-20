@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Answer plans ([ADR 0007](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0007-answer-plans.md)):
+  `verbatim_core.plan` has Pydantic models for the structure of an answer (an intro, labelled
+  sections and quote, rest, references, text and field items), a parser from placeholder template
+  text, validation, a deterministic fallback plan, and a markdown renderer that numbers citations
+  in the order they appear and takes its fixed texts from `PlanText`. Field items are validated
+  but not filled yet; they come with #74.
+- `TransformConfig(use_answer_plan=True)`, contextual mode only and off by default: the LLM gets
+  up to `max_candidates` spans (default 20) in full, without repeats and taking turns between
+  chunks, and returns an answer plan as JSON through structured output; it chooses, orders,
+  groups and labels the quotes and writes no quote text. A custom `template_prompt` keeps
+  returning placeholder text, which is parsed into a plan. Either way the plan is validated (no
+  unknown or repeated spans, at most `max_display_spans` items), the answer is rendered from it,
+  and `Answer.plan` holds it. `ContextualTemplate(plan_text=PlanText(...))` sets the fixed texts
+  in the answer language. An answer without a plan serialises as before, without a `plan` key.
+  `TransformConfig(max_support=2)` caps the supporting spans cited next to each shown quote.
+  `ContextualTemplate(plan_prompt=..., answer_language=...)`: a custom prompt for the JSON plan
+  (an unknown variable raises `ConfigurationError` at construction), and the language the
+  bundled prompt asks the intro and labels in (the language of the quotes by default).
+  `PlanText(compact_quotes=True)`, the default, shows quotes without their source layout (PDF
+  line breaks and indentation); citations keep the exact span text.
+- `LLMClient.completion(json_schema=...)` and `completion_async`: structured output with a JSON
+  schema.
+
+### Changed
+- `TemplateFiller` parses each template into an answer plan and fills the plan. Its output is
+  unchanged for every template of the library and the test suite (compared with the old filler
+  in `tests/test_plan_filler_identity.py`), except that a placeholder inside a filled span's own
+  text, such as source text containing "[CITATION_REFS]", is no longer replaced.
 - `TransformConfig(drop_repeated_spans=True)` leaves out a span whose words an earlier span
   already has, ignoring case, spaces and punctuation, before the shown spans are chosen. Two
   textbooks that print the same sentence no longer take two places in the answer. `answer.spans`

@@ -7,7 +7,17 @@ from __future__ import annotations
 
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    NonNegativeInt,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
+
+from verbatim_core.plan import AnswerPlan  # noqa: TC001  # Pydantic needs the class at runtime
 
 
 class HasText(Protocol):
@@ -120,3 +130,13 @@ class Answer(BaseModel):
     spans: list[ExtractedSpan] = Field(default_factory=list)
     usage: list[Usage] = Field(default_factory=list)
     warnings: list[ResultWarning] = Field(default_factory=list)
+    # The answer plan the text was rendered from, with TransformConfig(use_answer_plan=True)
+    plan: AnswerPlan | None = None
+
+    @model_serializer(mode="wrap")
+    def _leave_out_no_plan(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Leave out `plan` when there is none, so answers without one serialise as before."""
+        data = handler(self)
+        if self.plan is None:
+            data.pop("plan", None)
+        return data

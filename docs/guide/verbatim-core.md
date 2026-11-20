@@ -250,6 +250,52 @@ tm.strategies["contextual"] = ContextualTemplate(
 
 A template may leave out spans: a per-span template that shows `[SPAN_2]` but not `[SPAN_1]` is used as written, and the spans it leaves out are cited for reference only.
 
+### Answer Plans
+
+With `TransformConfig(use_answer_plan=True)`, contextual mode writes an answer plan instead of placeholder text ([ADR 0007](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0007-answer-plans.md)). The LLM gets up to `max_candidates` spans (default 20) in full, numbered, and returns JSON through structured output: an intro, sections with labels, and items that each name the spans of one claim. It writes no quote text. The library validates the plan (no unknown or repeated spans, at most `max_display_spans` items), renders it to markdown with citations numbered in the order they appear, and returns it as `answer.plan`. If the LLM fails or no valid item remains, the answer shows the first candidates and has the warning `template_fallback`.
+
+The intro and labels follow the language of the question. Set the fixed texts in the language of your answers with `PlanText`:
+
+```python
+from verbatim_core import Transformer, TransformConfig
+from verbatim_core.plan import PlanText
+from verbatim_core.templates.contextual import ContextualTemplate
+
+german = PlanText(
+    fallback_intro="Die Quellen enthalten dazu folgende Aussagen:",
+    references_label="Weitere Belege:",
+    no_spans="Keine passenden Aussagen gefunden.",
+    no_evidence="Keine Belegstelle gefunden.",
+    show_references=False,  # True lists the unused spans after the answer
+)
+tm.strategies["contextual"] = ContextualTemplate(
+    client,
+    plan_text=german,
+    answer_language="German",  # the intro and labels; default: the language of the quotes
+    # plan_prompt="...",       # optional own prompt for the JSON plan, with the variables question,
+    #                          # candidates_block, n_candidates, max_items, max_support, answer_language
+)
+transformer = Transformer(
+    extractor,
+    tm,
+    config=TransformConfig(
+        template_mode="contextual", use_answer_plan=True, max_display_spans=6, max_candidates=20, max_support=2
+    ),
+)
+```
+
+An answer for "Dosierung Rivaroxaban bei Niereninsuffizienz" then reads:
+
+```markdown
+Zur Dosierung von Rivaroxaban bei eingeschränkter Nierenfunktion:
+
+**Dosierung**
+- [1] CrCl 15-49 ml/min: 15 mg einmal täglich. [3]
+- [2] Kontraindiziert bei CrCl < 15 ml/min.
+```
+
+where [3] is a second source for the first quote; `max_support` (default 2) caps such sources per quote. Quotes are shown without the line breaks and indentation of their source page (`PlanText(compact_quotes=False)` keeps them); the citations keep the exact span text. With a custom `template_prompt` and no `plan_prompt`, the LLM keeps writing placeholder text, which is parsed into a plan and validated the same way.
+
 ### Random Templates
 
 Chooses a template from a pool by the question, so the same question always gets the same template. A `seed` in the `TransformConfig` changes the choice:
