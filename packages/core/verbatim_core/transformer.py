@@ -162,7 +162,7 @@ class Transformer:
         logger.debug("Transforming %d chunks in %s mode", len(chunks), config.template_mode)
         extraction = self.extractor.extract(question, chunks)
         yield SpansEvent(spans=extraction.spans)
-        display, references = _split(extraction.spans, config)
+        display, references = _split(_answer_spans(extraction.spans, config), config)
         template = strategy.generate_result(question, _texts(display + references), len(references), seed=config.seed)
         yield AnswerEvent(answer=_answer(extraction, template, display, references, _fill(strategy, config)))
 
@@ -176,7 +176,7 @@ class Transformer:
         logger.debug("Transforming %d chunks in %s mode", len(chunks), config.template_mode)
         extraction = await self.extractor.aextract(question, chunks)
         yield SpansEvent(spans=extraction.spans)
-        display, references = _split(extraction.spans, config)
+        display, references = _split(_answer_spans(extraction.spans, config), config)
         template = await strategy.generate_result_async(
             question, _texts(display + references), len(references), seed=config.seed
         )
@@ -186,6 +186,26 @@ class Transformer:
 def _split(spans: list[ExtractedSpan], config: TransformConfig) -> tuple[list[ExtractedSpan], list[ExtractedSpan]]:
     """Split the spans into the ones the answer shows and the ones it cites for reference only."""
     return spans[: config.max_display_spans], spans[config.max_display_spans :]
+
+
+def _answer_spans(spans: list[ExtractedSpan], config: TransformConfig) -> list[ExtractedSpan]:
+    """Return the spans the answer chooses from: all, or without repeats when the config asks."""
+    if not config.drop_repeated_spans:
+        return spans
+    kept: list[ExtractedSpan] = []
+    seen: list[str] = []
+    for span in spans:
+        words = _REPEAT_KEY.sub("", span.text).casefold()
+        if not words or any(words in earlier for earlier in seen):
+            continue
+        kept.append(span)
+        seen.append(words)
+    if len(kept) < len(spans):
+        logger.debug("Left out %d repeated spans of %d", len(spans) - len(kept), len(spans))
+    return kept
+
+
+_REPEAT_KEY = re.compile(r"\W+")
 
 
 def _texts(spans: list[ExtractedSpan]) -> list[str]:

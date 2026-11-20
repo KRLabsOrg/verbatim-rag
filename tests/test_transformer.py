@@ -530,3 +530,46 @@ class TestStreaming:
             list(transformer.stream(QUESTION, CHUNKS))
         with pytest.raises(UpstreamError):
             [event async for event in transformer.astream(QUESTION, CHUNKS)]
+
+
+class RepeatingExtractor(SpanExtractor):
+    """Returns the same sentence from two textbooks, and a part of it from a third."""
+
+    CHUNKS = (
+        Chunk(id="book-a", text="Reduce the dose to 15 mg."),
+        Chunk(id="book-b", text="reduce the dose to 15  mg"),
+        Chunk(id="book-c", text="to 15 mg"),
+        Chunk(id="book-d", text="Contraindicated below 15 ml/min."),
+    )
+
+    def extract(self, question, chunks, *, config=None):
+        spans = [
+            ExtractedSpan(
+                chunk_id=chunk.id, start=0, end=len(chunk.text), text=chunk.text, score=1.0
+            )
+            for chunk in chunks
+        ]
+        return Extraction(spans=spans)
+
+
+class TestRepeatedSpans:
+    def transform(self, **settings):
+        transformer = Transformer(RepeatingExtractor(), TemplateManager())
+        config = TransformConfig(**settings)
+        return transformer.transform("Dose?", RepeatingExtractor.CHUNKS, config=config)
+
+    def test_repeated_spans_are_left_out_of_the_answer_when_asked(self):
+        answer = self.transform(drop_repeated_spans=True)
+
+        assert [citation.chunk_id for citation in answer.citations] == ["book-a", "book-d"]
+        assert len(answer.spans) == 4
+
+    def test_repeated_spans_are_kept_by_default(self):
+        answer = self.transform()
+
+        assert [citation.chunk_id for citation in answer.citations] == [
+            "book-a",
+            "book-b",
+            "book-c",
+            "book-d",
+        ]
