@@ -525,3 +525,141 @@ class TestContextualTemplateWithAClientWrittenBefore030:
                 await strategy.generate_result_async("Q?", ["A span."], 0)
             else:
                 strategy.generate_result("Q?", ["A span."], 0)
+
+
+class RecordingTemplateLLM:
+    """Writes a fixed template and records how it was asked."""
+
+    model = "fake-llm"
+    temperature = 0.0
+
+    def __init__(self, template="Intro:\n- [SPAN_1]", error=None):
+        self.template = template
+        self.error = error
+        self.requests = []
+
+    def template_completion(self, question, spans, citation_count, **settings):
+        from verbatim_core.llm_client import Completion  # noqa: PLC0415
+
+        self.requests.append({"spans": spans, "citation_count": citation_count, **settings})
+        if self.error:
+            raise self.error
+        return Completion(text=self.template)
+
+
+class TestContextualTemplateFixedStrings:
+    def test_per_span_placeholders_are_chosen_by_the_shown_spans(self):
+        llm = RecordingTemplateLLM()
+        spans = [f"quote {i}" for i in range(12)]
+
+        ContextualTemplate(llm).generate_result("Q?", spans, citation_count=6)
+        ContextualTemplate(llm).generate_result("Q?", spans, citation_count=0)
+
+        assert [request["use_per_fact"] for request in llm.requests] == [True, False]
+
+    def test_the_line_for_citation_only_spans_can_be_in_the_answer_language(self):
+        strategy = ContextualTemplate(
+            RecordingTemplateLLM(), citation_refs_line="Weitere Belege: [CITATION_REFS]"
+        )
+
+        result = strategy.generate_result(
+            "Frage?", ["Zitat eins.", "Zitat zwei."], citation_count=1
+        )
+
+        assert result.text == "Intro:\n- [SPAN_1]\n\nWeitere Belege: [CITATION_REFS]"
+
+    def test_no_line_is_added_for_citation_only_spans_when_it_is_none(self):
+        strategy = ContextualTemplate(RecordingTemplateLLM(), citation_refs_line=None)
+
+        result = strategy.generate_result("Q?", ["One.", "Two."], citation_count=1)
+
+        assert result.text == "Intro:\n- [SPAN_1]"
+
+    def test_the_default_line_is_english_as_before(self):
+        result = ContextualTemplate(RecordingTemplateLLM()).generate_result(
+            "Q?", ["One.", "Two."], 1
+        )
+
+        assert result.text.endswith(
+            "Additional relevant information can be found in [CITATION_REFS]."
+        )
+
+    @pytest.mark.parametrize("citation_count", [0, 1])
+    def test_the_fallback_template_can_be_in_the_answer_language(self, citation_count):
+        fallback = "Die Quellen sagen:\n\n[DISPLAY_SPANS]\n\nWeitere Belege: [CITATION_REFS]"
+        strategy = ContextualTemplate(
+            RecordingTemplateLLM(error=SERVER_ERROR), fallback_template=fallback
+        )
+
+        result = strategy.generate_result("Frage?", ["Zitat.", "Noch eins."], citation_count)
+
+        expected = fallback if citation_count else "Die Quellen sagen:\n\n[DISPLAY_SPANS]"
+        assert result.text == expected
+        assert [warning.code for warning in result.warnings] == ["template_fallback"]
+
+    @pytest.mark.parametrize(
+        "settings",
+        [{"citation_refs_line": "Weitere Belege"}, {"fallback_template": "Die Quellen sagen:"}],
+    )
+    def test_fixed_strings_without_their_placeholder_are_rejected(self, settings):
+        with pytest.raises(ConfigurationError) as raised:
+            ContextualTemplate(RecordingTemplateLLM(), **settings)
+
+        assert raised.value.code == "invalid_value"
+
+
+class TestPerSpanTemplateWithoutTheFirstSpan:
+    def test_it_keeps_its_placeholders_and_gets_no_aggregate_placeholder(self):
+        llm = RecordingTemplateLLM(template="Intro:\n- [SPAN_3]\n- [SPAN_2]")
+
+        result = ContextualTemplate(llm).generate_result("Q?", ["One.", "Two.", "Three."], 0)
+
+        assert result.text == "Intro:\n- [SPAN_3]\n- [SPAN_2]"
+
+    def test_the_filled_answer_has_no_raw_placeholder(self):
+        strategy = ContextualTemplate(RecordingTemplateLLM(template="Intro:\n- [SPAN_2]"))
+        template = strategy.generate_result("Q?", ["One.", "Two."], 0).text
+
+        filled = strategy.fill(template, [{"text": "One."}, {"text": "Two."}], [])
+
+        assert filled == "Intro:\n- [2] Two."
+
+    def test_ensure_placeholder_respects_any_span_placeholder(self):
+        assert TemplateFiller.ensure_placeholder("Hello [SPAN_3]") == "Hello [SPAN_3]"
+        StaticTemplate().validate_template("Hello [FACT_2]")
+
+
+class TestQuotesInListItems:
+    def setup_method(self):
+        self.filler = TemplateFiller()
+
+    def test_a_quote_with_blank_lines_stays_in_its_list_item(self):
+        quote = "Symptoms:\n\nSyncope\n\n   Dyspnoea,\n  tachypnoea"
+
+        filled = self.filler.fill(
+            "Intro:\n\n- [SPAN_1]\n- [SPAN_2]", [{"text": quote}, {"text": "Fever."}], []
+        )
+
+        assert (
+            filled
+            == "Intro:\n\n- [1] Symptoms:  \n  Syncope  \n  Dyspnoea,\n  tachypnoea\n- [2] Fever."
+        )
+
+    def test_a_nested_list_in_a_quote_keeps_its_indentation(self):
+        quote = "- *Adults:*\n  - GFR 45-59: max. 2000 mg/d"
+
+        filled = self.filler.fill("1. [SPAN_1]", [{"text": quote}], [])
+
+        assert filled == "1. [1] - *Adults:*\n     - GFR 45-59: max. 2000 mg/d"
+
+    def test_a_quote_outside_a_list_is_left_as_it_is(self):
+        filled = self.filler.fill("Intro: [SPAN_1]", [{"text": "A\n\n   B"}], [])
+
+        assert filled == "Intro: [1] A\n\n   B"
+
+    def test_a_table_in_a_list_item_is_left_as_it_is(self):
+        table = "| a | b |\n|---|---|\n| 1 | 2 |"
+
+        filled = self.filler.fill("- [SPAN_1]", [{"text": table}], [])
+
+        assert filled == f"- [1]\n\n{table}"

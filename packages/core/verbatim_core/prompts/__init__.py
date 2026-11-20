@@ -10,7 +10,9 @@ Prompt files use standard Jinja2 syntax:
 import logging
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, UndefinedError
+
+from verbatim_core.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,8 @@ _env = Environment(  # noqa: S701  # LLM prompt text, not HTML
     keep_trailing_newline=True,
     trim_blocks=True,
     lstrip_blocks=True,
+    # A variable the caller doesn't provide is a mistake in the prompt, not an empty string
+    undefined=StrictUndefined,
 )
 
 
@@ -31,9 +35,17 @@ def render_prompt(prompt_template: str, **kwargs: object) -> str:
     :param prompt_template: Jinja2 template string
     :param kwargs: template variables
     :return: rendered prompt string
+    :raises ConfigurationError: If the prompt uses a variable that is not among ``kwargs``
     """
     template = _env.from_string(prompt_template)
-    return template.render(**kwargs)
+    try:
+        return template.render(**kwargs)
+    except UndefinedError as e:
+        msg = (
+            f"A custom prompt uses a variable that the call doesn't provide ({e}). Use only these "
+            f"variables: {', '.join(sorted(kwargs))}."
+        )
+        raise ConfigurationError(msg, code="invalid_value") from e
 
 
 def load_prompt(name: str, **kwargs: object) -> str:

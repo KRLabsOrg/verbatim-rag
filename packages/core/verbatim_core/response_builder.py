@@ -183,8 +183,9 @@ class ResponseBuilder:
         # Convert literal newlines
         answer = answer.replace("\\n", "\n")
 
-        # Clean up multiple spaces
-        answer = re.sub(r" {2,}", " ", answer)
+        # Clean up multiple spaces between words. Indentation and the two spaces of a markdown hard
+        # line break stay: the filler uses them to keep a multi-line quote in its list item.
+        answer = re.sub(r"(?<=\S) {2,}(?=\S)", " ", answer)
 
         # Clean up multiple newlines (but preserve paragraph breaks)
         answer = re.sub(r"\n{3,}", "\n\n", answer)

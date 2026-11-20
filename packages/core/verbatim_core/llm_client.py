@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SERVER_ERROR_STATUS = 500  # HTTP status codes from here on are server errors
-_MAX_PER_FACT_SPANS = 8  # more spans than this get an aggregate template prompt
+_MAX_PER_FACT_SPANS = 8  # more shown spans than this get an aggregate template prompt
 
 try:
     import openai
@@ -577,9 +577,10 @@ class LLMClient:
         preserve_span_newlines: bool,  # noqa: FBT001  # mirrors the public template methods
         template_prompt: str | None,
     ) -> str:
+        # Citation-only spans are referred to by number, so only the shown ones count
         build = (
             self._build_per_fact_template_prompt
-            if use_per_fact and len(spans) <= _MAX_PER_FACT_SPANS
+            if use_per_fact and len(spans) - citation_count <= _MAX_PER_FACT_SPANS
             else self._build_aggregate_template_prompt
         )
         return build(
@@ -608,22 +609,7 @@ class LLMClient:
         preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002  # mirrors the public template methods
         template_prompt: str | None = None,
     ) -> str:
-        span_lines = []
-        for i, span in enumerate(spans, start=1):
-            text = span if preserve_span_newlines else span.replace("\n", " ")
-            text = text.strip()
-            if template_preview_chars is not None:
-                text = text[:template_preview_chars]
-            suffix = "..." if template_preview_chars is not None else ""
-            span_lines.append(f"{i}. {text}{suffix}")
-        spans_block = "\n".join(span_lines)
-
-        ctx = {
-            "question": question,
-            "n_spans": len(spans),
-            "spans_block": spans_block,
-            "citation_count": citation_count,
-        }
+        ctx = _template_context(question, spans, citation_count, template_preview_chars, preserve_span_newlines)
         if template_prompt is not None:
             return render_prompt(template_prompt, **ctx)
         return load_prompt("template/per_fact", **ctx)
@@ -637,19 +623,7 @@ class LLMClient:
         preserve_span_newlines: bool = False,  # noqa: FBT001, FBT002  # mirrors the public template methods
         template_prompt: str | None = None,
     ) -> str:
-        preview_chars = 50 if template_preview_chars is None else min(50, template_preview_chars)
-        preview_spans = []
-        for span in spans[:3]:
-            text = span if preserve_span_newlines else span.replace("\n", " ")
-            preview_spans.append(text[:preview_chars] + "...")
-        span_preview = " | ".join(preview_spans)
-
-        ctx = {
-            "question": question,
-            "n_spans": len(spans),
-            "span_preview": span_preview,
-            "citation_count": citation_count,
-        }
+        ctx = _template_context(question, spans, citation_count, template_preview_chars, preserve_span_newlines)
         if template_prompt is not None:
             return render_prompt(template_prompt, **ctx)
         return load_prompt("template/aggregate", **ctx)
@@ -688,3 +662,40 @@ class LLMClient:
     async def simple_complete_async(self, prompt: str) -> str:
         """Complete a prompt asynchronously with the default settings."""
         return await self.complete_async(prompt)
+
+
+def _template_context(
+    question: str,
+    spans: list[str],
+    citation_count: int,
+    template_preview_chars: int | None,
+    preserve_span_newlines: bool,  # noqa: FBT001  # mirrors the template prompt builders
+) -> dict[str, object]:
+    """Return the variables of a template prompt: the same for per-span and aggregate prompts.
+
+    A custom prompt gets both the full list of quotes (``spans_block``) and the short preview
+    (``span_preview``), whichever kind of template the call asks for. Before, a custom per-span
+    prompt got no ``spans_block`` above 8 spans, and the template was written without the quotes.
+    """
+    span_lines = []
+    for i, span in enumerate(spans, start=1):
+        text = span if preserve_span_newlines else span.replace("\n", " ")
+        text = text.strip()
+        if template_preview_chars is not None:
+            text = text[:template_preview_chars]
+        suffix = "..." if template_preview_chars is not None else ""
+        span_lines.append(f"{i}. {text}{suffix}")
+
+    preview_chars = 50 if template_preview_chars is None else min(50, template_preview_chars)
+    preview_spans = []
+    for span in spans[:3]:
+        text = span if preserve_span_newlines else span.replace("\n", " ")
+        preview_spans.append(text[:preview_chars] + "...")
+
+    return {
+        "question": question,
+        "n_spans": len(spans),
+        "spans_block": "\n".join(span_lines),
+        "span_preview": " | ".join(preview_spans),
+        "citation_count": citation_count,
+    }
