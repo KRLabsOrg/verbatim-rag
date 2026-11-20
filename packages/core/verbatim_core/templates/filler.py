@@ -25,23 +25,22 @@ def _list_item_indent(template: str, position: int) -> int | None:
 
 
 def _fit_list_item(text: str, indent: int) -> str:
-    """Keep a multi-line quote inside its markdown list item.
+    """Keep a quote with blank lines inside its markdown list item.
 
-    A blank line inside the quote, as between the entries of a list in a PDF, would end the list
-    item, and the rest of the quote would follow as loose paragraphs. Paragraphs become hard line
-    breaks and every line is indented to the item's content. A nested list line keeps its own
-    indentation on top; other lines lose theirs, which in PDF text is layout, and four spaces
-    would start a code block. Only whitespace changes.
+    A blank line inside the quote, as between the entries of a list in a PDF, ended the list item,
+    and the rest of the quote followed as loose paragraphs. Paragraphs become backslash hard line
+    breaks, which `ResponseBuilder.clean_answer` leaves alone, and every line is indented to the
+    item's content. A nested list line keeps its own indentation on top; other lines lose theirs,
+    which in PDF text is layout, and four spaces would start a code block. Only whitespace changes.
     """
     pad = " " * indent
     paragraphs = [paragraph.rstrip() for paragraph in _BLANK_LINES.split(text.strip())]
-    lines = "  \n".join(paragraphs).split("\n")
+    lines = "\\\n".join(paragraphs).split("\n")
     return lines[0] + "".join("\n" + pad + _nested_line(line) for line in lines[1:])
 
 
 def _nested_line(line: str) -> str:
-    stripped = line.lstrip(" \t")
-    return line if _LIST_ITEM_START.match(line) else stripped
+    return line if _LIST_ITEM_START.match(line) else line.lstrip(" \t")
 
 
 class TemplateFiller:
@@ -143,7 +142,9 @@ class TemplateFiller:
                         span_id_by_citation_id,
                     )
                     indent = _list_item_indent(template, match.start())
-                    if indent is None or self._is_table(span_data.get("text", "")):
+                    text = span_data.get("text", "")
+                    # Only a span that would end its list item changes: other output stays as it was
+                    if indent is None or not _BLANK_LINES.search(text.strip()) or self._is_table(text):
                         return formatted
                     return _fit_list_item(formatted, indent)
                 if self.citation_mode == "inline":

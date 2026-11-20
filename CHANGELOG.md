@@ -19,16 +19,16 @@ All notable changes to this project will be documented in this file.
   spans, shown and citation-only together: the strategy switched to an aggregate prompt, whose
   variables lack `spans_block`, and Jinja rendered the missing variable as an empty string. The
   LLM then wrote, ordered and labelled a template for quotes it never saw. Custom prompts now get
-  every variable (`question`, `n_spans`, `citation_count`, `spans_block`, `span_preview`), the
-  per-span or aggregate choice counts only the shown spans, and a prompt that uses an unknown
-  variable raises `ConfigurationError` instead of rendering it empty.
+  every variable (`question`, `n_spans`, `citation_count`, `spans_block`, `span_preview`), and the
+  per-span or aggregate choice counts only the shown spans, in `LLMClient` and
+  `ContextualTemplate` alike (they disagreed before). A prompt variable that the call doesn't
+  provide still renders empty, and is now logged as a warning.
 - A per-span template that left out `[SPAN_1]` failed validation and got `[DISPLAY_SPANS]`
   appended, which per-span filling never fills, so the raw placeholder reached the answer. Any
   `[SPAN_n]` or `[FACT_n]` placeholder now makes a template valid.
 - A span with blank lines inside, filled into a markdown list item, ended the list item, and the
-  rest of the span followed as loose paragraphs. Such a span now stays in its item, with hard
-  line breaks and indented lines. `ResponseBuilder.clean_answer` keeps indentation and the two
-  spaces of a hard line break; it still collapses repeated spaces between words.
+  rest of the span followed as loose paragraphs. Such a span now stays in its item, with
+  backslash hard line breaks and indented lines. Other spans are filled as before.
 
 ## [0.3.0] - 2026-11-10
 

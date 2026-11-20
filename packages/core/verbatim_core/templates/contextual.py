@@ -63,8 +63,8 @@ class ContextualTemplate(TemplateStrategy):
                 the bundled per_fact.txt / aggregate.txt prompt. Receives question,
                 n_spans, citation_count, spans_block (every quote, numbered) and
                 span_preview (the start of the first three), whichever kind of
-                template the call asks for. A variable outside these raises
-                ConfigurationError. None → use bundled prompts.
+                template the call asks for. A variable outside these renders
+                empty, as before, and is logged as a warning. None → use bundled prompts.
             system_prompt: Optional system message passed to the LLM during
                 template generation. None → no system message.
             citation_refs_line: The line added to a template that leaves out

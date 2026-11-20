@@ -229,7 +229,7 @@ client = LLMClient()
 tm = TemplateManager(llm_client=client, default_mode="contextual")
 ```
 
-With up to 8 shown spans the LLM writes one placeholder per span, with more one aggregate placeholder; citation-only spans don't count. A custom prompt (`ContextualTemplate(client, template_prompt=...)`) gets the variables `question`, `n_spans`, `citation_count`, `spans_block` (every quote, numbered) and `span_preview` (the start of the first three) whichever kind of template the call asks for. A prompt that uses any other variable raises `ConfigurationError` with the code `invalid_value`.
+With up to 8 shown spans the LLM writes one placeholder per span, with more one aggregate placeholder; citation-only spans don't count. A custom prompt (`ContextualTemplate(client, template_prompt=...)`) gets the variables `question`, `n_spans`, `citation_count`, `spans_block` (every quote, numbered) and `span_preview` (the start of the first three) whichever kind of template the call asks for. Any other variable renders empty, as before, and is logged as a warning by `verbatim_core.prompts`.
 
 The strategy adds two fixed texts of its own, in English by default. For answers in another language, set both:
 
@@ -284,7 +284,7 @@ tm.use_question_specific_mode(templates, embedder=SentenceTransformer("all-MiniL
   (`[FACT_N]` is the pre-0.2.7 name and still works in stored templates)
 - `[CITATION_REFS]` -- citation-only reference numbers
 
-A span with several lines that fills a placeholder in a markdown list item stays in that item: blank lines inside it, such as between the entries of a list in a PDF, become hard line breaks, and its lines are indented to the item's content. Only whitespace changes; outside list items and in tables the span's text is used as it is.
+A span with blank lines inside, such as between the entries of a list in a PDF, that fills a placeholder in a markdown list item stays in that item: the blank lines become backslash hard line breaks, and its lines are indented to the item's content. Only whitespace changes. Every other span, outside list items, without blank lines, or a table, is filled as before.
 
 ### Repeated Spans
 

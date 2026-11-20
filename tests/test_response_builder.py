@@ -248,12 +248,3 @@ class TestBuildFromAnswer:
             "bridge.md",
         )
         assert document.metadata == {"title": "History", "source": "bridge.md", "year": 1932}
-
-
-class TestCleanAnswerKeepsMarkdownLayout:
-    def test_indentation_and_hard_line_breaks_stay(self):
-        builder = ResponseBuilder()
-
-        cleaned = builder.clean_answer("- [1] Symptoms:  \n  Syncope   and  fever\n    - nested")
-
-        assert cleaned == "- [1] Symptoms:  \n  Syncope and fever\n    - nested"

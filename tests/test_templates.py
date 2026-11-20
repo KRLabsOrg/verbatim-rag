@@ -635,22 +635,25 @@ class TestQuotesInListItems:
 
     def test_a_quote_with_blank_lines_stays_in_its_list_item(self):
         quote = "Symptoms:\n\nSyncope\n\n   Dyspnoea,\n  tachypnoea"
+        template = "Intro:\n\n- [SPAN_1]\n- [SPAN_2]"
 
-        filled = self.filler.fill(
-            "Intro:\n\n- [SPAN_1]\n- [SPAN_2]", [{"text": quote}, {"text": "Fever."}], []
+        filled = self.filler.fill(template, [{"text": quote}, {"text": "Fever."}], [])
+
+        assert filled == (
+            "Intro:\n\n- [1] Symptoms:\\\n  Syncope\\\n  Dyspnoea,\n  tachypnoea\n- [2] Fever."
         )
 
-        assert (
-            filled
-            == "Intro:\n\n- [1] Symptoms:  \n  Syncope  \n  Dyspnoea,\n  tachypnoea\n- [2] Fever."
-        )
+    def test_a_quote_without_blank_lines_in_a_list_item_is_left_as_it_is(self):
+        filled = self.filler.fill("- [SPAN_1]", [{"text": "Line one\n   line two"}], [])
+
+        assert filled == "- [1] Line one\n   line two"
 
     def test_a_nested_list_in_a_quote_keeps_its_indentation(self):
-        quote = "- *Adults:*\n  - GFR 45-59: max. 2000 mg/d"
+        quote = "Dose:\n\n- *Adults:*\n  - GFR 45-59: max. 2000 mg/d"
 
         filled = self.filler.fill("1. [SPAN_1]", [{"text": quote}], [])
 
-        assert filled == "1. [1] - *Adults:*\n     - GFR 45-59: max. 2000 mg/d"
+        assert filled == "1. [1] Dose:\\\n   - *Adults:*\n     - GFR 45-59: max. 2000 mg/d"
 
     def test_a_quote_outside_a_list_is_left_as_it_is(self):
         filled = self.filler.fill("Intro: [SPAN_1]", [{"text": "A\n\n   B"}], [])

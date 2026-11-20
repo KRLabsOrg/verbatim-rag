@@ -326,15 +326,14 @@ class TestTemplatePromptVariables:
         assert "[SPAN_1]" in self.prompt_of(client, mock_sync, spans, 6)
         assert "[DISPLAY_SPANS]" in self.prompt_of(client, mock_sync, spans, 0)
 
-    def test_an_unknown_variable_in_a_custom_prompt_raises(self, mock_llm_client):
-        client, mock_sync, _, _ = mock_llm_client
+    def test_an_unknown_variable_in_a_custom_prompt_renders_empty_and_is_logged(
+        self, mock_llm_client, caplog
+    ):
+        client, mock_sync, _, make_response = mock_llm_client
+        mock_sync.chat.completions.create.return_value = make_response("[SPAN_1]")
 
-        with pytest.raises(ConfigurationError) as raised:
-            client.template_completion(
-                "Secret question?", ["quote"], 0, template_prompt="{{ quotes }}"
-            )
+        prompt = self.prompt_of(client, mock_sync, ["quote"], 0, template_prompt="A{{ quotes }}B")
 
-        assert raised.value.code == "invalid_value"
-        assert "spans_block" in str(raised.value)
-        assert "Secret" not in str(raised.value)
-        mock_sync.chat.completions.create.assert_not_called()
+        assert prompt == "AB"
+        assert [record.levelname for record in caplog.records] == ["WARNING"]
+        assert "quotes" in caplog.records[0].getMessage()
