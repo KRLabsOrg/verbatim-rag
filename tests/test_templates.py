@@ -5,6 +5,7 @@ import logging
 
 import pytest
 from verbatim_core import ConfigurationError, UpstreamError, VerbatimDeprecationWarning
+from verbatim_core.render import _is_table
 from verbatim_core.templates.contextual import ContextualTemplate
 from verbatim_core.templates.filler import TemplateFiller
 from verbatim_core.templates.manager import TemplateManager
@@ -77,16 +78,16 @@ class TestTemplateFiller:
             TemplateFiller(citation_mode="bogus")
 
 
-class TestIsTable:
+class TestIsTable:  # the renderer's table check, which keeps a table out of list layout
     def test_table_detected(self):
         text = "| Col A | Col B |\n|-------|-------|\n| val1 | val2 |"
-        assert TemplateFiller._is_table(text) is True
+        assert _is_table(text) is True
 
     def test_non_table(self):
-        assert TemplateFiller._is_table("Just a plain sentence.") is False
+        assert _is_table("Just a plain sentence.") is False
 
     def test_single_line_with_pipe(self):
-        assert TemplateFiller._is_table("one | two") is False
+        assert _is_table("one | two") is False
 
 
 class TestEnsurePlaceholder:

@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, NonNegativeInt, field_validator
 
+from verbatim_core.plan import PlanConfig  # noqa: TC001  # pydantic reads the annotation at runtime
+
 
 class TransformConfig(BaseModel):
     """Settings of a `Transformer` call."""
@@ -22,6 +24,9 @@ class TransformConfig(BaseModel):
     # Leave out a span whose words an earlier span already has (the same sentence in two
     # textbooks) before choosing the shown spans. The answer's `spans` keep every span.
     drop_repeated_spans: bool = False
+    # Contextual mode only: the LLM writes an answer plan (ADR 0007, ADR 0008) instead of
+    # placeholder text, with these settings. None: placeholder templates.
+    answer_plan: PlanConfig | None = None
 
     @field_validator("citation_format")
     @classmethod
