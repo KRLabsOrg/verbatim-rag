@@ -86,6 +86,19 @@ Context items can be:
 
 An item of another shape raises `InvalidInputError` with `param` naming it, such as `context[3]`: the code `missing_field` for a dict without `"content"` or `"text"`, and `invalid_value` otherwise.
 
+## Choosing an Extractor
+
+Every extractor implements `SpanExtractor`: `extract` and `aextract` return an `Extraction` with spans at offsets in their chunk, so any of them works in a `Transformer`, and all of them fill field items (`extract_fields`). They differ in what runs, what a span's score means, and what each is good at.
+
+| Extractor | Runs | Score | Use it for |
+|---|---|---|---|
+| `LLMSpanExtractor` | any OpenAI-compatible LLM | always 1.0 | any language and domain without a model of your own; the LLM quotes, the quotes are located in code |
+| `ModelSpanExtractor` | a ModernBERT highlighter, in memory, CPU or GPU | the model's probability | English evidence, fast and cheap; best where it was trained (ACL-Verbatim) |
+| `SemanticHighlightExtractor` | a sentence or token highlighter, in memory | the model's probability | sentence-level highlighting |
+| `DecisionModelExtractor` | a decision model such as Vela 2.0, in memory (GPU) or on a server | the model's probability | 17 languages and long chunks (16K tokens); field plans, where every field is a span question and all fields of a chunk take one call |
+
+A decision model answers open questions zero-shot, so on a domain a highlighter was trained for, the highlighter can be better: on held-out ACL-Verbatim evidence Vela-2.0-4B reaches 24.4 word-F1, `acl-verbatim-modernbert` 53.4 (from the model cards, different protocols). Measure on your own questions before you switch. Use Vela-2.0-0.8B or larger. The 0.3B encoder has no broad span head and reads all questions of a call in one sequence: in a check it returned spans unrelated to the question (number fragments of another chunk) and filled an empty checklist field with another field's span. Vela's spans are short answer phrases ("GFR < 30 ml/min"), not whole sentences. On a CPU, the 0.8B model takes about 6 s per chunk.
+
 ## LLMSpanExtractor
 
 Extracts verbatim spans from chunks using an LLM. The LLM quotes the text of each chunk that answers the question, and each quote is located in its chunk. A span's text is always the chunk's own text at the span's offsets.
