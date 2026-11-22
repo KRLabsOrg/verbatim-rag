@@ -124,6 +124,35 @@ A quote that can't be located in its chunk is dropped and reported in `extractio
 
 `extract_spans`, which returns the span texts keyed by chunk text, is deprecated. Unlike `extract`, it tolerates failed LLM calls: a chunk whose call fails yields no spans.
 
+## DecisionModelExtractor
+
+Extracts spans with a decision model, such as [Vela 2.0](https://huggingface.co/collections/vllm-sr/vela-20), which returns spans with their offsets and a probability ([ADR 0009](../adr/0009-decision-model-extractor.md)). It asks one span question per chunk: which spans of the chunk answer the question. The model runs in memory or on a server.
+
+```python
+from verbatim_core.decision_models import DecisionModelConfig, DecisionModelExtractor
+
+# In memory, with torch and transformers in the versions the model card names. The model's own
+# code runs (trust_remote_code): pin a revision you have checked.
+extractor = DecisionModelExtractor.from_pretrained("vllm-sr/Vela-2.0-4B", device="cuda", revision="<commit>")
+
+# On a server that speaks POST /v1/systemone, such as Vela's vela2_serve.py
+extractor = DecisionModelExtractor.from_url(
+    "http://127.0.0.1:8001",
+    "vllm-sr/Vela-2.0-4B",
+    api_key=None,  # sent as a bearer token when given
+    model_version="<commit>",  # for the usage of a call
+    config=DecisionModelConfig(threshold=0.5),  # None keeps the model's calibrated threshold
+)
+
+extraction = extractor.extract("How tall is the arch?", chunks)
+```
+
+A span's probability is its score. A span whose offsets don't hold the text the model returned is dropped with the warning `span_offsets_mismatch`. `DecisionModelConfig` also sets the span question: `instructions`, `label` and `description`.
+
+Any other backend is an object with `model_id`, `model_version` and `system_one(state, questions)`, and optionally an async `asystem_one`: pass it as `DecisionModelExtractor(backend)`. `RemoteDecisionModel` takes your own httpx clients for proxies or certificates.
+
+Server errors raise the library's errors: a rejected key `ConfigurationError`, a chunk too long for the model `InvalidInputError` (`input_too_long`), a timeout, a failed connection, 429 or 5xx a retryable `UpstreamError`.
+
 ## Fuzzy Span Matching
 
 By default, a quote must match its chunk exactly. For documents with OCR artifacts, encoding issues (e.g. corrupted umlauts), or minor formatting differences, enable fuzzy matching in the extractor's config:
