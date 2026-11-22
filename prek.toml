@@ -4,6 +4,8 @@
 
 # Keep the `rev` references below up to date with `prek update`.
 
+default_install_hook_types = ["pre-commit", "pre-push", "commit-msg"]
+
 # api/, frontend/, examples/ and docs/ are not covered yet and will be introduced later
 exclude = '^(frontend|docs)/'
 
@@ -94,4 +96,11 @@ hooks = [
   { id = "package-build", name = "package build + twine check", language = "system", entry = "bash -c 'rm -rf dist packages/core/dist && uvx --from build pyproject-build packages/core && uvx --from build pyproject-build . && uvx twine check packages/core/dist/* dist/*'", pass_filenames = false, files = '(^|/)pyproject\.toml$', stages = ["pre-push"] },
   # Note: `uv audit` will become stable soon; migrate from `pip-audit` once it does (https://astral.sh/blog/uv-audit)
   { id = "pip-audit", name = "pip-audit", language = "system", entry = "uvx pip-audit ./packages/core", pass_filenames = false, files = '(^|/)(pyproject\.toml|uv\.lock)$', stages = ["pre-push"] },
+]
+
+# Commit messages: no AI assistant attribution (Co-Authored-By: Claude, "Generated with Claude Code")
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "no-assistant-attribution", name = "no AI assistant attribution", language = "pygrep", entry = '(?i)co-authored-by:.*(claude|anthropic)|generated with \[?claude', stages = ["commit-msg"] },
 ]

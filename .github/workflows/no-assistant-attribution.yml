@@ -1,0 +1,41 @@
+name: no-assistant-attribution
+# Keeps AI assistant attribution (Co-Authored-By: Claude, "Generated with Claude Code") out of main.
+# A squash merge writes the PR title and description, or the commit messages, into the commit on main.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  attribution:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Reject attribution in the PR title and description
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if printf '%s\n%s\n' "$TITLE" "$BODY" | grep -qiE 'co-authored-by:.*(claude|anthropic)|generated with \[?claude'; then
+            echo '::error::The PR title or description has an AI assistant attribution line. Remove it: the squash commit on main uses this text.'
+            exit 1
+          fi
+          echo "No attribution in the title or description."
+
+      - name: Reject attribution in the commit messages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          found=$(gh api "repos/$REPO/pulls/$PR/commits" --paginate \
+            --jq '.[] | select(.commit.message | test("co-authored-by:.*(claude|anthropic)|generated with \\[?claude"; "i")) | .sha[0:7]' | tr '\n' ' ')
+          if [ -n "$found" ]; then
+            echo "::error::Commits with an AI assistant attribution line: $found. Squash-merge with a message written without them, or reword the commits."
+            exit 1
+          fi
+          echo "No attribution in the commit messages."
