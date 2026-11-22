@@ -90,21 +90,25 @@ class Rendered:
     citations: list[RenderedCitation]
 
 
-def layout_plan(plan: AnswerPlan, spans: Sequence[str], shown_limit: int | None = None) -> Layout:
+def layout_plan(
+    plan: AnswerPlan, spans: Sequence[str], shown_limit: int | None = None, no_evidence: str | None = None
+) -> Layout:
     """Lay out a validated plan as markdown: the intro, a bold line per label, a list item per quote.
 
     A rest item shows, in order, the spans among the first ``shown_limit`` (all by default) that no
-    quote item uses, each as a list item. A references item without spans cites the spans the plan
-    doesn't show or support. Spans without text are left out.
+    quote or field item uses, each as a list item. A references item without spans cites the spans
+    the plan doesn't show or support. A field item is a list item that starts with its name in
+    bold: one span follows the name, several are a nested list. An empty field shows
+    ``no_evidence`` when it is required, and is left out otherwise. Spans without text are left out.
 
-    :raises InvalidInputError: If the plan has a field item, which is not filled yet (#74)
+    :raises InvalidInputError: If a field item has no spans filled in (the Transformer fills them)
     """
     items = [item for section in plan.sections for item in section.items]
-    if any(isinstance(item, FieldItem) for item in items):
-        msg = "Field items are not rendered yet: fill them in a later release (ADR 0007), or use quote items."
+    if any(isinstance(item, FieldItem) and item.spans is None for item in items):
+        msg = "A field item has no spans filled in. Render plans with field items through the Transformer."
         raise InvalidInputError(msg, code="invalid_value", param="plan")
     has_text = [bool(text.strip()) for text in spans]
-    quoted = {n for item in items if isinstance(item, QuoteItem) for n in item.spans}
+    quoted = {n for item in items if isinstance(item, (QuoteItem, FieldItem)) for n in item.spans or ()}
     limit = len(spans) if shown_limit is None else min(shown_limit, len(spans))
     pool = [n for n in range(1, limit + 1) if n not in quoted and has_text[n - 1]]
     rest = {}  # the spans of each rest item, by its place in the plan
@@ -134,12 +138,28 @@ def layout_plan(plan: AnswerPlan, spans: Sequence[str], shown_limit: int | None 
                 lines.extend(["- ", Quote((n,))] for n in rest[place])
             elif isinstance(item, ReferencesItem) and (refs := tuple(item.spans or unused)):
                 lines.append([Markers(refs)])
+            elif isinstance(item, FieldItem):
+                lines.extend(_field_lines(item, has_text, no_evidence))
             place += 1
         if lines:
             if bool(section.label):
                 lines.insert(0, [f"**{section.label}**"])
             block([piece for i, line in enumerate(lines) for piece in (["\n"] if i else []) + line])
     return layout
+
+
+def _field_lines(item: FieldItem, has_text: list[bool], no_evidence: str | None) -> list[Layout]:
+    """Return the lines of a field: its name and spans, or the no-evidence text, or nothing."""
+    shown = [n for n in item.spans or () if has_text[n - 1]]
+    name = f"- **{item.name}:**"
+    if len(shown) == 1:
+        return [[f"{name} ", Quote((shown[0],))]]
+    if shown:
+        nested: list[Layout] = [["  - ", Quote((n,))] for n in shown]
+        return [[name], *nested]
+    if item.required and bool(no_evidence):
+        return [[f"{name} {no_evidence}"]]
+    return []
 
 
 def render(

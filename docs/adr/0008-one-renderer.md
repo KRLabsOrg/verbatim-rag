@@ -30,7 +30,7 @@ render   the slots filled with spans   text + citations, numbered
 
 **`Answer.plan` numbers spans by their place in `Answer.spans`**, from 1. The LLM still sees the candidates numbered 1 to n; the Transformer maps the numbers back before it returns the plan.
 
-Field items stay validated but not rendered until #74. The five mode names stay; the two settings that replace them (plan source and selection, ADR 0007) are a later change.
+Field items stay validated but not rendered until #74 (filled and rendered since ADR 0010). The five mode names stay; the two settings that replace them (plan source and selection, ADR 0007) are a later change.
 
 ## Consequences
 

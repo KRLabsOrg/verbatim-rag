@@ -42,6 +42,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
     from types import ModuleType
 
+    from verbatim_core.plan import FieldItem
+
 logger = logging.getLogger(__name__)
 
 
@@ -122,6 +124,29 @@ class SpanExtractor(ABC, Generic[_ConfigT]):
         else:
             span_texts = await asyncio.to_thread(self.extract_spans, question, _as_search_results(chunks))
         return _locate_span_texts(chunks, span_texts)
+
+    def extract_fields(self, question: str, fields: Sequence[FieldItem], chunks: Sequence[Chunk]) -> list[Extraction]:  # noqa: ARG002  # overrides use the question
+        """Extract the spans of each field item of an answer plan (ADR 0010), in the fields' order.
+
+        By default each field's question is extracted on its own, as a question of its own. An
+        extractor that can ask several questions with the user's question as context, such as
+        `DecisionModelExtractor`, overrides this.
+
+        :param question: The user's question
+        :param fields: The field items, each with a name and a question
+        :param chunks: Chunks with unique ids
+        :return: One extraction per field
+        """
+        return [self.extract(field.question, chunks) for field in fields]
+
+    async def aextract_fields(
+        self,
+        question: str,  # noqa: ARG002  # overrides use the question
+        fields: Sequence[FieldItem],
+        chunks: Sequence[Chunk],
+    ) -> list[Extraction]:
+        """Async version of `extract_fields`: the fields are extracted concurrently."""
+        return list(await asyncio.gather(*(self.aextract(field.question, chunks) for field in fields)))
 
     @deprecated("SpanExtractor.extract_spans", use="extract()")
     def extract_spans(self, question: str, search_results: list[Any]) -> dict[str, list[str]]:

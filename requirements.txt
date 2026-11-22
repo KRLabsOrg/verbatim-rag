@@ -813,6 +813,7 @@ httpx==0.28.1 \
     # via
     #   chonkie
     #   docling-slim
+    #   verbatim-core
 httpx2==2.14.0 ; python_full_version < '3.11' \
     --hash=sha256:47ad61a3c40282cd8d0dc96311531f00f5bfc71a066c6fe3b36d8f63fb9e4f6e \
     --hash=sha256:9d20c13a10bae1773a0be3b0f1e5beeb4bdd549bc3a2ba18efa32897c65403e4
