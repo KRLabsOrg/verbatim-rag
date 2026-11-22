@@ -328,6 +328,41 @@ Zur Dosierung von Rivaroxaban bei eingeschränkter Nierenfunktion:
 - [2] Kontraindiziert bei CrCl < 15 ml/min.
 ```
 
+### Field Plans
+
+A plan can also come from you ([ADR 0010](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0010-field-plans.md)): `PlanConfig(plan=AnswerPlan(...))` answers every question with that plan, in any template mode, and no LLM writes one. Its field items are questions the extractor answers from the documents, such as the rows of a checklist:
+
+```python
+from verbatim_core.plan import AnswerPlan, FieldItem, PlanConfig, PlanSection, PlanText, RestItem
+
+checklist = AnswerPlan(
+    intro="Prüfung:",
+    sections=[
+        PlanSection(
+            items=[
+                FieldItem(name="Indikation", question="What is the drug indicated for?"),
+                FieldItem(name="Kontraindikationen", question="When must the drug not be given?", required=True),
+                FieldItem(name="Dosierung", question="What is the dose?", max_spans=3),
+            ]
+        ),
+        PlanSection(label="Weitere Quellen", items=[RestItem(max=3)]),  # spans of the user's question
+    ],
+)
+transformer = Transformer(
+    extractor,
+    tm,
+    config=TransformConfig(
+        answer_plan=PlanConfig(plan=checklist, text=PlanText(no_evidence="Keine Belegstelle gefunden.")),
+    ),
+)
+answer = transformer.transform("Metformin", chunks)
+fields = {name: [span.model_dump() for span in spans] for name, spans in answer.field_spans().items()}
+```
+
+Each field shows its name in bold and its spans, highest score first, at most `max_spans`. An empty required field shows `PlanText.no_evidence`, and an empty optional field is left out. `answer.field_spans()` gives each field's spans by name: their text, chunk id, offsets and score. A plan of field items only doesn't extract the user's question.
+
+Every extractor fills fields: by default each field's question is extracted on its own. `DecisionModelExtractor` asks all fields in one model call per chunk, with the user's question as the request.
+
 where [3] is a second source for the first quote. The citations keep the exact span text. With `answer_plan`, a `template_prompt` is not used: it belongs to placeholder templates.
 
 Placeholder templates and plans are filled by the same renderer (`verbatim_core.render`), so every template mode writes span text and citation markers the same way.

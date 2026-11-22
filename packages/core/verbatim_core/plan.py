@@ -33,6 +33,8 @@ __all__ = [
     "RestItem",
     "distinct_spans",
     "fallback_plan",
+    "field_items",
+    "fill_fields",
     "plan_candidates",
     "plan_from_llm",
     "renumber_plan",
@@ -72,8 +74,8 @@ class ReferencesItem(_PlanModel):
 class FieldItem(_PlanModel):
     """A named question whose answer is extracted for this item, such as one row of a checklist.
 
-    Validated, but not filled yet: extraction per field comes with #74, and rendering a plan with a
-    field item raises `InvalidInputError`.
+    The Transformer extracts ``question`` over the call's chunks and fills ``spans`` with the
+    field's spans, by their place in `Answer.spans` (ADR 0010). A plan you write leaves it out.
     """
 
     kind: Literal["field"] = "field"
@@ -81,6 +83,7 @@ class FieldItem(_PlanModel):
     question: str = Field(min_length=1)
     required: bool = False  # an empty required field shows PlanText.no_evidence
     max_spans: PositiveInt = 1
+    spans: list[PositiveInt] | None = None  # filled by the Transformer; [] when nothing was found
 
 
 PlanItem = Annotated[QuoteItem | RestItem | ReferencesItem | FieldItem, Field(discriminator="kind")]
@@ -129,6 +132,11 @@ class PlanConfig(_PlanModel):
     compact_quotes: bool = True
     # List the cited spans the answer doesn't show after it, under PlanText.references_label
     show_references: bool = False
+    # The plan of every answer, written by the developer (ADR 0010): the LLM writes none, in any
+    # template mode. None: the LLM writes the plan, in contextual mode.
+    plan: AnswerPlan | None = None
+    # The fixed texts of the answer. None: the contextual strategy's plan_text, else English.
+    text: PlanText | None = None
 
 
 class _LLMItem(_PlanModel):
@@ -239,9 +247,34 @@ def renumber_plan(plan: AnswerPlan, numbers: Sequence[int]) -> AnswerPlan:
                 items.append(QuoteItem(spans=renumber(item.spans)))
             elif isinstance(item, ReferencesItem) and item.spans is not None:
                 items.append(ReferencesItem(spans=renumber(item.spans)))
+            elif isinstance(item, FieldItem) and item.spans is not None:
+                items.append(item.model_copy(update={"spans": renumber(item.spans)}))
             else:
                 items.append(item)
         sections.append(PlanSection(label=section.label, items=items))
+    return AnswerPlan(intro=plan.intro, sections=sections)
+
+
+def field_items(plan: AnswerPlan | None) -> list[FieldItem]:
+    """Return the field items of a plan, in order."""
+    if plan is None:
+        return []
+    return [item for section in plan.sections for item in section.items if isinstance(item, FieldItem)]
+
+
+def fill_fields(plan: AnswerPlan, spans: Sequence[Sequence[int]]) -> AnswerPlan:
+    """Return the plan with the i-th field item's spans set to ``spans[i]``."""
+    filled = iter(spans)
+    sections = [
+        PlanSection(
+            label=section.label,
+            items=[
+                item.model_copy(update={"spans": list(next(filled))}) if isinstance(item, FieldItem) else item
+                for item in section.items
+            ],
+        )
+        for section in plan.sections
+    ]
     return AnswerPlan(intro=plan.intro, sections=sections)
 
 

@@ -32,6 +32,8 @@ from verbatim_core.types import Chunk, ExtractedSpan, Extraction, ResultWarning
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from verbatim_core.plan import FieldItem
+
 __all__ = [
     "DecisionModel",
     "DecisionModelConfig",
@@ -322,11 +324,40 @@ class DecisionModelExtractor(SpanExtractor[DecisionModelConfig]):
             replies = await asyncio.gather(*(call(*_request(question, chunk, config)) for chunk in asked))
         return self._extraction(asked, list(replies))
 
-    def _extraction(self, asked: list[Chunk], replies: list[dict[str, Any]]) -> Extraction:
+    @override
+    def extract_fields(self, question: str, fields: Sequence[FieldItem], chunks: Sequence[Chunk]) -> list[Extraction]:
+        """Ask every field in one call per chunk, each a span question with the user's question as the request.
+
+        A field's name is the span label and its question the instructions. The extractor's
+        threshold applies to every field.
+        """
+        _check_unique_ids(chunks)
+        asked = [chunk for chunk in chunks if chunk.text.strip()]
+        replies = [self.model.system_one(*_field_request(question, chunk, fields, self.config)) for chunk in asked]
+        return [self._extraction(asked, replies, f"field_{i}") for i in range(len(fields))]
+
+    @override
+    async def aextract_fields(
+        self, question: str, fields: Sequence[FieldItem], chunks: Sequence[Chunk]
+    ) -> list[Extraction]:
+        """Async version of `extract_fields`."""
+        _check_unique_ids(chunks)
+        asked = [chunk for chunk in chunks if chunk.text.strip()]
+        requests = [_field_request(question, chunk, fields, self.config) for chunk in asked]
+        call = getattr(self.model, "asystem_one", None)
+        if call is None:
+            replies = [await asyncio.to_thread(self.model.system_one, *request) for request in requests]
+        else:
+            replies = list(await asyncio.gather(*(call(*request) for request in requests)))
+        return [self._extraction(asked, replies, f"field_{i}") for i in range(len(fields))]
+
+    def _extraction(
+        self, asked: list[Chunk], replies: list[dict[str, Any]], question_id: str = _QUESTION_ID
+    ) -> Extraction:
         spans: list[ExtractedSpan] = []
         mismatched = 0
         for chunk, reply in zip(asked, replies, strict=True):
-            for found in _reply_spans(reply):
+            for found in _reply_spans(reply, question_id):
                 offsets = _offsets(chunk.text, found)
                 if offsets is None:
                     mismatched += 1
@@ -345,21 +376,37 @@ class DecisionModelExtractor(SpanExtractor[DecisionModelConfig]):
         return Extraction(spans=spans, usage=[usage], warnings=warnings)
 
 
-def _request(question: str, chunk: Chunk, config: DecisionModelConfig) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return the state and the span question of one chunk."""
-    span_question: dict[str, Any] = {
+def _span_question(instructions: str, label: str, description: str, config: DecisionModelConfig) -> dict[str, Any]:
+    question: dict[str, Any] = {
         "type": "span",
-        "instructions": config.instructions,
+        "instructions": instructions,
         "over": "context",
-        "criteria": {config.label: config.description},
+        "criteria": {label: description},
     }
     if config.threshold is not None:
-        span_question["threshold"] = config.threshold
+        question["threshold"] = config.threshold
+    return question
+
+
+def _request(question: str, chunk: Chunk, config: DecisionModelConfig) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the state and the span question of one chunk."""
+    span_question = _span_question(config.instructions, config.label, config.description, config)
     return {"request": question, "context": chunk.text}, {_QUESTION_ID: span_question}
 
 
-def _reply_spans(reply: dict[str, Any]) -> list[dict[str, Any]]:
-    spans = (reply.get("spans") or {}).get(_QUESTION_ID) or []
+def _field_request(
+    question: str, chunk: Chunk, fields: Sequence[FieldItem], config: DecisionModelConfig
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return the state and one span question per field of one chunk: ``field_0``, ``field_1``, ..."""
+    questions = {
+        f"field_{i}": _span_question(field.question, field.name, field.question, config)
+        for i, field in enumerate(fields)
+    }
+    return {"request": question, "context": chunk.text}, questions
+
+
+def _reply_spans(reply: dict[str, Any], question_id: str = _QUESTION_ID) -> list[dict[str, Any]]:
+    spans = (reply.get("spans") or {}).get(question_id) or []
     if not isinstance(spans, list):
         msg = "The decision model's reply has no list of spans. Check that it is a system_one response."
         raise UpstreamError(msg, code="invalid_reply", service="decision_model")

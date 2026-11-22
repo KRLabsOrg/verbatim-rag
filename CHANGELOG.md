@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Field plans ([ADR 0010](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0010-field-plans.md), #74):
+  `PlanConfig(plan=AnswerPlan(...))` answers from a plan you write, in any template mode, without
+  an LLM. Its field items are filled by the extractor (`SpanExtractor.extract_fields`, one
+  question per field by default, one call per chunk for `DecisionModelExtractor`), rendered under
+  their names, and returned by `Answer.field_spans()`. `PlanConfig(text=...)` sets the fixed texts.
 - `DecisionModelExtractor` in `verbatim_core.decision_models`
   ([ADR 0009](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0009-decision-model-extractor.md), #71):
   span extraction with decision models such as Vela 2.0, one span question per chunk, the span's
