@@ -1,5 +1,7 @@
 # Answers are rendered from validated plans
 
+*Changed by [ADR 0008](0008-one-renderer.md): one renderer for every mode, plans without template text (`TextItem` and `layout` removed), and the settings in `PlanConfig`.*
+
 Every template mode turns placeholder text (`[SPAN_n]`, `[FACT_n]`, `[DISPLAY_SPANS]`, `[RELEVANT_SENTENCES]`, `[CITATION_REFS]`, structured `[NAME]`) into an answer by string substitution. When an LLM writes that text (contextual mode), the library repaired it afterwards with string rules, and on a German medical deployment (Thieme sources, Mistral) that failed in ways users saw: the LLM ordered and labelled quotes it never saw (an empty quote list above 8 spans), a raw `[DISPLAY_SPANS]` reached the answer, German answers ended in an English sentence, a span could be shown twice or not at all, and with 20 to 60 spans the first ones in extraction order were shown and the rest became a list of numbers. Applications added their own regular expressions on top. The bugs are fixed one by one in 0.3.1; this ADR removes their cause.
 
 ## Decision

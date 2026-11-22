@@ -130,7 +130,8 @@ class Answer(BaseModel):
     spans: list[ExtractedSpan] = Field(default_factory=list)
     usage: list[Usage] = Field(default_factory=list)
     warnings: list[ResultWarning] = Field(default_factory=list)
-    # The answer plan the text was rendered from, with TransformConfig(use_answer_plan=True)
+    # The answer plan the text was rendered from, with TransformConfig(answer_plan=PlanConfig());
+    # its span numbers are places in `spans`, from 1
     plan: AnswerPlan | None = None
 
     @model_serializer(mode="wrap")

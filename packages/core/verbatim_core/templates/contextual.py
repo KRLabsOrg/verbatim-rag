@@ -6,7 +6,6 @@ and aggregate placeholders.
 """
 
 import logging
-from dataclasses import replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -17,9 +16,9 @@ from verbatim_core.errors import ConfigurationError, UpstreamError
 from verbatim_core.llm_client import Completion, LLMClient, _acall_old_client, _call_old_client, _replaces
 from verbatim_core.plan import (
     LLMPlan,
+    PlanConfig,
     PlanText,
     fallback_plan,
-    parse_template,
     plan_from_llm,
     shows_spans,
     validate_plan,
@@ -59,7 +58,6 @@ class ContextualTemplate(TemplateStrategy):
         fallback_template: str | None = None,
         plan_text: PlanText | None = None,
         plan_prompt: str | None = None,
-        answer_language: str | None = None,
     ) -> None:
         """Initialize the contextual template strategy.
 
@@ -91,14 +89,14 @@ class ContextualTemplate(TemplateStrategy):
                 [DISPLAY_SPANS] and optionally [CITATION_REFS]. A line with
                 [CITATION_REFS] is left out when the call has no citation-only spans.
                 None → the bundled English fallback template.
-            plan_text: The fixed texts of answers rendered from a plan, with
-                TransformConfig(use_answer_plan=True). None → English defaults.
+            plan_text: The language of answers rendered from a plan, with
+                TransformConfig(answer_plan=PlanConfig()): its name, which the bundled
+                plan prompt asks the intro and labels in, and the renderer's fixed texts.
+                None → English texts, intro and labels in the language of the quotes.
             plan_prompt: Custom Jinja2 prompt that asks for an answer plan as JSON, used
-                instead of the bundled plan.txt with use_answer_plan. Receives question,
-                candidates_block, n_candidates, max_items, max_support and
-                answer_language; any other variable raises ConfigurationError.
-            answer_language: The language the bundled plan prompt asks the intro and
-                labels in, such as "German". None → the language of the quotes.
+                instead of the bundled plan.txt. Receives question, candidates_block,
+                n_candidates, max_items, max_support and answer_language (the
+                plan_text's language); any other variable raises ConfigurationError.
 
         Raises:
             ConfigurationError: If ``citation_refs_line`` has no [CITATION_REFS], or
@@ -124,9 +122,8 @@ class ContextualTemplate(TemplateStrategy):
         self.plan_text = plan_text or PlanText()
         if plan_prompt is not None:
             # an unknown variable raises now, not at the first request
-            render_prompt_strict(plan_prompt, **_plan_prompt_variables("", [], (1, 1), answer_language))
+            render_prompt_strict(plan_prompt, **_plan_prompt_variables("", [], PlanConfig(), None))
         self.plan_prompt = plan_prompt
-        self.answer_language = answer_language
         self.filler = TemplateFiller(citation_mode=citation_mode, citation_format=citation_format)
 
         self._template_cache: dict[str, str] = {}
@@ -257,56 +254,43 @@ class ContextualTemplate(TemplateStrategy):
             return self._fallback_result(citation_count, error.code)
         return self._template_result(completion, spans, citation_count)
 
-    def generate_plan_result(
-        self, question: str, candidates: list[str], *, max_items: int, max_support: int | None = None
-    ) -> TemplateResult:
+    def generate_plan_result(self, question: str, candidates: list[str], plan: PlanConfig) -> TemplateResult:
         """Write a validated answer plan for the candidate spans (ADR 0007).
 
         The LLM gets every candidate in full and returns a plan as JSON through structured output,
-        with the ``plan_prompt`` or the bundled one. With a ``template_prompt`` and no
-        ``plan_prompt``, the LLM writes placeholder text as before, which is parsed into a plan.
-        Either way the plan is validated: unknown and repeated span numbers are dropped, at most
-        ``max_items`` items are shown, each with at most ``max_support`` supporting spans. When the
-        call fails with an `UpstreamError`, or no valid item remains, the result has the fallback
-        plan and the warning `template_fallback`.
+        with the ``plan_prompt`` or the bundled one. The plan is validated: unknown and repeated
+        span numbers are dropped, at most ``plan.max_items`` items are shown, each with at most
+        ``plan.max_support`` supporting spans. When the call fails with an `UpstreamError`, or no
+        valid item remains, the result has the fallback plan and the warning `template_fallback`.
 
         :raises ConfigurationError: If the LLM service rejects the key, the model or the quota
         """
-        limits = (max_items, max_support)
-        if self.plan_prompt is None and self.template_prompt is not None:
-            return self._plan_of_template(self.generate_result(question, candidates, 0), candidates, limits)
         try:
-            completion = self._plan_completion(question, candidates, limits)
+            completion = self._plan_completion(question, candidates, plan)
         except UpstreamError as error:
-            return self._fallback_plan_result(len(candidates), max_items, error.code)
-        return self._plan_result(completion, candidates, limits)
+            return self._fallback_plan_result(len(candidates), plan.max_items, error.code)
+        return self._plan_result(completion, candidates, plan)
 
     async def generate_plan_result_async(
-        self, question: str, candidates: list[str], *, max_items: int, max_support: int | None = None
+        self, question: str, candidates: list[str], plan: PlanConfig
     ) -> TemplateResult:
         """Async version of `generate_plan_result`."""
-        limits = (max_items, max_support)
-        if self.plan_prompt is None and self.template_prompt is not None:
-            result = await self.generate_result_async(question, candidates, 0)
-            return self._plan_of_template(result, candidates, limits)
         try:
-            completion = await self._plan_completion_async(question, candidates, limits)
+            completion = await self._plan_completion_async(question, candidates, plan)
         except UpstreamError as error:
-            return self._fallback_plan_result(len(candidates), max_items, error.code)
-        return self._plan_result(completion, candidates, limits)
+            return self._fallback_plan_result(len(candidates), plan.max_items, error.code)
+        return self._plan_result(completion, candidates, plan)
 
-    def _plan_request(
-        self, question: str, candidates: list[str], limits: tuple[int, int | None]
-    ) -> tuple[str, dict[str, Any]]:
-        variables = _plan_prompt_variables(question, candidates, limits, self.answer_language)
+    def _plan_request(self, question: str, candidates: list[str], plan: PlanConfig) -> tuple[str, dict[str, Any]]:
+        variables = _plan_prompt_variables(question, candidates, plan, self.plan_text.language)
         if self.plan_prompt is not None:
             prompt = render_prompt_strict(self.plan_prompt, **variables)
         else:
             prompt = load_prompt("template/plan", **variables)
         return prompt, {"name": "answer_plan", "schema": LLMPlan.model_json_schema()}
 
-    def _plan_completion(self, question: str, candidates: list[str], limits: tuple[int, int | None]) -> Completion:
-        prompt, schema = self._plan_request(question, candidates, limits)
+    def _plan_completion(self, question: str, candidates: list[str], plan: PlanConfig) -> Completion:
+        prompt, schema = self._plan_request(question, candidates, plan)
         if _replaces(self.llm_client, "complete", "completion"):
             # a client written before 0.3.0 knows JSON mode, not schemas
             text = _call_old_client(
@@ -315,10 +299,8 @@ class ContextualTemplate(TemplateStrategy):
             return Completion(text=text)
         return self.llm_client.completion(prompt, json_schema=schema, system_prompt=self.system_prompt)
 
-    async def _plan_completion_async(
-        self, question: str, candidates: list[str], limits: tuple[int, int | None]
-    ) -> Completion:
-        prompt, schema = self._plan_request(question, candidates, limits)
+    async def _plan_completion_async(self, question: str, candidates: list[str], plan: PlanConfig) -> Completion:
+        prompt, schema = self._plan_request(question, candidates, plan)
         if _replaces(self.llm_client, "complete_async", "completion_async"):
             text = await _acall_old_client(
                 self.llm_client, "complete_async", prompt, json_mode=True, system_prompt=self.system_prompt
@@ -326,33 +308,17 @@ class ContextualTemplate(TemplateStrategy):
             return Completion(text=text)
         return await self.llm_client.completion_async(prompt, json_schema=schema, system_prompt=self.system_prompt)
 
-    def _plan_result(
-        self, completion: Completion, candidates: list[str], limits: tuple[int, int | None]
-    ) -> TemplateResult:
+    def _plan_result(self, completion: Completion, candidates: list[str], plan: PlanConfig) -> TemplateResult:
         usage = self._usage(completion, candidates)
-        max_items, max_support = limits
         try:
             written = plan_from_llm(LLMPlan.model_validate_json(completion.text))
         except ValidationError:
-            return self._fallback_plan_result(len(candidates), max_items, "invalid_plan", usage)
-        plan = validate_plan(written, len(candidates), max_items, max_support)
-        if not shows_spans(plan):
-            return self._fallback_plan_result(len(candidates), max_items, "empty_plan", usage)
-        content_logger.debug("Plan: %r", plan)
-        return TemplateResult(text="", usage=[usage], plan=plan)
-
-    def _plan_of_template(
-        self, result: TemplateResult, candidates: list[str], limits: tuple[int, int | None]
-    ) -> TemplateResult:
-        """Parse a template written by a custom prompt into a plan, and validate it."""
-        max_items, max_support = limits
-        plan = validate_plan(parse_template(result.text), len(candidates), max_items, max_support)
-        if not shows_spans(plan):
-            fallback = self._fallback_plan_result(len(candidates), max_items, "empty_plan")
-            return replace(
-                fallback, text=result.text, usage=result.usage, warnings=[*result.warnings, *fallback.warnings]
-            )
-        return replace(result, plan=plan)
+            return self._fallback_plan_result(len(candidates), plan.max_items, "invalid_plan", usage)
+        valid = validate_plan(written, len(candidates), plan.max_items, plan.max_support)
+        if not shows_spans(valid):
+            return self._fallback_plan_result(len(candidates), plan.max_items, "empty_plan", usage)
+        content_logger.debug("Plan: %r", valid)
+        return TemplateResult(text="", usage=[usage], plan=valid)
 
     def _fallback_plan_result(
         self, candidate_count: int, max_items: int, error_code: str, usage: Usage | None = None
@@ -556,15 +522,14 @@ def _log_fallback(error_code: str | None) -> None:
 
 
 def _plan_prompt_variables(
-    question: str, candidates: list[str], limits: tuple[int, int | None], answer_language: str | None
+    question: str, candidates: list[str], plan: PlanConfig, answer_language: str | None
 ) -> dict[str, object]:
     """Return the variables of a plan prompt, bundled or custom."""
-    max_items, max_support = limits
     return {
         "question": question,
         "candidates_block": "\n\n".join(f"[{i}] {text.strip()}" for i, text in enumerate(candidates, start=1)),
         "n_candidates": len(candidates),
-        "max_items": max_items,
-        "max_support": max_support,
+        "max_items": plan.max_items,
+        "max_support": plan.max_support,
         "answer_language": answer_language,
     }
