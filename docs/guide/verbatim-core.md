@@ -86,6 +86,19 @@ Context items can be:
 
 An item of another shape raises `InvalidInputError` with `param` naming it, such as `context[3]`: the code `missing_field` for a dict without `"content"` or `"text"`, and `invalid_value` otherwise.
 
+## Choosing an Extractor
+
+Every extractor implements `SpanExtractor`: `extract` and `aextract` return an `Extraction` with spans at offsets in their chunk, so any of them works in a `Transformer`, and all of them fill field items (`extract_fields`). They differ in what runs, what a span's score means, and what each is good at.
+
+| Extractor | Runs | Score | Use it for |
+|---|---|---|---|
+| `LLMSpanExtractor` | any OpenAI-compatible LLM | always 1.0 | any language and domain without a model of your own; the LLM quotes, the quotes are located in code |
+| `ModelSpanExtractor` | a ModernBERT highlighter, in memory, CPU or GPU | the model's probability | English evidence, fast and cheap; best where it was trained (ACL-Verbatim) |
+| `SemanticHighlightExtractor` | a sentence or token highlighter, in memory | the model's probability | sentence-level highlighting |
+| `DecisionModelExtractor` | a decision model such as Vela 2.0, in memory (GPU) or on a server | the model's probability | 17 languages and long chunks (16K tokens); field plans, where every field is a span question and all fields of a chunk take one call |
+
+A decision model answers open questions zero-shot, so on a domain a highlighter was trained for, the highlighter can be better: on held-out ACL-Verbatim evidence Vela-2.0-4B reaches 24.4 word-F1, `acl-verbatim-modernbert` 53.4 (from the model cards, different protocols). Measure on your own questions before you switch. Use Vela-2.0-0.8B or larger. The 0.3B encoder has no broad span head and reads all questions of a call in one sequence: in a check it returned spans unrelated to the question (number fragments of another chunk) and filled an empty checklist field with another field's span. Vela's spans are short answer phrases ("GFR < 30 ml/min"), not whole sentences. On a CPU, the 0.8B model takes about 6 s per chunk.
+
 ## LLMSpanExtractor
 
 Extracts verbatim spans from chunks using an LLM. The LLM quotes the text of each chunk that answers the question, and each quote is located in its chunk. A span's text is always the chunk's own text at the span's offsets.
@@ -327,6 +340,41 @@ Zur Dosierung von Rivaroxaban bei eingeschränkter Nierenfunktion:
 - [1] CrCl 15-49 ml/min: 15 mg einmal täglich. [3]
 - [2] Kontraindiziert bei CrCl < 15 ml/min.
 ```
+
+### Field Plans
+
+A plan can also come from you ([ADR 0010](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0010-field-plans.md)): `PlanConfig(plan=AnswerPlan(...))` answers every question with that plan, in any template mode, and no LLM writes one. Its field items are questions the extractor answers from the documents, such as the rows of a checklist:
+
+```python
+from verbatim_core.plan import AnswerPlan, FieldItem, PlanConfig, PlanSection, PlanText, RestItem
+
+checklist = AnswerPlan(
+    intro="Prüfung:",
+    sections=[
+        PlanSection(
+            items=[
+                FieldItem(name="Indikation", question="What is the drug indicated for?"),
+                FieldItem(name="Kontraindikationen", question="When must the drug not be given?", required=True),
+                FieldItem(name="Dosierung", question="What is the dose?", max_spans=3),
+            ]
+        ),
+        PlanSection(label="Weitere Quellen", items=[RestItem(max=3)]),  # spans of the user's question
+    ],
+)
+transformer = Transformer(
+    extractor,
+    tm,
+    config=TransformConfig(
+        answer_plan=PlanConfig(plan=checklist, text=PlanText(no_evidence="Keine Belegstelle gefunden.")),
+    ),
+)
+answer = transformer.transform("Metformin", chunks)
+fields = {name: [span.model_dump() for span in spans] for name, spans in answer.field_spans().items()}
+```
+
+Each field shows its name in bold and its spans, highest score first, at most `max_spans`. An empty required field shows `PlanText.no_evidence`, and an empty optional field is left out. `answer.field_spans()` gives each field's spans by name: their text, chunk id, offsets and score. A plan of field items only doesn't extract the user's question.
+
+Every extractor fills fields: by default each field's question is extracted on its own. `DecisionModelExtractor` asks all fields in one model call per chunk, with the user's question as the request.
 
 where [3] is a second source for the first quote. The citations keep the exact span text. With `answer_plan`, a `template_prompt` is not used: it belongs to placeholder templates.
 
