@@ -1,4 +1,4 @@
-"""Answer plans: models, parsing, validation, fallback, candidates and rendering (ADR 0007)."""
+"""Answer plans and their rendering: models, validation, fallback, candidates (ADR 0007, 0008)."""
 
 import pytest
 from pydantic import ValidationError
@@ -12,14 +12,21 @@ from verbatim_core.plan import (
     QuoteItem,
     ReferencesItem,
     RestItem,
-    TextItem,
+    distinct_spans,
     fallback_plan,
-    parse_template,
     plan_candidates,
     plan_from_llm,
-    render_plan,
+    renumber_plan,
     validate_plan,
 )
+from verbatim_core.render import Markers, Quote, RenderOptions, layout_plan, render
+
+
+def render_plan(plan, spans, shown_limit=None, **options):
+    """Render a plan as the Transformer does, with compact quotes unless the test says otherwise."""
+    options.setdefault("compact_quotes", True)
+    return render(layout_plan(plan, spans, shown_limit), spans, RenderOptions(**options))
+
 
 SPANS = [
     "Reduce the dose to 15 mg.",
@@ -29,8 +36,8 @@ SPANS = [
 ]
 
 
-def plan(*sections, intro=None, layout="list"):
-    return AnswerPlan(intro=intro, sections=list(sections), layout=layout)
+def plan(*sections, intro=None):
+    return AnswerPlan(intro=intro, sections=list(sections))
 
 
 class TestModels:
@@ -44,7 +51,7 @@ class TestModels:
                         {"kind": "quote", "spans": [2, 1]},
                         {"kind": "rest", "max": 2},
                         {"kind": "references"},
-                        {"kind": "text", "text": "Ende."},
+                        {"kind": "references", "spans": [3]},
                         {
                             "kind": "field",
                             "name": "Niere",
@@ -61,7 +68,7 @@ class TestModels:
             QuoteItem,
             RestItem,
             ReferencesItem,
-            TextItem,
+            ReferencesItem,
             FieldItem,
         ]
         assert parsed.sections[0].items[4] == FieldItem(
@@ -75,39 +82,12 @@ class TestModels:
             {"kind": "quote", "spans": [0]},
             {"kind": "poem"},
             {"kind": "quote", "spans": [1], "x": 1},
+            {"kind": "text", "text": "Template text is not part of a plan."},
         ],
     )
     def test_invalid_items_are_rejected(self, item):
         with pytest.raises(ValidationError):
             AnswerPlan.model_validate({"sections": [{"items": [item]}]})
-
-
-class TestParseTemplate:
-    def test_a_per_span_template_keeps_every_character(self):
-        template = "Intro:\n- [SPAN_2]\n- [FACT_1] [DISPLAY_SPANS]\n\nSee [CITATION_REFS]."
-
-        parsed = parse_template(template)
-
-        assert parsed.layout == "inline"
-        assert parsed.sections[0].items == [
-            TextItem(text="Intro:\n- "),
-            QuoteItem(spans=[2]),
-            TextItem(text="\n- "),
-            QuoteItem(spans=[1]),
-            TextItem(text=" [DISPLAY_SPANS]\n\nSee "),
-            ReferencesItem(),
-            TextItem(text="."),
-        ]
-
-    def test_an_aggregate_template_gets_rest_items(self):
-        parsed = parse_template("## Findings\n\n[DISPLAY_SPANS]\n[RELEVANT_SENTENCES]")
-
-        assert parsed.sections[0].items == [
-            TextItem(text="## Findings\n\n"),
-            RestItem(),
-            TextItem(text="\n"),
-            RestItem(),
-        ]
 
 
 class TestValidatePlan:
@@ -139,14 +119,17 @@ class TestValidatePlan:
 
         assert valid.sections[0].items == [QuoteItem(spans=[1]), RestItem(max=2)]
 
-    def test_the_bullet_of_a_dropped_quote_goes_too(self):
-        parsed = parse_template("Intro:\n- [SPAN_2]\n- [SPAN_2]\n- [SPAN_9]\nEnd.")
+    def test_references_keep_known_spans_and_go_when_none_is_left(self):
+        raw = plan(PlanSection(items=[ReferencesItem(spans=[4, 9, 4]), ReferencesItem(spans=[9])]))
 
-        valid = validate_plan(parsed, span_count=4)
+        assert validate_plan(raw, span_count=4).sections[0].items == [ReferencesItem(spans=[4])]
 
-        assert (
-            render_plan(valid, SPANS).text == "Intro:\n- [1] Contraindicated below 15 ml/min.\nEnd."
-        )
+    def test_a_section_of_field_items_stays(self):
+        field = FieldItem(name="Niere", question="Dosis?")
+
+        assert validate_plan(plan(PlanSection(items=[field])), span_count=0).sections[0].items == [
+            field
+        ]
 
     def test_the_fallback_plan_shows_the_first_spans(self):
         fallback = fallback_plan(
@@ -171,7 +154,27 @@ class TestPlanFromLLM:
         assert plan_from_llm(llm) == plan(PlanSection(items=[QuoteItem(spans=[2])]))
 
 
+class TestRenumber:
+    def test_span_numbers_are_mapped_and_the_rest_stays(self):
+        raw = plan(
+            PlanSection(label="A", items=[QuoteItem(spans=[2, 1]), RestItem(max=1)]),
+            PlanSection(items=[ReferencesItem(spans=[3]), ReferencesItem()]),
+            intro="Intro",
+        )
+
+        assert renumber_plan(raw, [10, 20, 30]) == plan(
+            PlanSection(label="A", items=[QuoteItem(spans=[20, 10]), RestItem(max=1)]),
+            PlanSection(items=[ReferencesItem(spans=[30]), ReferencesItem()]),
+            intro="Intro",
+        )
+
+
 class TestCandidates:
+    def test_distinct_spans_leave_out_words_an_earlier_span_has(self):
+        assert distinct_spans(
+            ["Reduce to 15 mg.", "reduce to 15  mg", "", "...", "to 15 mg", "Other"]
+        ) == [0, 5]
+
     def test_repeats_are_dropped_and_chunks_take_turns(self):
         texts = ["Reduce to 15 mg.", "reduce to 15  mg", "a1", "a2", "b1", "to 15 mg"]
         chunk_ids = ["a", "b", "a", "a", "c", "c"]
@@ -200,9 +203,11 @@ class TestRenderPlan:
         ]
 
     def test_unused_spans_are_listed_after_the_answer_when_asked(self):
-        text = PlanText(references_label="Weitere Belege:", show_references=True)
-
-        rendered = render_plan(plan(PlanSection(items=[QuoteItem(spans=[2])])), SPANS, text=text)
+        rendered = render_plan(
+            plan(PlanSection(items=[QuoteItem(spans=[2])])),
+            SPANS,
+            references_label="Weitere Belege:",
+        )
 
         assert (
             rendered.text == "- [1] Contraindicated below 15 ml/min.\n\nWeitere Belege: [2] [3] [4]"
@@ -234,15 +239,24 @@ class TestRenderPlan:
         )
         assert rendered.citations[3].type == "reference"
 
-    def test_an_inline_plan_keeps_its_text(self):
-        parsed = validate_plan(
-            parse_template("Intro: [SPAN_2], see [CITATION_REFS]."), span_count=4
+    def test_a_references_item_cites_what_the_plan_does_not_use(self):
+        valid = plan(
+            PlanSection(items=[ReferencesItem(), QuoteItem(spans=[2]), ReferencesItem(spans=[1])])
         )
 
+        layout = layout_plan(valid, SPANS)
+
+        assert layout == [Markers((1, 3, 4)), "\n", "- ", Quote((2,)), "\n", Markers((1,))]
         assert (
-            render_plan(parsed, SPANS).text
-            == "Intro: [1] Contraindicated below 15 ml/min., see [2] [3] [4]."
+            render(layout, SPANS).text == "[1] [2] [3]\n- [4] Contraindicated below 15 ml/min.\n[1]"
         )
+
+    def test_spans_without_text_are_left_out(self):
+        valid = plan(
+            PlanSection(label="A", items=[QuoteItem(spans=[1])]), PlanSection(items=[RestItem()])
+        )
+
+        assert render_plan(valid, ["  ", "B."]).text == "- [1] B."
 
     def test_field_items_are_not_rendered_yet(self):
         with_field = plan(PlanSection(items=[FieldItem(name="Niere", question="Dosis?")]))
@@ -267,7 +281,7 @@ class TestCompactQuotes:
         rendered = render_plan(
             plan(PlanSection(items=[QuoteItem(spans=[1])])),
             ["A\n     b"],
-            text=PlanText(compact_quotes=False),
+            compact_quotes=False,
         )
 
         assert rendered.text == "- [1] A\n     b"

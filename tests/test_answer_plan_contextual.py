@@ -1,4 +1,4 @@
-"""Contextual mode on answer plans, with TransformConfig(use_answer_plan=True) (ADR 0007)."""
+"""Contextual mode on answer plans, with TransformConfig(answer_plan=PlanConfig()) (ADR 0007, 0008)."""
 
 import json
 
@@ -14,7 +14,7 @@ from verbatim_core import (
 )
 from verbatim_core.extractors import SpanExtractor
 from verbatim_core.llm_client import Completion
-from verbatim_core.plan import LLMPlan, PlanText, QuoteItem
+from verbatim_core.plan import LLMPlan, PlanConfig, PlanText, QuoteItem
 from verbatim_core.templates import TemplateManager
 from verbatim_core.templates.contextual import ContextualTemplate
 
@@ -26,7 +26,6 @@ CHUNKS = [
 GERMAN = PlanText(
     fallback_intro="Die Quellen enthalten dazu folgende Aussagen:",
     references_label="Weitere Belege:",
-    no_spans="Keine passenden Aussagen gefunden.",
     no_evidence="Keine Belegstelle gefunden.",
 )
 
@@ -78,12 +77,13 @@ class PlanLLM:
         return self.template_completion(*args, **settings)
 
 
-def transformer(llm, **strategy_settings):
+def transformer(llm, plan=None, **strategy_settings):
     templates = TemplateManager(llm_client=llm, default_mode="contextual")
-    templates.strategies["contextual"] = ContextualTemplate(
-        llm, plan_text=GERMAN, **strategy_settings
+    strategy_settings.setdefault("plan_text", GERMAN)
+    templates.strategies["contextual"] = ContextualTemplate(llm, **strategy_settings)
+    config = TransformConfig(
+        template_mode="contextual", answer_plan=plan or PlanConfig(max_items=3)
     )
-    config = TransformConfig(template_mode="contextual", use_answer_plan=True, max_display_spans=3)
     return Transformer(SentenceExtractor(), templates, config=config)
 
 
@@ -127,8 +127,31 @@ class TestLLMPlan:
             (4, "reference", "textbook"),
             (5, "reference", "guideline"),
         ]
-        assert answer.plan.sections[0].items == [QuoteItem(spans=[2]), QuoteItem(spans=[1])]
         assert answer.usage[-1].units["llm_calls"] == 1
+
+    def test_the_answer_plan_numbers_spans_by_their_place_in_the_answer_spans(self):
+        answer = transformer(PlanLLM(self.REPLY)).transform("Dosis?", CHUNKS)
+
+        dose, contraindication = answer.plan.sections[0].items
+        assert (dose, contraindication) == (QuoteItem(spans=[3]), QuoteItem(spans=[1]))
+        assert answer.spans[3 - 1].text == "Contraindicated below 15 ml/min."
+        assert answer.spans[1 - 1].text == "Dose: 20 mg once daily."
+        [crcl] = answer.plan.sections[1].items
+        assert answer.spans[crcl.spans[0] - 1].text == "CrCl 15-49 ml/min: 15 mg once daily."
+
+    def test_hidden_citations_leave_no_markers_and_keep_the_citations(self):
+        llm = PlanLLM(self.REPLY)
+        templates = TemplateManager(llm_client=llm, default_mode="contextual")
+        config = TransformConfig(
+            template_mode="contextual", citation_mode="hidden", answer_plan=PlanConfig()
+        )
+
+        answer = Transformer(SentenceExtractor(), templates, config=config).transform(
+            "Dosis?", CHUNKS
+        )
+
+        assert "[" not in answer.text
+        assert [c.type for c in answer.citations][:3] == ["display"] * 3
 
     @pytest.mark.parametrize(
         "reply", ["not json", plan_reply(sections=[{"label": None, "items": [{"spans": [42]}]}])]
@@ -161,34 +184,12 @@ class TestLLMPlan:
         assert [event.type for event in events] == ["spans", "answer"]
         assert events[-1].answer == sync
 
-    def test_unused_spans_are_listed_when_the_plan_text_asks(self):
+    def test_unused_spans_are_listed_when_the_config_asks(self):
         llm = PlanLLM(plan_reply(sections=[{"label": None, "items": [{"spans": [1]}]}]))
-        templates = TemplateManager(llm_client=llm, default_mode="contextual")
-        templates.strategies["contextual"] = ContextualTemplate(
-            llm, plan_text=GERMAN.model_copy(update={"show_references": True})
-        )
-        config = TransformConfig(template_mode="contextual", use_answer_plan=True)
 
-        answer = Transformer(SentenceExtractor(), templates, config=config).transform(
-            "Dosis?", CHUNKS
-        )
+        answer = transformer(llm, PlanConfig(show_references=True)).transform("Dosis?", CHUNKS)
 
         assert answer.text == "- [1] Dose: 20 mg once daily.\n\nWeitere Belege: [2] [3] [4] [5]"
-
-
-class TestCustomTemplatePrompt:
-    def test_a_placeholder_template_is_parsed_and_validated(self):
-        llm = PlanLLM(template="Zur Dosierung:\n- [SPAN_3]\n- [SPAN_3]\n- [SPAN_7]\n- [SPAN_1]")
-
-        answer = transformer(llm, template_prompt="{{ question }}\n{{ spans_block }}").transform(
-            "Dosis?", CHUNKS
-        )
-
-        assert answer.text == (
-            "Zur Dosierung:\n- [1] CrCl 15-49 ml/min: 15 mg once daily.\n- [2] Dose: 20 mg once daily."
-        )
-        assert [warning.code for warning in answer.warnings] == []
-        assert llm.calls[0]["spans"][2] == "CrCl 15-49 ml/min: 15 mg once daily."
 
 
 class TestCompatibility:
@@ -206,7 +207,7 @@ class TestCompatibility:
         assert "plan" not in answer.model_dump()
 
     def test_the_switch_leaves_other_modes_alone(self):
-        config = TransformConfig(template_mode="static", use_answer_plan=True)
+        config = TransformConfig(template_mode="static", answer_plan=PlanConfig())
         answer = Transformer(SentenceExtractor(), TemplateManager(), config=config).transform(
             "Dosis?", CHUNKS
         )
@@ -227,27 +228,27 @@ class TestPlanPrompt:
         answer = transformer(PlanLLM(self.REPLY)).transform("Dosis?", CHUNKS)
 
         assert answer.text == "- [1] Dose: 20 mg once daily. [2] [3]"
-        assert answer.plan.sections[0].items == [QuoteItem(spans=[1, 2, 3])]
+        assert answer.plan.sections[0].items == [QuoteItem(spans=[1, 3, 2])]
         assert len(answer.citations) == 5
 
     def test_a_custom_plan_prompt_is_used_with_the_plan_variables(self):
         llm = PlanLLM(self.REPLY)
         prompt = "Frage: {{ question }}\n{{ candidates_block }}\nmax {{ max_items }}/{{ max_support }} {{ answer_language }}"
 
-        transformer(llm, plan_prompt=prompt, answer_language="Deutsch").transform("Dosis?", CHUNKS)
+        german = GERMAN.model_copy(update={"language": "Deutsch"})
+        transformer(llm, plan_prompt=prompt, plan_text=german).transform("Dosis?", CHUNKS)
 
         assert llm.calls[0]["prompt"].startswith("Frage: Dosis?\n[1] Dose: 20 mg once daily.")
         assert llm.calls[0]["prompt"].endswith("max 3/2 Deutsch")
         assert llm.calls[0]["json_schema"]["name"] == "answer_plan"
 
-    def test_a_plan_prompt_wins_over_a_template_prompt(self):
+    def test_a_template_prompt_is_not_used_for_plans(self):
         llm = PlanLLM(self.REPLY, template="[SPAN_2]")
 
-        transformer(
-            llm, plan_prompt="{{ candidates_block }}", template_prompt="{{ spans_block }}"
-        ).transform("Dosis?", CHUNKS)
+        transformer(llm, template_prompt="{{ spans_block }}").transform("Dosis?", CHUNKS)
 
-        assert "json_schema" in llm.calls[0]
+        [call] = llm.calls
+        assert "json_schema" in call
 
     def test_an_unknown_variable_in_a_plan_prompt_raises_at_once(self):
         with pytest.raises(ConfigurationError) as raised:
@@ -263,7 +264,7 @@ class TestPlanPrompt:
     def test_the_bundled_prompt_asks_for_the_answer_language(self, language, expected):
         llm = PlanLLM(self.REPLY)
 
-        transformer(llm, answer_language=language).transform("Dosage?", CHUNKS)
+        transformer(llm, plan_text=PlanText(language=language)).transform("Dosage?", CHUNKS)
 
         assert f"Write the intro and the labels {expected}" in llm.calls[0]["prompt"]
         assert "complete sentence that introduces the quotes" in llm.calls[0]["prompt"]

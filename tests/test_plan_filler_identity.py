@@ -1,6 +1,7 @@
 """The filler runs on answer plans (ADR 0007): its output is the same as the old filler's."""
 
 import itertools
+import random
 import re
 from pathlib import Path
 
@@ -103,3 +104,27 @@ def test_the_filler_on_plans_gives_the_old_output(template):
 
 def test_the_test_suite_has_templates_to_compare():
     assert len(suite_templates()) > 20
+
+
+PIECES = [
+    "[SPAN_1]", "[SPAN_2]", "[SPAN_3]", "[SPAN_7]", "[FACT_2]", "[SPAN_0]",
+    "[DISPLAY_SPANS]", "[RELEVANT_SENTENCES]", "[CITATION_REFS]",
+    "\n", "\n\n", "- ", "\n- ", "1. ", "   - ", "## Heading\n", "Text ", "| a | b |\n", " ", ":",
+]  # fmt: skip
+
+
+def test_random_templates_give_the_old_output():
+    """Templates built from placeholders and markdown pieces at random, over every span set."""
+    rng = random.Random(8)
+    for _ in range(3000):
+        template = "".join(rng.choice(PIECES) for _ in range(rng.randint(1, 12)))
+        display, citations = rng.choice(SPAN_SETS)
+        mode, citation_format = rng.choice(SETTINGS)
+        new = TemplateFiller(citation_mode=mode, citation_format=citation_format)
+        old = LegacyTemplateFiller(citation_mode=mode, citation_format=citation_format)
+        assert new.fill(template, display, citations) == old.fill(template, display, citations), (
+            template,
+            display,
+            citations,
+            mode,
+        )

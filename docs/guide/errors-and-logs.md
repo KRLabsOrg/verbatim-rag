@@ -61,6 +61,7 @@ The dict events of the deprecated `StreamingRAG`, which the API server's streami
 | `quote_not_found` | `LLMSpanExtractor` | A quote of the LLM isn't in its chunk, so it was dropped |
 | `span_text_not_found` | An extractor that implements only `extract_spans` | A span text isn't in its chunk, so it was dropped |
 | `chunk_truncated` | `ModelSpanExtractor`, `SemanticHighlightExtractor` | The model examined only part of a chunk, which is longer than its window |
+| `span_offsets_mismatch` | `DecisionModelExtractor` | The decision model returned a span whose offsets don't hold its text; the span is dropped |
 | `template_fallback` | Contextual templates | The LLM couldn't write a template, so the answer uses the fallback template |
 | `reranker_fallback` | `VerbatimRAG` | The reranker's service failed, so the results keep the order of the retrieval |
 

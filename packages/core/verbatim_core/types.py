@@ -17,7 +17,7 @@ from pydantic import (
     model_validator,
 )
 
-from verbatim_core.plan import AnswerPlan  # noqa: TC001  # Pydantic needs the class at runtime
+from verbatim_core.plan import AnswerPlan, FieldItem  # Pydantic needs AnswerPlan at runtime
 
 
 class HasText(Protocol):
@@ -130,8 +130,20 @@ class Answer(BaseModel):
     spans: list[ExtractedSpan] = Field(default_factory=list)
     usage: list[Usage] = Field(default_factory=list)
     warnings: list[ResultWarning] = Field(default_factory=list)
-    # The answer plan the text was rendered from, with TransformConfig(use_answer_plan=True)
+    # The answer plan the text was rendered from, with TransformConfig(answer_plan=PlanConfig());
+    # its span numbers are places in `spans`, from 1
     plan: AnswerPlan | None = None
+
+    def field_spans(self) -> dict[str, list[ExtractedSpan]]:
+        """Return the spans of each field item of the plan, by field name; an empty field has none (ADR 0010)."""
+        if self.plan is None:
+            return {}
+        return {
+            item.name: [self.spans[n - 1] for n in item.spans or ()]
+            for section in self.plan.sections
+            for item in section.items
+            if isinstance(item, FieldItem)
+        }
 
     @model_serializer(mode="wrap")
     def _leave_out_no_plan(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
