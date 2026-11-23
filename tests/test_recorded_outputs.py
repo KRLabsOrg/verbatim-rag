@@ -201,6 +201,8 @@ class FakeHighlighter:
 
 
 class FakeSemanticHighlighter:
+    sep_token = "</s>"
+
     def to(self, device):
         return self
 
@@ -215,6 +217,9 @@ class FakeSemanticHighlighter:
 
     def get_raw_predictions(self, question, contexts):
         context = contexts[0]
+        # The extractor reads the separator off the tokenizer object it calls,
+        # so mirror exactly that lookup here.
+        sep = getattr(self.tokenizer, "sep_token", None) or ""
         regions = [
             (context.index(text), context.index(text) + len(text)) for text in HIGHLIGHTS[context]
         ]
@@ -222,10 +227,15 @@ class FakeSemanticHighlighter:
             0.9 if any(start <= token_start < end for start, end in regions) else 0.1
             for token_start, _ in token_offsets(context)
         ]
-        # Wrapped in the probabilities of the question and separator tokens.
-        probabilities = Probabilities([0.0, *token_probabilities, 0.0])
+        # The model reports indices over its combined question + separator +
+        # chunk tokenization, the prefix count including the separator (#123).
+        combined = question + sep + context
+        prefix_length = len(combined) - len(context)
+        prefix_count = sum(1 for _, end in token_offsets(combined) if end <= prefix_length)
+        probabilities = Probabilities([0.0] * prefix_count + token_probabilities)
         return SimpleNamespace(
-            pruning_probs=probabilities, context_ranges=[(1, len(probabilities) - 1)]
+            pruning_probs=probabilities,
+            context_ranges=[(prefix_count, prefix_count + len(token_probabilities))],
         )
 
 
