@@ -292,3 +292,48 @@ class TestFallbackTemplate:
         client, _, _, _ = mock_llm_client
         result = client._fallback_template(has_citations=True)
         assert "[CITATION_REFS]" in result
+
+
+class TestTemplatePromptVariables:
+    """A custom template prompt gets the same variables, whichever kind of template is asked."""
+
+    PROMPT = (
+        "{{ question }}|{{ n_spans }}|{{ citation_count }}|{{ span_preview }}\n{{ spans_block }}"
+    )
+
+    def prompt_of(self, client, mock_sync, spans, citation_count, template_prompt=None):
+        client.template_completion("Q?", spans, citation_count, template_prompt=template_prompt)
+        return mock_sync.chat.completions.create.call_args.kwargs["messages"][-1]["content"]
+
+    def test_a_custom_prompt_sees_every_quote_above_eight_spans(self, mock_llm_client):
+        client, mock_sync, _, make_response = mock_llm_client
+        mock_sync.chat.completions.create.return_value = make_response("[SPAN_1]")
+        spans = [f"quote {i}" for i in range(1, 13)]
+
+        prompt = self.prompt_of(client, mock_sync, spans, 4, template_prompt=self.PROMPT)
+
+        assert "1. quote 1..." in prompt
+        assert "12. quote 12..." in prompt
+        assert prompt.startswith("Q?|12|4|quote 1...")
+
+    def test_six_shown_spans_and_six_citation_only_spans_get_a_per_span_prompt(
+        self, mock_llm_client
+    ):
+        client, mock_sync, _, make_response = mock_llm_client
+        mock_sync.chat.completions.create.return_value = make_response("[SPAN_1]")
+        spans = [f"quote {i}" for i in range(1, 13)]
+
+        assert "[SPAN_1]" in self.prompt_of(client, mock_sync, spans, 6)
+        assert "[DISPLAY_SPANS]" in self.prompt_of(client, mock_sync, spans, 0)
+
+    def test_an_unknown_variable_in_a_custom_prompt_renders_empty_and_is_logged(
+        self, mock_llm_client, caplog
+    ):
+        client, mock_sync, _, make_response = mock_llm_client
+        mock_sync.chat.completions.create.return_value = make_response("[SPAN_1]")
+
+        prompt = self.prompt_of(client, mock_sync, ["quote"], 0, template_prompt="A{{ quotes }}B")
+
+        assert prompt == "AB"
+        assert [record.levelname for record in caplog.records] == ["WARNING"]
+        assert "quotes" in caplog.records[0].getMessage()

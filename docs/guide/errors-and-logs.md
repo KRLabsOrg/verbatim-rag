@@ -30,7 +30,7 @@ except UpstreamError as e:
 |---|---|---|
 | `invalid_value` | `InvalidInputError` | An argument of the call has a wrong value, such as two chunks with the same id, a config of the wrong type, structured template mode in a `Transformer` call, or a context item of the wrong shape |
 | `missing_field` | `InvalidInputError` | A context item has neither `content` nor `text` |
-| `invalid_value` | `ConfigurationError` | A constructor argument or setting has a wrong value, such as an unknown extraction mode, a citation format with unknown variables, or old arguments next to a `transformer` |
+| `invalid_value` | `ConfigurationError` | A constructor argument or setting has a wrong value, such as an unknown extraction mode, a citation format with unknown variables, a contextual `citation_refs_line` or `fallback_template` without its placeholder, or old arguments next to a `transformer` |
 | `missing_dependency` | `ConfigurationError` | A package a model needs, such as torch, transformers or sentence-transformers, isn't installed |
 | `model_not_loaded` | `ConfigurationError` | A model can't be downloaded or read |
 | `missing_embedder` | `ConfigurationError` | Question-specific templates need an embedder and have none |
@@ -61,6 +61,7 @@ The dict events of the deprecated `StreamingRAG`, which the API server's streami
 | `quote_not_found` | `LLMSpanExtractor` | A quote of the LLM isn't in its chunk, so it was dropped |
 | `span_text_not_found` | An extractor that implements only `extract_spans` | A span text isn't in its chunk, so it was dropped |
 | `chunk_truncated` | `ModelSpanExtractor`, `SemanticHighlightExtractor` | The model examined only part of a chunk, which is longer than its window |
+| `span_offsets_mismatch` | `DecisionModelExtractor` | The decision model returned a span whose offsets don't hold its text; the span is dropped |
 | `template_fallback` | Contextual templates | The LLM couldn't write a template, so the answer uses the fallback template |
 | `reranker_fallback` | `VerbatimRAG` | The reranker's service failed, so the results keep the order of the retrieval |
 

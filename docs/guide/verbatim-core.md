@@ -86,6 +86,19 @@ Context items can be:
 
 An item of another shape raises `InvalidInputError` with `param` naming it, such as `context[3]`: the code `missing_field` for a dict without `"content"` or `"text"`, and `invalid_value` otherwise.
 
+## Choosing an Extractor
+
+Every extractor implements `SpanExtractor`: `extract` and `aextract` return an `Extraction` with spans at offsets in their chunk, so any of them works in a `Transformer`, and all of them fill field items (`extract_fields`). They differ in what runs, what a span's score means, and what each is good at.
+
+| Extractor | Runs | Score | Use it for |
+|---|---|---|---|
+| `LLMSpanExtractor` | any OpenAI-compatible LLM | always 1.0 | any language and domain without a model of your own; the LLM quotes, the quotes are located in code |
+| `ModelSpanExtractor` | a ModernBERT highlighter, in memory, CPU or GPU | the model's probability | English evidence, fast and cheap; best where it was trained (ACL-Verbatim) |
+| `SemanticHighlightExtractor` | a sentence or token highlighter, in memory | the model's probability | sentence-level highlighting |
+| `DecisionModelExtractor` | a decision model such as Vela 2.0, in memory (GPU) or on a server | the model's probability | 17 languages and long chunks (16K tokens); field plans, where every field is a span question and all fields of a chunk take one call |
+
+A decision model answers open questions zero-shot, so on a domain a highlighter was trained for, the highlighter can be better: on held-out ACL-Verbatim evidence Vela-2.0-4B reaches 24.4 word-F1, `acl-verbatim-modernbert` 53.4 (from the model cards, different protocols). Measure on your own questions before you switch. Use Vela-2.0-0.8B or larger. The 0.3B encoder has no broad span head and reads all questions of a call in one sequence: in a check it returned spans unrelated to the question (number fragments of another chunk) and filled an empty checklist field with another field's span. Vela's spans are short answer phrases ("GFR < 30 ml/min"), not whole sentences. On a CPU, the 0.8B model takes about 6 s per chunk.
+
 ## LLMSpanExtractor
 
 Extracts verbatim spans from chunks using an LLM. The LLM quotes the text of each chunk that answers the question, and each quote is located in its chunk. A span's text is always the chunk's own text at the span's offsets.
@@ -123,6 +136,35 @@ Every span has the score 1.0: the LLM extracts without a score.
 A quote that can't be located in its chunk is dropped and reported in `extraction.warnings` with the code `quote_not_found`. A failed LLM call raises, and the whole extraction fails: an `UpstreamError` for a timeout, a connection error, a rate limit, a server error or a reply that can't be read, and a `ConfigurationError` when the LLM service rejects the API key, the model or the account's quota.
 
 `extract_spans`, which returns the span texts keyed by chunk text, is deprecated. Unlike `extract`, it tolerates failed LLM calls: a chunk whose call fails yields no spans.
+
+## DecisionModelExtractor
+
+Extracts spans with a decision model, such as [Vela 2.0](https://huggingface.co/collections/vllm-sr/vela-20), which returns spans with their offsets and a probability ([ADR 0009](../adr/0009-decision-model-extractor.md)). It asks one span question per chunk: which spans of the chunk answer the question. The model runs in memory or on a server.
+
+```python
+from verbatim_core.decision_models import DecisionModelConfig, DecisionModelExtractor
+
+# In memory, with torch and transformers in the versions the model card names. The model's own
+# code runs (trust_remote_code): pin a revision you have checked.
+extractor = DecisionModelExtractor.from_pretrained("vllm-sr/Vela-2.0-4B", device="cuda", revision="<commit>")
+
+# On a server that speaks POST /v1/systemone, such as Vela's vela2_serve.py
+extractor = DecisionModelExtractor.from_url(
+    "http://127.0.0.1:8001",
+    "vllm-sr/Vela-2.0-4B",
+    api_key=None,  # sent as a bearer token when given
+    model_version="<commit>",  # for the usage of a call
+    config=DecisionModelConfig(threshold=0.5),  # None keeps the model's calibrated threshold
+)
+
+extraction = extractor.extract("How tall is the arch?", chunks)
+```
+
+A span's probability is its score. A span whose offsets don't hold the text the model returned is dropped with the warning `span_offsets_mismatch`. `DecisionModelConfig` also sets the span question: `instructions`, `label` and `description`.
+
+Any other backend is an object with `model_id`, `model_version` and `system_one(state, questions)`, and optionally an async `asystem_one`: pass it as `DecisionModelExtractor(backend)`. `RemoteDecisionModel` takes your own httpx clients for proxies or certificates.
+
+Server errors raise the library's errors: a rejected key `ConfigurationError`, a chunk too long for the model `InvalidInputError` (`input_too_long`), a timeout, a failed connection, 429 or 5xx a retryable `UpstreamError`.
 
 ## Fuzzy Span Matching
 
@@ -229,6 +271,115 @@ client = LLMClient()
 tm = TemplateManager(llm_client=client, default_mode="contextual")
 ```
 
+With up to 8 shown spans the LLM writes one placeholder per span, with more one aggregate placeholder; citation-only spans don't count. A custom prompt (`ContextualTemplate(client, template_prompt=...)`) gets the variables `question`, `n_spans`, `citation_count`, `spans_block` (every quote, numbered) and `span_preview` (the start of the first three) whichever kind of template the call asks for. Any other variable renders empty, as before, and is logged as a warning by `verbatim_core.prompts`.
+
+The strategy adds two fixed texts of its own, in English by default. For answers in another language, set both:
+
+```python
+from verbatim_core.templates.contextual import ContextualTemplate
+
+tm.strategies["contextual"] = ContextualTemplate(
+    client,
+    template_prompt=german_prompt,
+    # added when the template leaves out [CITATION_REFS] although there are citation-only spans;
+    # None adds nothing, and those spans appear only in the answer's citations
+    citation_refs_line="Weitere Belege: [CITATION_REFS]",
+    # used when the LLM can't write a template; a line with [CITATION_REFS] is left out
+    # when there are no citation-only spans
+    fallback_template="Die Quellen enthalten dazu folgende Aussagen:\n\n[DISPLAY_SPANS]\n\nWeitere Belege: [CITATION_REFS]",
+)
+```
+
+A template may leave out spans: a per-span template that shows `[SPAN_2]` but not `[SPAN_1]` is used as written, and the spans it leaves out are cited for reference only.
+
+### Answer Plans
+
+With `TransformConfig(answer_plan=PlanConfig())`, contextual mode writes an answer plan instead of placeholder text ([ADR 0007](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0007-answer-plans.md), [ADR 0008](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0008-one-renderer.md)). The LLM gets up to `max_candidates` spans (default 20) in full, numbered, and returns JSON through structured output: an intro, sections with labels, and items that each name the spans of one claim. It writes no quote text. The library validates the plan (no unknown or repeated spans, at most `max_items` items), renders it to markdown with citations numbered in the order they appear, and returns it as `answer.plan`, whose span numbers are places in `answer.spans` (from 1). If the LLM fails or no valid item remains, the answer shows the first candidates and has the warning `template_fallback`.
+
+`PlanText` sets the language: its name, which the bundled prompt asks the intro and labels in (the language of the quotes by default), and the fixed texts of the renderer. `PlanConfig` holds the settings:
+
+```python
+from verbatim_core import Transformer, TransformConfig
+from verbatim_core.plan import PlanConfig, PlanText
+from verbatim_core.templates.contextual import ContextualTemplate
+
+german = PlanText(
+    language="German",
+    fallback_intro="Die Quellen enthalten dazu folgende Aussagen:",
+    references_label="Weitere Belege:",
+    no_evidence="Keine Belegstelle gefunden.",
+)
+tm.strategies["contextual"] = ContextualTemplate(
+    client,
+    plan_text=german,
+    # plan_prompt="...",  # optional own prompt for the JSON plan, with the variables question,
+    #                     # candidates_block, n_candidates, max_items, max_support, answer_language
+)
+transformer = Transformer(
+    extractor,
+    tm,
+    config=TransformConfig(
+        template_mode="contextual",
+        answer_plan=PlanConfig(
+            max_candidates=20,  # the spans the LLM chooses from
+            max_items=6,  # the quotes the answer shows
+            max_support=2,  # further sources cited next to a quote
+            compact_quotes=True,  # without the line breaks and indentation of the source page
+            show_references=False,  # True lists the unused spans after the answer
+        ),
+    ),
+)
+```
+
+An answer for "Dosierung Rivaroxaban bei Niereninsuffizienz" then reads:
+
+```markdown
+Zur Dosierung von Rivaroxaban bei eingeschränkter Nierenfunktion:
+
+**Dosierung**
+- [1] CrCl 15-49 ml/min: 15 mg einmal täglich. [3]
+- [2] Kontraindiziert bei CrCl < 15 ml/min.
+```
+
+### Field Plans
+
+A plan can also come from you ([ADR 0010](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0010-field-plans.md)): `PlanConfig(plan=AnswerPlan(...))` answers every question with that plan, in any template mode, and no LLM writes one. Its field items are questions the extractor answers from the documents, such as the rows of a checklist:
+
+```python
+from verbatim_core.plan import AnswerPlan, FieldItem, PlanConfig, PlanSection, PlanText, RestItem
+
+checklist = AnswerPlan(
+    intro="Prüfung:",
+    sections=[
+        PlanSection(
+            items=[
+                FieldItem(name="Indikation", question="What is the drug indicated for?"),
+                FieldItem(name="Kontraindikationen", question="When must the drug not be given?", required=True),
+                FieldItem(name="Dosierung", question="What is the dose?", max_spans=3),
+            ]
+        ),
+        PlanSection(label="Weitere Quellen", items=[RestItem(max=3)]),  # spans of the user's question
+    ],
+)
+transformer = Transformer(
+    extractor,
+    tm,
+    config=TransformConfig(
+        answer_plan=PlanConfig(plan=checklist, text=PlanText(no_evidence="Keine Belegstelle gefunden.")),
+    ),
+)
+answer = transformer.transform("Metformin", chunks)
+fields = {name: [span.model_dump() for span in spans] for name, spans in answer.field_spans().items()}
+```
+
+Each field shows its name in bold and its spans, highest score first, at most `max_spans`. An empty required field shows `PlanText.no_evidence`, and an empty optional field is left out. `answer.field_spans()` gives each field's spans by name: their text, chunk id, offsets and score. A plan of field items only doesn't extract the user's question.
+
+Every extractor fills fields: by default each field's question is extracted on its own. `DecisionModelExtractor` asks all fields in one model call per chunk, with the user's question as the request.
+
+where [3] is a second source for the first quote. The citations keep the exact span text. With `answer_plan`, a `template_prompt` is not used: it belongs to placeholder templates.
+
+Placeholder templates and plans are filled by the same renderer (`verbatim_core.render`), so every template mode writes span text and citation markers the same way.
+
 ### Random Templates
 
 Chooses a template from a pool by the question, so the same question always gets the same template. A `seed` in the `TransformConfig` changes the choice:
@@ -262,6 +413,12 @@ tm.use_question_specific_mode(templates, embedder=SentenceTransformer("all-MiniL
 - `[SPAN_1]`, `[SPAN_2]`, ... -- individual span placeholders
   (`[FACT_N]` is the pre-0.2.7 name and still works in stored templates)
 - `[CITATION_REFS]` -- citation-only reference numbers
+
+A span with blank lines inside, such as between the entries of a list in a PDF, that fills a placeholder in a markdown list item stays in that item: the blank lines become backslash hard line breaks, and its lines are indented to the item's content. Only whitespace changes. Every other span, outside list items, without blank lines, or a table, is filled as before.
+
+### Repeated Spans
+
+Different sources often say the same thing in the same words. With `TransformConfig(drop_repeated_spans=True)`, a span whose words (letters and digits, ignoring case) are the same as, or part of, those of an earlier span is left out before the shown spans are chosen, so it doesn't take a place in the answer. `answer.spans` still has every extracted span. It is off by default, because it changes which spans an answer cites.
 
 ### Linked Citations
 

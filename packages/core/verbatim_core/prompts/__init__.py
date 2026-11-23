@@ -10,7 +10,9 @@ Prompt files use standard Jinja2 syntax:
 import logging
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, Undefined, UndefinedError, make_logging_undefined
+
+from verbatim_core.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +24,9 @@ _env = Environment(  # noqa: S701  # LLM prompt text, not HTML
     keep_trailing_newline=True,
     trim_blocks=True,
     lstrip_blocks=True,
+    # A variable the caller doesn't provide still renders empty, as before 0.3.1, and is logged
+    # as a warning: a custom prompt with a mistyped variable keeps working.
+    undefined=make_logging_undefined(logger, Undefined),
 )
 
 
@@ -34,6 +39,28 @@ def render_prompt(prompt_template: str, **kwargs: object) -> str:
     """
     template = _env.from_string(prompt_template)
     return template.render(**kwargs)
+
+
+_strict_env = Environment(  # noqa: S701  # LLM prompt text, not HTML
+    keep_trailing_newline=True,
+    trim_blocks=True,
+    lstrip_blocks=True,
+    undefined=StrictUndefined,
+)
+
+
+def render_prompt_strict(prompt_template: str, **kwargs: object) -> str:
+    """Render a prompt template string, raising for a variable that isn't among ``kwargs``.
+
+    For prompts introduced after 0.3.0, where an unknown variable is always a mistake.
+
+    :raises ConfigurationError: If the prompt uses a variable that is not among ``kwargs``
+    """
+    try:
+        return _strict_env.from_string(prompt_template).render(**kwargs)
+    except UndefinedError as e:
+        msg = f"A custom prompt uses an unknown variable ({e}). Use only: {', '.join(sorted(kwargs))}."
+        raise ConfigurationError(msg, code="invalid_value") from e
 
 
 def load_prompt(name: str, **kwargs: object) -> str:

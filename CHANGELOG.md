@@ -2,6 +2,77 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Field plans ([ADR 0010](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0010-field-plans.md), #74):
+  `PlanConfig(plan=AnswerPlan(...))` answers from a plan you write, in any template mode, without
+  an LLM. Its field items are filled by the extractor (`SpanExtractor.extract_fields`, one
+  question per field by default, one call per chunk for `DecisionModelExtractor`), rendered under
+  their names, and returned by `Answer.field_spans()`. `PlanConfig(text=...)` sets the fixed texts.
+- `DecisionModelExtractor` in `verbatim_core.decision_models`
+  ([ADR 0009](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0009-decision-model-extractor.md), #71):
+  span extraction with decision models such as Vela 2.0, one span question per chunk, the span's
+  probability as its score. The model runs in memory (`from_pretrained`, `LocalDecisionModel`,
+  with transformers) or on a server (`from_url`, `RemoteDecisionModel`, `POST /v1/systemone`);
+  any object with `system_one(state, questions)` is a backend. httpx is now a direct dependency.
+- Answer plans ([ADR 0007](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0007-answer-plans.md),
+  [ADR 0008](https://github.com/KRLabsOrg/verbatim-rag/blob/main/docs/adr/0008-one-renderer.md)):
+  `verbatim_core.plan` has Pydantic models for what an answer shows (an intro, labelled sections
+  and quote, rest, references and field items), validation, a deterministic fallback plan and the
+  candidate choice. Field items are validated but not filled yet; they come with #74.
+- `verbatim_core.render`, the one renderer of every answer: `layout_plan` lays a plan out as
+  markdown, `TemplateFiller` lays out a placeholder template, and `render` fills either with span
+  text and citation markers, numbered in the order they appear or by position.
+- `TransformConfig(answer_plan=PlanConfig(...))`, contextual mode only and off by default: the LLM
+  gets up to `max_candidates` spans (default 20) in full, without repeats and taking turns between
+  chunks, and returns an answer plan as JSON through structured output; it chooses, orders, groups
+  and labels the quotes and writes no quote text. The plan is validated (no unknown or repeated
+  spans, at most `max_items` items, at most `max_support` supporting spans per item), the answer
+  is rendered from it, and `Answer.plan` holds it, numbering spans by their place in
+  `Answer.spans`. `compact_quotes` (on by default) shows quotes without their source layout (PDF
+  line breaks and indentation); citations keep the exact span text. `show_references` lists the
+  unused spans after the answer. An answer without a plan serialises as before, without a `plan`
+  key.
+- `ContextualTemplate(plan_text=PlanText(...), plan_prompt=...)`: the answer language (its name,
+  which the bundled plan prompt asks the intro and labels in, and the renderer's fixed texts), and
+  a custom prompt for the JSON plan (an unknown variable raises `ConfigurationError` at
+  construction).
+- `LLMClient.completion(json_schema=...)` and `completion_async`: structured output with a JSON
+  schema.
+
+### Changed
+- `TemplateFiller` lays out each template for the renderer of every answer. Its output is
+  unchanged for every template of the library and the test suite, and for random templates
+  (compared with the old filler in `tests/test_plan_filler_identity.py`), except that a
+  placeholder inside a filled span's own text, such as source text containing "[CITATION_REFS]",
+  is no longer replaced. The Transformer takes the citations of a placeholder answer from the same
+  render as its text, and no longer counts an empty span as shown.
+- `TransformConfig(drop_repeated_spans=True)` leaves out a span whose words an earlier span
+  already has, ignoring case, spaces and punctuation, before the shown spans are chosen. Two
+  textbooks that print the same sentence no longer take two places in the answer. `answer.spans`
+  keeps every span. Off by default, because it changes which spans an answer cites.
+- `ContextualTemplate(citation_refs_line=..., fallback_template=...)`: the two texts the strategy
+  adds itself, which were English in every answer. `citation_refs_line=None` adds no line for
+  citation-only spans. Both must contain their placeholder, or the constructor raises
+  `ConfigurationError` with the code `invalid_value`.
+
+### Fixed
+- A custom contextual `template_prompt` got an empty quote list when a call had more than 8
+  spans, shown and citation-only together: the strategy switched to an aggregate prompt, whose
+  variables lack `spans_block`, and Jinja rendered the missing variable as an empty string. The
+  LLM then wrote, ordered and labelled a template for quotes it never saw. Custom prompts now get
+  every variable (`question`, `n_spans`, `citation_count`, `spans_block`, `span_preview`), and the
+  per-span or aggregate choice counts only the shown spans, in `LLMClient` and
+  `ContextualTemplate` alike (they disagreed before). A prompt variable that the call doesn't
+  provide still renders empty, and is now logged as a warning.
+- A per-span template that left out `[SPAN_1]` failed validation and got `[DISPLAY_SPANS]`
+  appended, which per-span filling never fills, so the raw placeholder reached the answer. Any
+  `[SPAN_n]` or `[FACT_n]` placeholder now makes a template valid.
+- A span with blank lines inside, filled into a markdown list item, ended the list item, and the
+  rest of the span followed as loose paragraphs. Such a span now stays in its item, with
+  backslash hard line breaks and indented lines. Other spans are filled as before.
+
 ## [0.3.0] - 2026-11-10
 
 0.3.0 adds a stateless core. Extractors return spans with their chunk ids and offsets, and a
